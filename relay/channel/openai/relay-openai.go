@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 
 	"github.com/QuantumNous/new-api/types"
 
@@ -117,6 +119,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var systemFingerprint string
 	var containStreamUsage bool
 	var responseTextBuilder strings.Builder
+	var reasoningTextBuilder strings.Builder
+	var contentTextBuilder strings.Builder
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
@@ -143,6 +147,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				logger.LogError(c, "error processing stream token data: "+err.Error())
 				sr.Error(err)
 			}
+			accumulateReasoningAndContent(data, &reasoningTextBuilder, &contentTextBuilder)
 		}
 	})
 
@@ -185,6 +190,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+
+	cacheReasoningContentForDeepSeekThinking(c, info, contentTextBuilder.String(), reasoningTextBuilder.String(), nil, toolCount)
 
 	return usage, nil
 }
@@ -290,6 +297,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	for _, choice := range simpleResponse.Choices {
+		cacheReasoningContentForDeepSeekThinking(c, info, choice.Message.StringContent(), choice.Message.GetReasoningContent(), choice.Message.ToolCalls, 0)
+	}
 
 	return &simpleResponse.Usage, nil
 }
@@ -710,4 +721,29 @@ func extractLlamaCachedTokensFromBody(body []byte) (int, bool) {
 		return 0, false
 	}
 	return *payload.Timings.CachedTokens, true
+}
+
+func accumulateReasoningAndContent(data string, reasoningBuilder *strings.Builder, contentBuilder *strings.Builder) {
+	var streamResp dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
+		return
+	}
+	for _, choice := range streamResp.Choices {
+		reasoningBuilder.WriteString(choice.Delta.GetReasoningContent())
+		contentBuilder.WriteString(choice.Delta.GetContentString())
+	}
+}
+
+func cacheReasoningContentForDeepSeekThinking(c *gin.Context, info *relaycommon.RelayInfo, content string, reasoningContent string, toolCalls json.RawMessage, toolCount int) {
+	if !reasoning.IsDeepSeekThinkingModel(info.UpstreamModelName) && !reasoning.IsDeepSeekThinkingModel(info.OriginModelName) {
+		return
+	}
+	if reasoningContent == "" && content == "" {
+		return
+	}
+	if toolCalls == nil && toolCount > 0 {
+		toolCalls = json.RawMessage("[]")
+	}
+	service.StoreReasoningContent(info.TokenKey, content, toolCalls, reasoningContent)
+	logger.LogDebug(c, "deepseek thinking: cached reasoning_content, content_len=%d reasoning_len=%d", len(content), len(reasoningContent))
 }

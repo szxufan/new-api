@@ -441,6 +441,48 @@ func (m *Message) GetReasoningContent() string {
 	return *m.Reasoning
 }
 
+func (m *Message) ExtractThinkTagToReasoningContent() bool {
+	if m.ReasoningContent != nil {
+		return false
+	}
+	content, ok := m.Content.(string)
+	if !ok {
+		return false
+	}
+	reasoning, remaining := extractThinkTag(content)
+	if reasoning == "" {
+		return false
+	}
+	m.ReasoningContent = &reasoning
+	m.Content = remaining
+	return true
+}
+
+func extractThinkTag(content string) (reasoning string, remaining string) {
+	thinkOpen := "<think>"
+	thinkClose := "</think>"
+	openIdx := strings.Index(content, thinkOpen)
+	if openIdx == -1 {
+		return "", content
+	}
+	closeIdx := strings.Index(content, thinkClose)
+	if closeIdx == -1 || closeIdx <= openIdx {
+		return "", content
+	}
+	reasoning = content[openIdx+len(thinkOpen) : closeIdx]
+	before := strings.TrimSpace(content[:openIdx])
+	after := strings.TrimSpace(content[closeIdx+len(thinkClose):])
+	parts := []string{}
+	if before != "" {
+		parts = append(parts, before)
+	}
+	if after != "" {
+		parts = append(parts, after)
+	}
+	remaining = strings.Join(parts, "\n")
+	return reasoning, remaining
+}
+
 func (m *Message) GetPrefix() bool {
 	if m.Prefix == nil {
 		return false

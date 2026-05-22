@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 
@@ -64,6 +65,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	info.ShouldIncludeUsage = includeUsage
+
+	fillReasoningContentForDeepSeekThinking(c, info, request)
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
@@ -214,4 +217,42 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
+}
+
+func fillReasoningContentForDeepSeekThinking(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) {
+	if !reasoning.IsDeepSeekThinkingModel(info.UpstreamModelName) && !reasoning.IsDeepSeekThinkingModel(info.OriginModelName) {
+		return
+	}
+	filled := 0
+	fromTag := 0
+	fromCache := 0
+	fromEmpty := 0
+	for i := range request.Messages {
+		msg := &request.Messages[i]
+		if msg.Role != "assistant" {
+			continue
+		}
+		if msg.ReasoningContent != nil {
+			continue
+		}
+		if msg.ExtractThinkTagToReasoningContent() {
+			filled++
+			fromTag++
+			continue
+		}
+		rc, found := service.LookupReasoningContent(info.TokenKey, msg.StringContent(), msg.ToolCalls)
+		if found {
+			msg.ReasoningContent = &rc
+			filled++
+			fromCache++
+			continue
+		}
+		empty := ""
+		msg.ReasoningContent = &empty
+		filled++
+		fromEmpty++
+	}
+	if filled > 0 {
+		logger.LogInfo(c, fmt.Sprintf("deepseek thinking: filled reasoning_content for %d assistant message(s), from_tag=%d from_cache=%d from_empty=%d", filled, fromTag, fromCache, fromEmpty))
+	}
 }
