@@ -56,6 +56,11 @@ func main() {
 		return
 	}
 
+	if common.IsResetPasswordCommand() {
+		handleResetPassword()
+		return
+	}
+
 	common.SysLog("New API " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
@@ -253,6 +258,41 @@ func InjectGoogleAnalytics() {
 	placeholder := []byte("<!--Google Analytics-->\n")
 	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
 	classicIndexPage = bytes.ReplaceAll(classicIndexPage, placeholder, analyticsInject)
+}
+
+func handleResetPassword() {
+	newPassword := *common.ResetPasswordNew
+	if newPassword == "" {
+		fmt.Println("Error: --reset-password-new is required when using reset-password command")
+		fmt.Println("Usage:")
+		fmt.Println("  newapi --reset-password-username <username> --reset-password-new <new_password>")
+		fmt.Println("  newapi --reset-password-user-id <user_id> --reset-password-new <new_password>")
+		os.Exit(1)
+	}
+
+	if len(newPassword) < 8 {
+		fmt.Println("Error: new password must be at least 8 characters long")
+		os.Exit(1)
+	}
+
+	var err error
+	if *common.ResetPasswordUsername != "" {
+		err = model.ResetUserPasswordByUsername(*common.ResetPasswordUsername, newPassword)
+		if err != nil {
+			fmt.Printf("Error: failed to reset password for user %q: %v\n", *common.ResetPasswordUsername, err)
+			os.Exit(1)
+		}
+		fmt.Printf("Success: password for user %q has been reset\n", *common.ResetPasswordUsername)
+	} else if *common.ResetPasswordUserID != 0 {
+		err = model.ResetUserPasswordByID(*common.ResetPasswordUserID, newPassword)
+		if err != nil {
+			fmt.Printf("Error: failed to reset password for user id %d: %v\n", *common.ResetPasswordUserID, err)
+			os.Exit(1)
+		}
+		fmt.Printf("Success: password for user id %d has been reset\n", *common.ResetPasswordUserID)
+	}
+
+	_ = model.CloseDB()
 }
 
 func InitResources() error {

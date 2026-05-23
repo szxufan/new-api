@@ -720,6 +720,42 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	return err
 }
 
+func ResetUserPasswordByUsername(username string, password string) error {
+	if username == "" || password == "" {
+		return fmt.Errorf("username and password must not be empty")
+	}
+	hashedPassword, err := common.Password2Hash(password)
+	if err != nil {
+		return err
+	}
+	result := DB.Model(&User{}).Where("username = ?", username).Update("password", hashedPassword)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found: %s", username)
+	}
+	return nil
+}
+
+func ResetUserPasswordByID(userID int, password string) error {
+	if userID == 0 || password == "" {
+		return fmt.Errorf("user ID and password must not be empty")
+	}
+	hashedPassword, err := common.Password2Hash(password)
+	if err != nil {
+		return err
+	}
+	result := DB.Model(&User{}).Where("id = ?", userID).Update("password", hashedPassword)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("user not found: id=%d", userID)
+	}
+	return nil
+}
+
 func IsAdmin(userId int) bool {
 	if userId == 0 {
 		return false

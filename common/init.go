@@ -21,11 +21,26 @@ var (
 	LogDir       = flag.String("log-dir", "./logs", "specify the log directory")
 )
 
+var (
+	ResetPasswordUsername = flag.String("reset-password-username", "", "reset password for the specified username (CLI only)")
+	ResetPasswordUserID   = flag.Int("reset-password-user-id", 0, "reset password for the specified user ID (CLI only)")
+	ResetPasswordNew      = flag.String("reset-password-new", "", "new password to set (required with --reset-password-username or --reset-password-user-id)")
+)
+
+func IsResetPasswordCommand() bool {
+	return *ResetPasswordUsername != "" || *ResetPasswordUserID != 0
+}
+
 func printHelp() {
 	fmt.Println("NewAPI(Based OneAPI) " + Version + " - The next-generation LLM gateway and AI asset management system supports multiple languages.")
 	fmt.Println("Original Project: OneAPI by JustSong - https://github.com/songquanpeng/one-api")
 	fmt.Println("Maintainer: QuantumNous - https://github.com/QuantumNous/new-api")
 	fmt.Println("Usage: newapi [--port <port>] [--log-dir <log directory>] [--version] [--help]")
+	fmt.Println("")
+	fmt.Println("CLI Commands:")
+	fmt.Println("  Reset user password:")
+	fmt.Println("    newapi --reset-password-username <username> --reset-password-new <new_password>")
+	fmt.Println("    newapi --reset-password-user-id <user_id> --reset-password-new <new_password>")
 }
 
 func InitEnv() {
