@@ -496,48 +496,131 @@ func (user *User) FinalizeOAuthUserCreation(inviterId int) {
 
 func (user *User) Update(updatePassword bool) error {
 	var err error
+	hashedPassword := ""
 	if updatePassword {
-		user.Password, err = common.Password2Hash(user.Password)
+		hashedPassword, err = common.Password2Hash(user.Password)
 		if err != nil {
 			return err
 		}
 	}
-	newUser := *user
-	DB.First(&user, user.Id)
-	if err = DB.Model(user).Updates(newUser).Error; err != nil {
+
+	snapshot := *user
+	DB.First(user, user.Id)
+
+	updates := map[string]interface{}{}
+	if snapshot.Username != "" {
+		updates["username"] = snapshot.Username
+		user.Username = snapshot.Username
+	}
+	if snapshot.DisplayName != "" {
+		updates["display_name"] = snapshot.DisplayName
+		user.DisplayName = snapshot.DisplayName
+	}
+	if snapshot.Status != 0 {
+		updates["status"] = snapshot.Status
+		user.Status = snapshot.Status
+	}
+	if snapshot.Email != "" {
+		updates["email"] = snapshot.Email
+		user.Email = snapshot.Email
+	}
+	if snapshot.Group != "" {
+		updates["group"] = snapshot.Group
+		user.Group = snapshot.Group
+	}
+	if snapshot.Quota != 0 {
+		updates["quota"] = snapshot.Quota
+		user.Quota = snapshot.Quota
+	}
+	if snapshot.Setting != "" {
+		updates["setting"] = snapshot.Setting
+		user.Setting = snapshot.Setting
+	}
+	if snapshot.Remark != "" {
+		updates["remark"] = snapshot.Remark
+		user.Remark = snapshot.Remark
+	}
+	if snapshot.AccessToken != nil {
+		updates["access_token"] = *snapshot.AccessToken
+		user.AccessToken = snapshot.AccessToken
+	}
+	if snapshot.Role != 0 {
+		updates["role"] = snapshot.Role
+		user.Role = snapshot.Role
+	}
+	if snapshot.GitHubId != "" {
+		updates["github_id"] = snapshot.GitHubId
+		user.GitHubId = snapshot.GitHubId
+	}
+	if snapshot.DiscordId != "" {
+		updates["discord_id"] = snapshot.DiscordId
+		user.DiscordId = snapshot.DiscordId
+	}
+	if snapshot.OidcId != "" {
+		updates["oidc_id"] = snapshot.OidcId
+		user.OidcId = snapshot.OidcId
+	}
+	if snapshot.WeChatId != "" {
+		updates["wechat_id"] = snapshot.WeChatId
+		user.WeChatId = snapshot.WeChatId
+	}
+	if snapshot.TelegramId != "" {
+		updates["telegram_id"] = snapshot.TelegramId
+		user.TelegramId = snapshot.TelegramId
+	}
+	if snapshot.LinuxDOId != "" {
+		updates["linux_do_id"] = snapshot.LinuxDOId
+		user.LinuxDOId = snapshot.LinuxDOId
+	}
+	if snapshot.AffCode != "" {
+		updates["aff_code"] = snapshot.AffCode
+		user.AffCode = snapshot.AffCode
+	}
+	if updatePassword {
+		updates["password"] = hashedPassword
+		user.Password = hashedPassword
+	}
+
+	if err = DB.Model(user).Updates(updates).Error; err != nil {
 		return err
 	}
 
-	// Update cache
 	return updateUserCache(*user)
 }
 
 func (user *User) Edit(updatePassword bool) error {
 	var err error
+	hashedPassword := ""
 	if updatePassword {
-		user.Password, err = common.Password2Hash(user.Password)
+		hashedPassword, err = common.Password2Hash(user.Password)
 		if err != nil {
 			return err
 		}
 	}
 
-	newUser := *user
+	snapshot := *user
+	DB.First(user, user.Id)
+
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"remark":       newUser.Remark,
+		"username":     snapshot.Username,
+		"display_name": snapshot.DisplayName,
+		"group":        snapshot.Group,
+		"remark":       snapshot.Remark,
 	}
 	if updatePassword {
-		updates["password"] = newUser.Password
+		updates["password"] = hashedPassword
+		user.Password = hashedPassword
 	}
 
-	DB.First(&user, user.Id)
+	user.Username = snapshot.Username
+	user.DisplayName = snapshot.DisplayName
+	user.Group = snapshot.Group
+	user.Remark = snapshot.Remark
+
 	if err = DB.Model(user).Updates(updates).Error; err != nil {
 		return err
 	}
 
-	// Update cache
 	return updateUserCache(*user)
 }
 

@@ -70,6 +70,12 @@ func InitEnv() {
 		} else {
 			SessionSecret = ss
 		}
+	} else {
+		log.Println("WARNING: SESSION_SECRET is not set. A random secret will be generated on each startup,")
+		log.Println("  which means all existing sessions will be invalidated after restart and users must login again.")
+		log.Println("  For production deployments, please set SESSION_SECRET to a fixed random string.")
+		log.Println("警告：未设置 SESSION_SECRET。每次启动将生成随机密钥，重启后所有会话将失效，用户需要重新登录。")
+		log.Println("  生产环境请务必设置 SESSION_SECRET 为固定的随机字符串。")
 	}
 	if os.Getenv("CRYPTO_SECRET") != "" {
 		CryptoSecret = os.Getenv("CRYPTO_SECRET")
