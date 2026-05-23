@@ -42,12 +42,21 @@ type AliVideoInput struct {
 	AudioURL       string `json:"audio_url,omitempty"`       // 音频URL（wan2.5支持）
 	NegativePrompt string `json:"negative_prompt,omitempty"` // 反向提示词
 	Template       string `json:"template,omitempty"`        // 视频特效模板
+	Media          []AliMedia `json:"media,omitempty"`          // HappyHorse 媒体素材列表
+	VideoURL       string `json:"video_url,omitempty"`       // HappyHorse 视频编辑输入视频URL
+}
+
+// AliMedia HappyHorse 媒体素材
+type AliMedia struct {
+	Type string `json:"type"` // first_frame / reference_image / video
+	URL  string `json:"url"`  // 图片URL或Base64
 }
 
 // AliVideoParameters 视频参数
 type AliVideoParameters struct {
 	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
+	Ratio        string `json:"ratio,omitempty"`         // 宽高比: 如 "16:9"（HappyHorse 文生视频/参考生视频）
 	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
 	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
 	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
@@ -93,10 +102,12 @@ type AliMetadata struct {
 	LastFrameURL   string `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
 	NegativePrompt string `json:"negative_prompt,omitempty"` // 反向提示词
 	Template       string `json:"template,omitempty"`        // 视频特效模板
+	VideoURL       string `json:"video_url,omitempty"`       // HappyHorse 视频编辑输入视频URL
 
 	// Parameters 相关
 	Resolution   *string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P
 	Size         *string `json:"size,omitempty"`          // 尺寸: 如 "832*480"
+	Ratio        *string `json:"ratio,omitempty"`         // 宽高比: 如 "16:9"
 	Duration     *int    `json:"duration,omitempty"`      // 时长
 	PromptExtend *bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
 	Watermark    *bool   `json:"watermark,omitempty"`     // 是否添加水印
@@ -228,6 +239,22 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 			"480P": 1,
 			"720P": 0.9 / 0.5,
 		},
+		"happyhorse-1.0-t2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-i2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-r2v": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
+		"happyhorse-1.0-video-edit": {
+			"720P":  1,
+			"1080P": 1.6 / 0.9,
+		},
 	}
 	var resolution string
 
@@ -252,42 +279,153 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 	return otherRatios, nil
 }
 
+func isHappyHorseModel(model string) bool {
+	return strings.Contains(model, "happyhorse")
+}
+
 func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) (*AliVideoRequest, error) {
 	upstreamModel := req.Model
 	if info.IsModelMapped {
 		upstreamModel = info.UpstreamModelName
 	}
+
 	aliReq := &AliVideoRequest{
-		Model: upstreamModel,
-		Input: AliVideoInput{
-			Prompt: req.Prompt,
-			ImgURL: req.InputReference,
-		},
-		Parameters: &AliVideoParameters{
-			PromptExtend: true, // 默认开启智能改写
-			Watermark:    false,
-		},
+		Model:      upstreamModel,
+		Input:      AliVideoInput{},
+		Parameters: &AliVideoParameters{},
 	}
+
+	if isHappyHorseModel(upstreamModel) {
+		a.convertHappyHorseRequest(aliReq, req)
+	} else {
+		a.convertWanRequest(aliReq, req)
+	}
+
+	// 从 metadata 中提取额外参数
+	if req.Metadata != nil {
+		if metadataBytes, err := common.Marshal(req.Metadata); err == nil {
+			err = common.Unmarshal(metadataBytes, aliReq)
+			if err != nil {
+				return nil, errors.Wrap(err, "unmarshal metadata failed")
+			}
+		} else {
+			return nil, errors.Wrap(err, "marshal metadata failed")
+		}
+	}
+
+	if aliReq.Model != upstreamModel {
+		return nil, errors.New("can't change model with metadata")
+	}
+
+	return aliReq, nil
+}
+
+func (a *TaskAdaptor) convertHappyHorseRequest(aliReq *AliVideoRequest, req relaycommon.TaskSubmitReq) {
+	aliReq.Input.Prompt = req.Prompt
+	aliReq.Parameters.Duration = 5
+
+	switch {
+	case strings.Contains(aliReq.Model, "t2v"):
+		// HappyHorse 文生视频
+		aliReq.Parameters.Resolution = "1080P"
+		aliReq.Parameters.Ratio = "16:9"
+		aliReq.Parameters.Watermark = false
+	case strings.Contains(aliReq.Model, "i2v"):
+		// HappyHorse 图生视频（首帧）
+		aliReq.Parameters.Resolution = "1080P"
+		aliReq.Parameters.Watermark = false
+		if req.InputReference != "" {
+			aliReq.Input.Media = []AliMedia{
+				{Type: "first_frame", URL: req.InputReference},
+			}
+		} else if len(req.Images) > 0 {
+			aliReq.Input.Media = []AliMedia{
+				{Type: "first_frame", URL: req.Images[0]},
+			}
+		}
+	case strings.Contains(aliReq.Model, "r2v"):
+		// HappyHorse 参考生视频
+		aliReq.Parameters.Resolution = "1080P"
+		aliReq.Parameters.Ratio = "16:9"
+		aliReq.Parameters.Watermark = false
+		if len(req.Images) > 0 {
+			media := make([]AliMedia, len(req.Images))
+			for i, img := range req.Images {
+				media[i] = AliMedia{Type: "reference_image", URL: img}
+			}
+			aliReq.Input.Media = media
+		} else if req.InputReference != "" {
+			aliReq.Input.Media = []AliMedia{
+				{Type: "reference_image", URL: req.InputReference},
+			}
+		}
+	case strings.Contains(aliReq.Model, "video-edit"):
+		// HappyHorse 视频编辑
+		aliReq.Parameters.Resolution = "1080P"
+		aliReq.Parameters.Watermark = false
+		if req.InputReference != "" {
+			aliReq.Input.VideoURL = req.InputReference
+		}
+		if len(req.Images) > 0 {
+			media := make([]AliMedia, len(req.Images))
+			for i, img := range req.Images {
+				media[i] = AliMedia{Type: "reference_image", URL: img}
+			}
+			aliReq.Input.Media = media
+		}
+	}
+
+	// 处理 size 参数：HappyHorse 使用 ratio 或 resolution
+	if req.Size != "" {
+		if strings.Contains(req.Size, ":") {
+			aliReq.Parameters.Ratio = req.Size
+		} else if strings.Contains(req.Size, "*") {
+			resolution, err := sizeToResolution(req.Size)
+			if err == nil {
+				aliReq.Parameters.Resolution = resolution
+			}
+		} else {
+			resolution := strings.ToUpper(req.Size)
+			if !strings.HasSuffix(resolution, "P") {
+				resolution = resolution + "P"
+			}
+			aliReq.Parameters.Resolution = resolution
+		}
+	}
+
+	// 处理时长
+	if req.Duration > 0 {
+		aliReq.Parameters.Duration = req.Duration
+	} else if req.Seconds != "" {
+		seconds, err := strconv.Atoi(req.Seconds)
+		if err == nil {
+			aliReq.Parameters.Duration = seconds
+		}
+	}
+}
+
+func (a *TaskAdaptor) convertWanRequest(aliReq *AliVideoRequest, req relaycommon.TaskSubmitReq) {
+	aliReq.Input.Prompt = req.Prompt
+	aliReq.Input.ImgURL = req.InputReference
+	aliReq.Parameters.PromptExtend = true
+	aliReq.Parameters.Watermark = false
 
 	// 处理分辨率映射
 	if req.Size != "" {
-		// text to video size must be contained *
 		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
-			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
+			// wan t2v 不使用此路径，但保留校验
 		}
 		if strings.Contains(req.Size, "*") {
 			aliReq.Parameters.Size = req.Size
 		} else {
 			resolution := strings.ToUpper(req.Size)
-			// 支持 480p, 720p, 1080p 或 480P, 720P, 1080P
 			if !strings.HasSuffix(resolution, "P") {
 				resolution = resolution + "P"
 			}
 			aliReq.Parameters.Resolution = resolution
 		}
 	} else {
-		// 根据模型设置默认分辨率
-		if strings.Contains(req.Model, "t2v") { // image to video
+		if strings.Contains(req.Model, "t2v") {
 			if strings.HasPrefix(req.Model, "wan2.5") {
 				aliReq.Parameters.Size = "1920*1080"
 			} else if strings.HasPrefix(req.Model, "wan2.2") {
@@ -316,31 +454,11 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 	} else if req.Seconds != "" {
 		seconds, err := strconv.Atoi(req.Seconds)
 		if err != nil {
-			return nil, errors.Wrap(err, "convert seconds to int failed")
-		} else {
 			aliReq.Parameters.Duration = seconds
 		}
 	} else {
-		aliReq.Parameters.Duration = 5 // 默认5秒
+		aliReq.Parameters.Duration = 5
 	}
-
-	// 从 metadata 中提取额外参数
-	if req.Metadata != nil {
-		if metadataBytes, err := common.Marshal(req.Metadata); err == nil {
-			err = common.Unmarshal(metadataBytes, aliReq)
-			if err != nil {
-				return nil, errors.Wrap(err, "unmarshal metadata failed")
-			}
-		} else {
-			return nil, errors.Wrap(err, "marshal metadata failed")
-		}
-	}
-
-	if aliReq.Model != upstreamModel {
-		return nil, errors.New("can't change model with metadata")
-	}
-
-	return aliReq, nil
 }
 
 // EstimateBilling 根据用户请求参数计算 OtherRatios（时长、分辨率等）。
