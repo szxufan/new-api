@@ -98,7 +98,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		created = toUnix(chunk.CreatedAt)
 
 		if !chunk.Done {
-			// delta content
+			info.SetFirstResponseTime()
 			var content string
 			if chunk.Message != nil {
 				content = chunk.Message.Content
