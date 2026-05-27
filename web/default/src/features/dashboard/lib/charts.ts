@@ -235,6 +235,27 @@ export function processChartData(
           text: tt('Call Count Ranking'),
         },
       },
+      spec_quota_pie: {
+        type: 'pie',
+        data: [{ id: 'id0', values: [] }],
+        outerRadius: 0.8,
+        innerRadius: 0.5,
+        padAngle: 0.6,
+        valueField: 'value',
+        categoryField: 'type',
+        title: {
+          visible: true,
+          text: tt('Quota Distribution'),
+          subtext: tt('No data available'),
+        },
+        legends: { visible: false },
+        label: { visible: false },
+        tooltip: {
+          mark: {
+            content: [],
+          },
+        },
+      },
       totalQuotaDisplay: formatQuotaTotal(0),
       totalCountDisplay: formatInt(0),
     }
@@ -714,6 +735,55 @@ export function processChartData(
       background: { fill: 'transparent' },
       animation: true,
     },
+    spec_quota_pie: (() => {
+      const quotaPieValues = Array.from(modelTotalsMap.entries())
+        .map(([model, stats]) => ({
+          type: model,
+          value: Number(stats.quota) || 0,
+        }))
+        .filter((item) => item.value > 0)
+        .sort((a, b) => b.value - a.value)
+
+      return {
+        type: 'pie',
+        data: [{ id: 'id0', values: quotaPieValues }],
+        outerRadius: 0.8,
+        innerRadius: 0.5,
+        padAngle: 0.6,
+        valueField: 'value',
+        categoryField: 'type',
+        pie: {
+          style:
+            chartCornerRadius == null
+              ? {}
+              : { cornerRadius: chartCornerRadius },
+          state: {
+            hover: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
+            selected: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
+          },
+        },
+        title: {
+          visible: true,
+          text: tt('Quota Distribution'),
+        },
+        legends: { visible: true, orient: 'left' },
+        label: { visible: true },
+        color: modelColor,
+        tooltip: {
+          mark: {
+            content: [
+              {
+                key: (datum: Record<string, unknown>) => datum?.type,
+                value: (datum: Record<string, unknown>) =>
+                  formatQuotaValue(Number(datum?.value) || 0),
+              },
+            ],
+          },
+        },
+        background: { fill: 'transparent' },
+        animation: true,
+      }
+    })(),
     totalQuotaDisplay: formatQuotaTotal(totalQuotaRaw),
     totalCountDisplay: formatInt(totalTimes),
   }
@@ -784,6 +854,40 @@ export function processUserChartData(
       legends: { visible: true, selectMode: 'single' },
       color: { type: 'ordinal', range: userColorRange },
       point: { visible: false },
+      background: { fill: 'transparent' },
+    },
+    spec_user_model_quota_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelQuotaData', values: [] }],
+      xField: 'Quota',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Consumption Ranking'),
+        subtext: tt('No data available'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      background: { fill: 'transparent' },
+    },
+    spec_user_model_count_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelCountData', values: [] }],
+      xField: 'Count',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Call Count Ranking'),
+        subtext: tt('No data available'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
       background: { fill: 'transparent' },
     },
   }
@@ -987,6 +1091,291 @@ export function processUserChartData(
       },
       point: { visible: false },
       color: { specified: userColorMap },
+      background: { fill: 'transparent' },
+      animation: true,
+    },
+    spec_user_model_quota_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelQuotaData', values: [] }],
+      xField: 'Quota',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Consumption Ranking'),
+        subtext: tt('Requires user-model data'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      background: { fill: 'transparent' },
+    },
+    spec_user_model_count_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelCountData', values: [] }],
+      xField: 'Count',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Call Count Ranking'),
+        subtext: tt('Requires user-model data'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      background: { fill: 'transparent' },
+    },
+  }
+}
+
+export function processUserModelChartData(
+  userModelData: QuotaDataItem[],
+  t?: TFunction,
+  limit = 10,
+  themeKey?: string
+): Pick<
+  ProcessedUserChartData,
+  'spec_user_model_quota_rank' | 'spec_user_model_count_rank'
+> {
+  const tt: TFunction = t ?? ((x) => x)
+  const themeModelColors = getThemeChartColors(themeKey)
+  const modelColorRange =
+    themeModelColors.length > 0 ? themeModelColors : USER_COLOR_FALLBACKS
+
+  const formatQuotaVal = (raw: number) => renderQuotaCompat(raw, 4)
+  const formatInt = (value: number) =>
+    Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
+
+  const emptyResult: Pick<
+    ProcessedUserChartData,
+    'spec_user_model_quota_rank' | 'spec_user_model_count_rank'
+  > = {
+    spec_user_model_quota_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelQuotaData', values: [] }],
+      xField: 'Quota',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Consumption Ranking'),
+        subtext: tt('No data available'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      background: { fill: 'transparent' },
+    },
+    spec_user_model_count_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelCountData', values: [] }],
+      xField: 'Count',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: {
+        visible: true,
+        text: tt('User Model Call Count Ranking'),
+        subtext: tt('No data available'),
+      },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      background: { fill: 'transparent' },
+    },
+  }
+
+  if (!userModelData || userModelData.length === 0) return emptyResult
+
+  const userQuotaMap = new Map<string, number>()
+  userModelData.forEach((item) => {
+    const username = item.username || 'unknown'
+    userQuotaMap.set(
+      username,
+      (userQuotaMap.get(username) || 0) + (Number(item.quota) || 0)
+    )
+  })
+
+  const topUsers = Array.from(userQuotaMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([u]) => u)
+  const topUserSet = new Set(topUsers)
+
+  const allModels = new Set<string>()
+  userModelData.forEach((item) => {
+    if (topUserSet.has(item.username || 'unknown')) {
+      allModels.add(item.model_name || 'Unknown')
+    }
+  })
+  const modelList = Array.from(allModels).sort()
+  const modelColorMap = modelList.reduce<Record<string, string>>(
+    (acc, model, i) => {
+      acc[model] = modelColorRange[i % modelColorRange.length]
+      return acc
+    },
+    {}
+  )
+
+  const quotaRows: Array<{ User: string; Model: string; Quota: number }> = []
+  const countRows: Array<{ User: string; Model: string; Count: number }> = []
+
+  topUsers.forEach((user) => {
+    const modelData = new Map<string, { quota: number; count: number }>()
+    userModelData.forEach((item) => {
+      if ((item.username || 'unknown') !== user) return
+      const model = item.model_name || 'Unknown'
+      const prev = modelData.get(model) || { quota: 0, count: 0 }
+      modelData.set(model, {
+        quota: prev.quota + (Number(item.quota) || 0),
+        count: prev.count + (Number(item.count) || 0),
+      })
+    })
+    modelList.forEach((model) => {
+      const d = modelData.get(model)
+      quotaRows.push({ User: user, Model: model, Quota: d?.quota || 0 })
+      countRows.push({ User: user, Model: model, Count: d?.count || 0 })
+    })
+  })
+
+  return {
+    spec_user_model_quota_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelQuotaData', values: quotaRows }],
+      xField: 'Quota',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: { visible: true, text: tt('User Model Consumption Ranking') },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      color: { specified: modelColorMap },
+      axes: [
+        { orient: 'left', type: 'band' },
+        {
+          orient: 'bottom',
+          type: 'linear',
+          label: { formatMethod: (value: number) => formatQuotaVal(value) },
+        },
+      ],
+      bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } },
+      tooltip: {
+        mark: {
+          title: {
+            value: (datum: Record<string, unknown>) => datum?.Model,
+          },
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.User,
+              value: (datum: Record<string, unknown>) =>
+                formatQuotaVal(Number(datum?.Quota) || 0),
+            },
+          ],
+        },
+        dimension: {
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.Model,
+              value: (datum: Record<string, unknown>) =>
+                Number(datum?.Quota) || 0,
+            },
+          ],
+          updateContent: (
+            array: Array<{
+              key: string
+              value: string | number
+            }>
+          ) => {
+            array.sort(
+              (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
+            )
+            let sum = 0
+            for (let i = 0; i < array.length; i++) {
+              const v = Number(array[i].value) || 0
+              sum += v
+              array[i].value = formatQuotaVal(v)
+            }
+            array.unshift({
+              key: tt('Total:'),
+              value: formatQuotaVal(sum),
+            })
+            return array
+          },
+        },
+      },
+      background: { fill: 'transparent' },
+      animation: true,
+    },
+    spec_user_model_count_rank: {
+      type: 'bar',
+      data: [{ id: 'userModelCountData', values: countRows }],
+      xField: 'Count',
+      yField: 'User',
+      seriesField: 'Model',
+      direction: 'horizontal',
+      stack: true,
+      title: { visible: true, text: tt('User Model Call Count Ranking') },
+      legends: { visible: true, orient: 'top' },
+      label: { visible: false },
+      color: { specified: modelColorMap },
+      axes: [
+        { orient: 'left', type: 'band' },
+        {
+          orient: 'bottom',
+          type: 'linear',
+          label: { formatMethod: (value: number) => formatInt(value) },
+        },
+      ],
+      bar: { state: { hover: { stroke: '#000', lineWidth: 1 } } },
+      tooltip: {
+        mark: {
+          title: {
+            value: (datum: Record<string, unknown>) => datum?.Model,
+          },
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.User,
+              value: (datum: Record<string, unknown>) =>
+                formatInt(Number(datum?.Count) || 0),
+            },
+          ],
+        },
+        dimension: {
+          content: [
+            {
+              key: (datum: Record<string, unknown>) => datum?.Model,
+              value: (datum: Record<string, unknown>) =>
+                Number(datum?.Count) || 0,
+            },
+          ],
+          updateContent: (
+            array: Array<{
+              key: string
+              value: string | number
+            }>
+          ) => {
+            array.sort(
+              (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
+            )
+            let sum = 0
+            for (let i = 0; i < array.length; i++) {
+              const v = Number(array[i].value) || 0
+              sum += v
+              array[i].value = formatInt(v)
+            }
+            array.unshift({
+              key: tt('Total:'),
+              value: formatInt(sum),
+            })
+            return array
+          },
+        },
+      },
       background: { fill: 'transparent' },
       animation: true,
     },

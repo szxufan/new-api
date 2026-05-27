@@ -4486,6 +4486,8 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "User Model Consumption Ranking": "Рейтинг потребления по моделям",
+    "User Model Call Count Ranking": "Рейтинг вызовов по моделям"
   }
 }

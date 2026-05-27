@@ -4486,6 +4486,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "User Model Consumption Ranking": "ユーザーモデル消費ランキング",
+    "User Model Call Count Ranking": "ユーザーモデル呼出回数ランキング"
   }
 }

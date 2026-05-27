@@ -26,7 +26,10 @@ import { VCHART_OPTION } from '@/lib/vchart'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getUserQuotaDataByUsers } from '@/features/dashboard/api'
+import {
+  getUserQuotaDataByUsers,
+  getUserQuotaDataByUserAndModel,
+} from '@/features/dashboard/api'
 import {
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
@@ -36,6 +39,7 @@ import {
   getSavedGranularity,
   saveGranularity,
   processUserChartData,
+  processUserModelChartData,
 } from '@/features/dashboard/lib'
 import type { ProcessedUserChartData } from '@/features/dashboard/types'
 
@@ -57,6 +61,16 @@ const USER_CHARTS: {
     value: 'trend',
     labelKey: 'User Consumption Trend',
     specKey: 'spec_user_trend',
+  },
+  {
+    value: 'model_quota_rank',
+    labelKey: 'User Model Consumption Ranking',
+    specKey: 'spec_user_model_quota_rank',
+  },
+  {
+    value: 'model_count_rank',
+    labelKey: 'User Model Call Count Ranking',
+    specKey: 'spec_user_model_count_rank',
   },
 ]
 
@@ -131,6 +145,13 @@ export function UserCharts() {
     staleTime: 60_000,
   })
 
+  const { data: userModelData, isLoading: isUserModelLoading } = useQuery({
+    queryKey: ['dashboard', 'user-model-quota', timeRange],
+    queryFn: () => getUserQuotaDataByUserAndModel(timeRange),
+    select: (res) => (res.success ? res.data : []),
+    staleTime: 60_000,
+  })
+
   const chartData = useMemo(
     () =>
       processUserChartData(
@@ -149,6 +170,17 @@ export function UserCharts() {
       customization.preset,
       customization.radius,
     ]
+  )
+
+  const userModelChartData = useMemo(
+    () =>
+      processUserModelChartData(
+        isUserModelLoading ? [] : (userModelData ?? []),
+        t,
+        topUserLimit,
+        customization.preset
+      ),
+    [userModelData, isUserModelLoading, t, topUserLimit, customization.preset]
   )
 
   return (
@@ -217,7 +249,17 @@ export function UserCharts() {
 
       <div className='grid gap-3'>
         {USER_CHARTS.map((chart) => {
-          const spec = chartData[chart.specKey]
+          const isModelChart =
+            chart.specKey === 'spec_user_model_quota_rank' ||
+            chart.specKey === 'spec_user_model_count_rank'
+          const isLoadingChart = isModelChart ? isUserModelLoading : isLoading
+          const spec = isModelChart
+            ? userModelChartData[
+                chart.specKey as
+                  | 'spec_user_model_quota_rank'
+                  | 'spec_user_model_count_rank'
+              ]
+            : chartData[chart.specKey]
 
           return (
             <div
@@ -230,7 +272,7 @@ export function UserCharts() {
               </div>
 
               <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
-                {isLoading ? (
+                {isLoadingChart ? (
                   <Skeleton className='h-full w-full' />
                 ) : (
                   themeReady &&

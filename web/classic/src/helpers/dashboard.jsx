@@ -36,6 +36,7 @@ import {
   DEFAULTS,
   ILLUSTRATION_SIZE,
 } from '../constants/dashboard.constants';
+import { renderQuota, renderNumber } from './render';
 
 // ========== 时间相关工具函数 ==========
 export const getDefaultTime = () => {
@@ -441,4 +442,138 @@ export const processUserData = (data, dataExportDefaultTime, limit = 10) => {
   });
 
   return { rankingData, trendData, topUsers };
+};
+
+export const processUserModelData = (data, t, limit = 10) => {
+  const userQuotaTotal = new Map();
+  data.forEach((item) => {
+    const prev = userQuotaTotal.get(item.username) || 0;
+    userQuotaTotal.set(item.username, prev + (Number(item.quota) || 0));
+  });
+
+  const sortedUsers = Array.from(userQuotaTotal.entries()).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const topUsers = sortedUsers.slice(0, limit).map(([u]) => u);
+  const topUserSet = new Set(topUsers);
+
+  const allModels = new Set();
+  data.forEach((item) => {
+    if (topUserSet.has(item.username)) {
+      allModels.add(item.model_name || 'Unknown');
+    }
+  });
+  const modelList = Array.from(allModels).sort();
+
+  const quotaPerUnit = parseFloat(localStorage.getItem('quota_per_unit')) || 1;
+  const userModelData = new Map();
+  data.forEach((item) => {
+    if (!topUserSet.has(item.username)) return;
+
+    const model = item.model_name || 'Unknown';
+    const key = `${item.username}-${model}`;
+    if (!userModelData.has(key)) {
+      userModelData.set(key, {
+        User: item.username,
+        Model: model,
+        rawQuota: 0,
+        Quota: 0,
+        Count: 0,
+      });
+    }
+    const existing = userModelData.get(key);
+    existing.rawQuota += Number(item.quota) || 0;
+    existing.Quota = existing.rawQuota / quotaPerUnit;
+    existing.Count += Number(item.count) || 0;
+  });
+
+  const quotaData = [];
+  const countData = [];
+
+  topUsers.forEach((user) => {
+    modelList.forEach((model) => {
+      const key = `${user}-${model}`;
+      const d = userModelData.get(key);
+      quotaData.push({
+        User: user,
+        Model: model,
+        rawQuota: d?.rawQuota || 0,
+        Quota: d?.Quota || 0,
+        Count: d?.Count || 0,
+      });
+      countData.push({
+        User: user,
+        Model: model,
+        rawQuota: d?.rawQuota || 0,
+        Quota: d?.Quota || 0,
+        Count: d?.Count || 0,
+      });
+    });
+  });
+
+  const goldenAngle = 137.508;
+
+  const hslToHex = (h, s, l) => {
+    s /= 100;
+    l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * color)
+        .toString(16)
+        .padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  };
+
+  // 生成最大化颜色差异的色板
+  // 策略：均匀分布色相 + 交替饱和度 + 交替亮度
+  const generateDistinctColors = (count) => {
+    const colors = {};
+    const satOptions = [75, 60, 85, 50, 70]; // 5种饱和度
+    const litOptions = [50, 40, 60, 45, 55]; // 5种亮度
+
+    for (let i = 0; i < count; i++) {
+      // 使用黄金角度分布色相，确保相邻模型颜色差异最大
+      const hue = Math.round((i * 137.508) % 360);
+      // 交替饱和度和亮度，增加颜色区分度
+      const sat = satOptions[i % satOptions.length];
+      const lit = litOptions[Math.floor(i / 5) % litOptions.length];
+      const model = modelList[i];
+      colors[model] = hslToHex(hue, sat, lit);
+    }
+    return colors;
+  };
+
+  const colorMap = generateDistinctColors(modelList.length);
+
+  const colorConfig = {
+    specified: colorMap,
+  };
+
+  const totalQuota = quotaData.reduce((sum, item) => sum + item.rawQuota, 0);
+  const totalCount = countData.reduce((sum, item) => sum + item.Count, 0);
+
+  const userModelQuotaSpec = {
+    data: [{ id: 'userModelQuotaData', values: quotaData }],
+    title: {
+      visible: true,
+      text: t('用户模型消耗排行'),
+      subtext: `${t('总计')}：${renderQuota(totalQuota, 2)}`,
+    },
+    color: colorConfig,
+  };
+
+  const userModelCountSpec = {
+    data: [{ id: 'userModelCountData', values: countData }],
+    title: {
+      visible: true,
+      text: t('用户模型调用次数排行'),
+      subtext: `${t('总计')}：${renderNumber(totalCount)}`,
+    },
+    color: colorConfig,
+  };
+
+  return { userModelQuotaSpec, userModelCountSpec };
 };

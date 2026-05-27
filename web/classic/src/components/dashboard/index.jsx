@@ -91,6 +91,7 @@ const Dashboard = () => {
       const userData = await dashboardData.loadUserQuotaData();
       if (userData && userData.length > 0) {
         dashboardCharts.updateUserChartData(userData);
+        dashboardCharts.updateUserModelCharts(userData);
       }
     }
   };
@@ -196,6 +197,13 @@ const Dashboard = () => {
             spec_rank_bar={dashboardCharts.spec_rank_bar}
             spec_user_rank={dashboardCharts.spec_user_rank}
             spec_user_trend={dashboardCharts.spec_user_trend}
+            spec_quota_pie={dashboardCharts.spec_quota_pie}
+            spec_user_model_quota_rank={
+              dashboardCharts.spec_user_model_quota_rank
+            }
+            spec_user_model_count_rank={
+              dashboardCharts.spec_user_model_count_rank
+            }
             isAdminUser={dashboardData.isAdminUser}
             CARD_PROPS={CARD_PROPS}
             CHART_CONFIG={CHART_CONFIG}

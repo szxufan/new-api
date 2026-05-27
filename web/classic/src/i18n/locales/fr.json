@@ -3679,6 +3679,8 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "用户模型消耗排行": "Classement conso. modèle utilisateur",
+    "用户模型调用次数排行": "Classement appels modèle utilisateur"
   }
 }

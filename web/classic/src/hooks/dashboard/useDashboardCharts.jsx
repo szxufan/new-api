@@ -35,11 +35,20 @@ import {
   updateMapValue,
   initializeMaps,
   processUserData,
+  processUserModelData,
 } from '../../helpers/dashboard';
 
 const USER_COLORS = [
-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
+  '#3b82f6',
+  '#ef4444',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#06b6d4',
+  '#f97316',
+  '#6366f1',
+  '#14b8a6',
 ];
 
 export const useDashboardCharts = (
@@ -281,9 +290,6 @@ export const useDashboardCharts = (
         ],
       },
     },
-    color: {
-      specified: modelColorMap,
-    },
   });
 
   // ========== Admin: 用户消耗排行 ==========
@@ -308,21 +314,26 @@ export const useDashboardCharts = (
       position: 'outside',
       formatMethod: (value, datum) => renderQuota(datum['rawQuota'] || 0, 2),
     },
-    axes: [{
-      orient: 'left',
-      type: 'band',
-      label: { visible: true },
-    }, {
-      orient: 'bottom',
-      type: 'linear',
-      visible: false,
-    }],
+    axes: [
+      {
+        orient: 'left',
+        type: 'band',
+        label: { visible: true },
+      },
+      {
+        orient: 'bottom',
+        type: 'linear',
+        visible: false,
+      },
+    ],
     tooltip: {
       mark: {
-        content: [{
-          key: (datum) => datum['User'],
-          value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
-        }],
+        content: [
+          {
+            key: (datum) => datum['User'],
+            value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
+          },
+        ],
       },
     },
     color: { type: 'ordinal', range: USER_COLORS },
@@ -342,27 +353,33 @@ export const useDashboardCharts = (
       text: t('用户消耗趋势'),
       subtext: '',
     },
-    axes: [{
-      orient: 'left',
-      label: {
-        formatMethod: (value) => renderQuota(value, 2),
+    axes: [
+      {
+        orient: 'left',
+        label: {
+          formatMethod: (value) => renderQuota(value, 2),
+        },
       },
-    }],
+    ],
     area: { style: { fillOpacity: 0.15 } },
     line: { style: { lineWidth: 2 } },
     point: { visible: false },
     tooltip: {
       mark: {
-        content: [{
-          key: (datum) => datum['User'],
-          value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
-        }],
+        content: [
+          {
+            key: (datum) => datum['User'],
+            value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
+          },
+        ],
       },
       dimension: {
-        content: [{
-          key: (datum) => datum['User'],
-          value: (datum) => datum['rawQuota'] || 0,
-        }],
+        content: [
+          {
+            key: (datum) => datum['User'],
+            value: (datum) => datum['rawQuota'] || 0,
+          },
+        ],
         updateContent: (array) => {
           array.sort((a, b) => b.value - a.value);
           let sum = 0;
@@ -381,6 +398,157 @@ export const useDashboardCharts = (
       },
     },
     color: { type: 'ordinal', range: USER_COLORS },
+  });
+
+  // ========== 模型消耗分布饼图 ==========
+  const [spec_quota_pie, setSpecQuotaPie] = useState({
+    type: 'pie',
+    data: [
+      {
+        id: 'id0',
+        values: [{ type: 'null', value: '0' }],
+      },
+    ],
+    outerRadius: 0.8,
+    innerRadius: 0.5,
+    padAngle: 0.6,
+    valueField: 'value',
+    categoryField: 'type',
+    pie: {
+      style: {
+        cornerRadius: 10,
+      },
+      state: {
+        hover: {
+          outerRadius: 0.85,
+          stroke: '#000',
+          lineWidth: 1,
+        },
+        selected: {
+          outerRadius: 0.85,
+          stroke: '#000',
+          lineWidth: 1,
+        },
+      },
+    },
+    title: {
+      visible: true,
+      text: t('消耗分布'),
+      subtext: `${t('总计')}：${renderQuota(0, 2)}`,
+    },
+    legends: {
+      visible: true,
+      orient: 'left',
+    },
+    label: {
+      visible: true,
+    },
+    tooltip: {
+      mark: {
+        content: [
+          {
+            key: (datum) => datum['type'],
+            value: (datum) => renderQuota(datum['value'], 4),
+          },
+        ],
+      },
+    },
+    color: {
+      specified: modelColorMap,
+    },
+  });
+
+  // ========== Admin: 用户模型消耗排行 ==========
+  const [spec_user_model_quota_rank, setSpecUserModelQuotaRank] = useState({
+    type: 'bar',
+    data: [{ id: 'userModelQuotaData', values: [] }],
+    xField: 'Quota',
+    yField: 'User',
+    seriesField: 'Model',
+    stack: true,
+    direction: 'horizontal',
+    legends: { visible: true, selectMode: 'single' },
+    title: {
+      visible: true,
+      text: t('用户模型消耗排行'),
+      subtext: '',
+    },
+    bar: {
+      state: { hover: { stroke: '#000', lineWidth: 1 } },
+    },
+    label: {
+      visible: false,
+    },
+    axes: [
+      {
+        orient: 'left',
+        type: 'band',
+        label: { visible: true },
+      },
+      {
+        orient: 'bottom',
+        type: 'linear',
+        visible: false,
+      },
+    ],
+    tooltip: {
+      mark: {
+        content: [
+          {
+            key: (datum) => datum['Model'],
+            value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
+          },
+        ],
+      },
+    },
+  });
+
+  // ========== Admin: 用户模型调用次数排行 ==========
+  const [spec_user_model_count_rank, setSpecUserModelCountRank] = useState({
+    type: 'bar',
+    data: [{ id: 'userModelCountData', values: [] }],
+    xField: 'Count',
+    yField: 'User',
+    seriesField: 'Model',
+    stack: true,
+    direction: 'horizontal',
+    legends: { visible: true, selectMode: 'single' },
+    title: {
+      visible: true,
+      text: t('用户模型调用次数排行'),
+      subtext: '',
+    },
+    bar: {
+      state: { hover: { stroke: '#000', lineWidth: 1 } },
+    },
+    label: {
+      visible: false,
+    },
+    axes: [
+      {
+        orient: 'left',
+        type: 'band',
+        label: { visible: true },
+      },
+      {
+        orient: 'bottom',
+        type: 'linear',
+        visible: false,
+      },
+    ],
+    tooltip: {
+      mark: {
+        content: [
+          {
+            key: (datum) => datum['Model'],
+            value: (datum) => renderNumber(datum['Count']),
+          },
+        ],
+      },
+    },
+    color: {
+      specified: modelColorMap,
+    },
   });
 
   // ========== 数据处理函数 ==========
@@ -444,6 +612,16 @@ export const useDashboardCharts = (
         }))
         .sort((a, b) => b.value - a.value);
 
+      const modelQuotaTotals = new Map();
+      for (let [_, value] of aggregatedData) {
+        const prev = modelQuotaTotals.get(value.model) || 0;
+        modelQuotaTotals.set(value.model, prev + (value.quota || 0));
+      }
+      const newQuotaPieData = Array.from(modelQuotaTotals)
+        .map(([model, quota]) => ({ type: model, value: quota }))
+        .filter((item) => item.value > 0)
+        .sort((a, b) => b.value - a.value);
+
       const chartTimePoints = generateChartTimePoints(
         aggregatedData,
         data,
@@ -478,6 +656,14 @@ export const useDashboardCharts = (
         setSpecPie,
         newPieData,
         `${t('总计')}：${renderNumber(totalTimes)}`,
+        newModelColors,
+        'id0',
+      );
+
+      updateChartSpec(
+        setSpecQuotaPie,
+        newQuotaPieData,
+        `${t('总计')}：${renderQuota(totalQuota, 2)}`,
         newModelColors,
         'id0',
       );
@@ -571,11 +757,13 @@ export const useDashboardCharts = (
         10,
       );
 
-      const userRankValues = rankingData.map((item) => ({
-        User: item.User,
-        rawQuota: item.Quota,
-        Quota: getQuotaWithUnit(item.Quota, 4),
-      })).sort((a, b) => b.rawQuota - a.rawQuota);
+      const userRankValues = rankingData
+        .map((item) => ({
+          User: item.User,
+          rawQuota: item.Quota,
+          Quota: getQuotaWithUnit(item.Quota, 4),
+        }))
+        .sort((a, b) => b.rawQuota - a.rawQuota);
 
       const totalUserQuota = rankingData.reduce((s, i) => s + i.Quota, 0);
 
@@ -607,6 +795,32 @@ export const useDashboardCharts = (
     [dataExportDefaultTime, t],
   );
 
+  // ========== 用户模型维度图表数据处理 ==========
+  const updateUserModelCharts = useCallback(
+    (data) => {
+      const { userModelQuotaSpec, userModelCountSpec } = processUserModelData(
+        data,
+        t,
+        10,
+      );
+
+      if (userModelQuotaSpec) {
+        setSpecUserModelQuotaRank((prev) => ({
+          ...prev,
+          ...userModelQuotaSpec,
+        }));
+      }
+
+      if (userModelCountSpec) {
+        setSpecUserModelCountRank((prev) => ({
+          ...prev,
+          ...userModelCountSpec,
+        }));
+      }
+    },
+    [t],
+  );
+
   // ========== 初始化图表主题 ==========
   useEffect(() => {
     initVChartSemiTheme({
@@ -621,8 +835,12 @@ export const useDashboardCharts = (
     spec_rank_bar,
     spec_user_rank,
     spec_user_trend,
+    spec_quota_pie,
+    spec_user_model_quota_rank,
+    spec_user_model_count_rank,
     updateChartData,
     updateUserChartData,
+    updateUserModelCharts,
     generateModelColors,
   };
 };
