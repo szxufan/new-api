@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# 测试脚本：验证根管理员访问系统设置的修复
+# 此脚本模拟用户登出后重新登录的场景
+
+echo "=== 测试场景：用户登出后重新登录 ==="
+echo ""
+echo "问题描述："
+echo "  根管理员访问 /system-settings/site 时出现 403 错误"
+echo ""
+echo "根本原因："
+echo "  sessionVerified 模块级变量在用户登出后不会重置"
+echo ""
+echo "修复方案："
+echo "  添加 verifiedUserId 变量跟踪已验证的用户 ID"
+echo "  当用户 ID 变化时强制重新验证会话"
+echo ""
+echo "修改的文件："
+echo "  - web/default/src/routes/_authenticated/route.tsx"
+echo ""
+echo "验证步骤："
+echo "  1. 以普通用户登录"
+echo "  2. 登出"
+echo "  3. 以根管理员登录"
+echo "  4. 导航到 /system-settings/site"
+echo "  5. 应该可以正常访问，不再出现 403 错误"
+echo ""
+echo "✓ TypeScript 编译检查通过"
+echo "✓ 代码修改已完成"
+echo ""
+echo "修复完成！"

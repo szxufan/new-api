@@ -23,6 +23,8 @@ import { AuthenticatedLayout } from '@/components/layout'
 
 // 内存中的验证标记，避免同一会话中重复验证
 let sessionVerified = false
+// 记录已通过验证的用户ID，用于检测用户切换
+let verifiedUserId: number | null = null
 
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
@@ -30,10 +32,18 @@ export const Route = createFileRoute('/_authenticated')({
 
     // 如果本地没有用户信息，直接跳转登录页
     if (!auth.user) {
+      sessionVerified = false
+      verifiedUserId = null
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
       })
+    }
+
+    // 如果用户ID发生变化（登出后重新登录），需要重新验证
+    if (verifiedUserId !== auth.user.id) {
+      sessionVerified = false
+      verifiedUserId = null
     }
 
     // 本地有用户信息，但需要验证 session 是否有效（每个会话只验证一次）
@@ -43,9 +53,12 @@ export const Route = createFileRoute('/_authenticated')({
         // 验证成功，更新用户信息（可能有变化）
         auth.setUser(res.data)
         sessionVerified = true
+        verifiedUserId = res.data.id
       } else {
         // 验证失败或 API 调用失败，清除本地缓存并跳转登录页
         auth.reset()
+        sessionVerified = false
+        verifiedUserId = null
         throw redirect({
           to: '/sign-in',
           search: { redirect: location.href },
