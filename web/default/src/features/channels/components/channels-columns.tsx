@@ -36,7 +36,6 @@ import {
 } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn, truncateText } from '@/lib/utils'
-import { TruncatedText } from '@/components/truncated-text'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -53,6 +52,7 @@ import {
   dotColorMap,
   textColorMap,
 } from '@/components/status-badge'
+import { TruncatedText } from '@/components/truncated-text'
 import { getCodexUsage } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
@@ -298,14 +298,55 @@ function WeightCell({ channel }: { channel: Channel }) {
 }
 
 /**
- * Balance cell component with click to update
+ * Used quota cell component
  */
-function BalanceCell({ channel }: { channel: Channel }) {
+function UsedQuotaCell({ channel }: { channel: Channel }) {
+  const { t } = useTranslation()
+  const isTagRow = isTagAggregateRow(channel)
+  const usedQuota = channel.used_quota || 0
+  const currencyLabel = getCurrencyLabel()
+  const tokenSuffix = currencyLabel === 'Tokens' ? ' Tokens' : ''
+  const withSuffix = (value: string) =>
+    tokenSuffix && value !== '-' ? `${value}${tokenSuffix}` : value
+
+  const usedDisplay = withSuffix(formatQuotaValue(usedQuota))
+
+  if (isTagRow) {
+    return (
+      <StatusBadge
+        label={usedDisplay}
+        variant='neutral'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className='text-muted-foreground cursor-help' />}
+        >
+          {usedDisplay}
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>
+            {t('Used:')} {usedDisplay}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+/**
+ * Remaining balance cell component with click to update
+ */
+function RemainingCell({ channel }: { channel: Channel }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const isTagRow = isTagAggregateRow(channel)
   const balance = channel.balance || 0
-  const usedQuota = channel.used_quota || 0
   const [isUpdating, setIsUpdating] = useState(false)
   const [codexUsageOpen, setCodexUsageOpen] = useState(false)
   const [codexUsageResponse, setCodexUsageResponse] =
@@ -315,22 +356,7 @@ function BalanceCell({ channel }: { channel: Channel }) {
   const withSuffix = (value: string) =>
     tokenSuffix && value !== '-' ? `${value}${tokenSuffix}` : value
 
-  const usedDisplay = withSuffix(formatQuotaValue(usedQuota))
   const remainingDisplay = withSuffix(formatBalance(balance))
-
-  // Tag row: only show cumulative used quota
-  if (isTagRow) {
-    return (
-      <StatusBadge
-        label={`Used: ${usedDisplay}`}
-        variant='neutral'
-        size='sm'
-        copyable={false}
-      />
-    )
-  }
-
-  // Regular channel row: show used and remaining with click to update
   const variant = getBalanceVariant(balance)
 
   const handleClickUpdate = async () => {
@@ -369,19 +395,6 @@ function BalanceCell({ channel }: { channel: Channel }) {
           )}
           aria-hidden='true'
         />
-        <Tooltip>
-          <TooltipTrigger
-            render={<span className='text-muted-foreground cursor-help' />}
-          >
-            {usedDisplay}
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>
-              {t('Used:')} {usedDisplay}
-            </p>
-          </TooltipContent>
-        </Tooltip>
-        <span className='text-muted-foreground/30'>·</span>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -975,15 +988,29 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       enableSorting: false,
     },
 
-    // Balance column (Used/Remaining)
+    // Used Quota column — displays consumed quota with tooltip and currency suffix.
+    // Split from the former combined "Used / Remaining" column. Supports sorting by raw value.
+    {
+      accessorKey: 'used_quota',
+      meta: { label: t('Used Quota'), mobileHidden: true },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Used Quota')} />
+      ),
+      cell: ({ row }) => <UsedQuotaCell channel={row.original} />,
+      size: 120,
+    },
+
+    // Remaining Balance column — displays remaining balance with click-to-update
+    // and color-coded status indicator. For Codex channels shows "Account Info" link.
+    // Split from the former combined "Used / Remaining" column. Supports sorting by raw value.
     {
       accessorKey: 'balance',
-      meta: { label: t('Used / Remaining') },
+      meta: { label: t('Remaining'), mobileHidden: true },
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Used / Remaining')} />
+        <DataTableColumnHeader column={column} title={t('Remaining')} />
       ),
-      cell: ({ row }) => <BalanceCell channel={row.original} />,
-      size: 180,
+      cell: ({ row }) => <RemainingCell channel={row.original} />,
+      size: 120,
     },
 
     // Response Time column
