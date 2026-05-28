@@ -58,7 +58,6 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -752,8 +751,34 @@ export function ModelPricingEditorPanel({
         </div>
       </div>
 
+      <div className='bg-muted/40 border-b px-4 py-3'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <span className='text-muted-foreground text-xs'>
+            {selectedTargetCount > 0
+              ? t('{{count}} selected targets available for bulk copy.', {
+                  count: selectedTargetCount,
+                })
+              : t('Changes are written to the settings draft on save.')}
+          </span>
+          <div className='flex gap-2'>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              onClick={onCancel}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button type='submit' size='sm' form='model-pricing-form'>
+              {isEditMode ? t('Update') : t('Add')}
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <Form {...form}>
         <form
+          id='model-pricing-form'
           onSubmit={form.handleSubmit(handleSubmit)}
           className='flex min-h-0 flex-1 flex-col'
           autoComplete='off'
@@ -946,24 +971,6 @@ export function ModelPricingEditorPanel({
               </Collapsible>
             </FieldGroup>
           </div>
-
-          <SheetFooter className='bg-background/95 border-t sm:flex-row sm:items-center sm:justify-between'>
-            <div className='text-muted-foreground text-xs'>
-              {selectedTargetCount > 0
-                ? t('{{count}} selected targets available for bulk copy.', {
-                    count: selectedTargetCount,
-                  })
-                : t('Changes are written to the settings draft on save.')}
-            </div>
-            <div className='flex justify-end gap-2'>
-              <Button type='button' variant='outline' onClick={onCancel}>
-                {t('Cancel')}
-              </Button>
-              <Button type='submit'>
-                {isEditMode ? t('Update') : t('Add')}
-              </Button>
-            </div>
-          </SheetFooter>
         </form>
       </Form>
     </div>

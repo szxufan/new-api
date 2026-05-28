@@ -82,23 +82,35 @@ export const ModelRatioForm = memo(function ModelRatioForm({
 
   return (
     <div className='space-y-6'>
-      <div className='flex justify-end'>
-        <Button variant='outline' size='sm' onClick={toggleEditMode}>
-          {editMode === 'visual' ? (
-            <>
-              <Code2 className='mr-2 h-4 w-4' />
-              {t('Switch to JSON')}
-            </>
-          ) : (
-            <>
-              <Eye className='mr-2 h-4 w-4' />
-              {t('Switch to Visual')}
-            </>
-          )}
-        </Button>
-      </div>
-
       <Form {...form}>
+        <div className='flex items-center justify-between'>
+          <div className='flex flex-wrap gap-4'>
+            <Button onClick={form.handleSubmit(onSave)} disabled={isSaving}>
+              {isSaving ? t('Saving...') : t('Save model prices')}
+            </Button>
+            <Button
+              type='button'
+              variant='destructive'
+              onClick={onReset}
+              disabled={isResetting}
+            >
+              {t('Reset prices')}
+            </Button>
+          </div>
+          <Button variant='outline' size='sm' onClick={toggleEditMode}>
+            {editMode === 'visual' ? (
+              <>
+                <Code2 className='mr-2 h-4 w-4' />
+                {t('Switch to JSON')}
+              </>
+            ) : (
+              <>
+                <Eye className='mr-2 h-4 w-4' />
+                {t('Switch to Visual')}
+              </>
+            )}
+          </Button>
+        </div>
         {editMode === 'visual' ? (
           <div className='space-y-6'>
             <ModelRatioVisualEditor
@@ -147,20 +159,6 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                 </FormItem>
               )}
             />
-
-            <div className='flex flex-wrap gap-4'>
-              <Button onClick={form.handleSubmit(onSave)} disabled={isSaving}>
-                {isSaving ? t('Saving...') : t('Save model prices')}
-              </Button>
-              <Button
-                type='button'
-                variant='destructive'
-                onClick={onReset}
-                disabled={isResetting}
-              >
-                {t('Reset prices')}
-              </Button>
-            </div>
           </div>
         ) : (
           <form onSubmit={form.handleSubmit(onSave)} className='space-y-6'>
@@ -338,20 +336,6 @@ export const ModelRatioForm = memo(function ModelRatioForm({
                 </FormItem>
               )}
             />
-
-            <div className='flex flex-wrap gap-4'>
-              <Button type='submit' disabled={isSaving}>
-                {isSaving ? t('Saving...') : t('Save model prices')}
-              </Button>
-              <Button
-                type='button'
-                variant='destructive'
-                onClick={onReset}
-                disabled={isResetting}
-              >
-                {t('Reset prices')}
-              </Button>
-            </div>
           </form>
         )}
       </Form>
