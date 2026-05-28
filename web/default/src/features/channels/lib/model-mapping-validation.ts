@@ -210,6 +210,44 @@ export function findExposedTargetModels(
 /**
  * Categorize models into different sets for UI display
  */
+export type MappingRow = {
+  id: string
+  from: string
+  to: string
+}
+
+export function parseJsonToMappingRows(json: string): MappingRow[] | null {
+  try {
+    if (!json.trim()) {
+      return []
+    }
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return Object.entries(parsed).map(([from, to], index) => ({
+      id: `row-${index}-${from}`,
+      from,
+      to: String(to),
+    }))
+  } catch {
+    return null
+  }
+}
+
+export function convertMappingRowsToJson(rows: MappingRow[]): string {
+  if (rows.length === 0) {
+    return ''
+  }
+  const obj: Record<string, string> = {}
+  rows.forEach((row) => {
+    if (row.from.trim()) {
+      obj[row.from.trim()] = row.to.trim()
+    }
+  })
+  return JSON.stringify(obj, null, 2)
+}
+
 export function categorizeModelsWithRedirect(
   currentModels: string[],
   redirectModels: string[]

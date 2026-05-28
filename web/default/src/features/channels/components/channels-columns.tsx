@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getCurrencyLabel } from '@/lib/currency'
+import { getCurrencyLabel, formatCurrencyFromUSD } from '@/lib/currency'
 import {
   formatTimestampToDate,
   formatQuota as formatQuotaValue,
@@ -38,6 +38,7 @@ import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn, truncateText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import {
   Tooltip,
   TooltipContent,
@@ -53,7 +54,7 @@ import {
   textColorMap,
 } from '@/components/status-badge'
 import { TruncatedText } from '@/components/truncated-text'
-import { getCodexUsage } from '../api'
+import { getCodexUsage, updateChannelBalance } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   formatBalance,
@@ -69,7 +70,7 @@ import {
   parseChannelSettings,
   handleUpdateChannelField,
   handleUpdateTagField,
-  handleUpdateChannelBalance,
+  channelsQueryKeys,
   isTagAggregateRow,
   type TagRow,
 } from '../lib'
@@ -341,7 +342,8 @@ function UsedQuotaCell({ channel }: { channel: Channel }) {
 }
 
 /**
- * Remaining balance cell component with click to update
+ * Remaining balance cell component with click to update.
+ * When automatic balance update fails, a dialog allows manual input.
  */
 function RemainingCell({ channel }: { channel: Channel }) {
   const { t } = useTranslation()
@@ -351,6 +353,9 @@ function RemainingCell({ channel }: { channel: Channel }) {
   const [codexUsageOpen, setCodexUsageOpen] = useState(false)
   const [codexUsageResponse, setCodexUsageResponse] =
     useState<CodexUsageDialogData | null>(null)
+  const [manualBalanceOpen, setManualBalanceOpen] = useState(false)
+  const [manualBalanceValue, setManualBalanceValue] = useState('')
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false)
   const currencyLabel = getCurrencyLabel()
   const tokenSuffix = currencyLabel === 'Tokens' ? ' Tokens' : ''
   const withSuffix = (value: string) =>
@@ -381,8 +386,49 @@ function RemainingCell({ channel }: { channel: Channel }) {
       return
     }
 
-    await handleUpdateChannelBalance(channel.id, queryClient)
-    setIsUpdating(false)
+    try {
+      const response = await updateChannelBalance(channel.id)
+      if (response.success && response.balance !== undefined) {
+        toast.success(
+          t('Balance updated: {{balance}}', {
+            balance: formatCurrencyFromUSD(response.balance, {
+              digitsLarge: 2,
+              digitsSmall: 4,
+              abbreviate: false,
+            }),
+          })
+        )
+        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      } else {
+        toast.error(response.message || t('Failed to update balance'))
+        setManualBalanceValue(String(balance))
+        setManualBalanceOpen(true)
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to update balance')
+      )
+      setManualBalanceValue(String(balance))
+      setManualBalanceOpen(true)
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const handleManualBalanceSubmit = async () => {
+    const parsed = parseFloat(manualBalanceValue)
+    if (isNaN(parsed)) {
+      toast.error(t('Please enter a valid number'))
+      return
+    }
+
+    setIsSubmittingManual(true)
+    try {
+      await handleUpdateChannelField(channel.id, 'balance', parsed, queryClient)
+      setManualBalanceOpen(false)
+    } finally {
+      setIsSubmittingManual(false)
+    }
   }
 
   return (
@@ -453,6 +499,34 @@ function RemainingCell({ channel }: { channel: Channel }) {
         }}
         isRefreshing={isUpdating}
       />
+
+      <ConfirmDialog
+        open={manualBalanceOpen}
+        onOpenChange={setManualBalanceOpen}
+        title={t('Set Balance Manually')}
+        desc={t(
+          'Automatic balance update failed. You can manually enter the balance value below.'
+        )}
+        confirmText={t('Save')}
+        disabled={isSubmittingManual}
+        isLoading={isSubmittingManual}
+        handleConfirm={handleManualBalanceSubmit}
+      >
+        <div className='flex items-center gap-2 py-2'>
+          <Input
+            type='number'
+            step='0.01'
+            value={manualBalanceValue}
+            onChange={(e) => setManualBalanceValue(e.target.value)}
+            placeholder={t('Enter balance')}
+            className='h-8'
+            autoFocus
+          />
+          <span className='text-muted-foreground text-xs whitespace-nowrap'>
+            {currencyLabel === 'Tokens' ? 'Tokens' : 'USD'}
+          </span>
+        </div>
+      </ConfirmDialog>
     </TooltipProvider>
   )
 }
