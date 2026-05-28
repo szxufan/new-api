@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertTriangle, ChevronDown } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -820,30 +820,53 @@ export function ModelPricingEditorPanel({
                     </Field>
 
                     <div className='grid gap-3 sm:grid-cols-2'>
-                      {laneConfigs.map((lane) => {
-                        const disabled =
-                          lane.key === 'audioOutput' &&
-                          (!laneEnabled.audioInput ||
-                            !hasValue(lanePrices.audioInput))
-                        return (
-                          <PriceLane
-                            key={lane.key}
-                            title={t(lane.titleKey)}
-                            description={t(lane.descriptionKey)}
-                            placeholder={lane.placeholder}
-                            value={lanePrices[lane.key]}
-                            enabled={laneEnabled[lane.key]}
-                            disabled={disabled}
-                            onEnabledChange={(checked) =>
-                              handleLaneToggle(lane.key, checked)
-                            }
-                            onChange={(value) =>
-                              handleLanePriceChange(lane.key, value)
-                            }
-                          />
-                        )
-                      })}
+                      {laneConfigs
+                        .filter((lane) => laneEnabled[lane.key])
+                        .map((lane) => {
+                          const disabled =
+                            lane.key === 'audioOutput' &&
+                            (!laneEnabled.audioInput ||
+                              !hasValue(lanePrices.audioInput))
+                          return (
+                            <PriceLane
+                              key={lane.key}
+                              title={t(lane.titleKey)}
+                              description={t(lane.descriptionKey)}
+                              placeholder={lane.placeholder}
+                              value={lanePrices[lane.key]}
+                              enabled={laneEnabled[lane.key]}
+                              disabled={disabled}
+                              onEnabledChange={(checked) =>
+                                handleLaneToggle(lane.key, checked)
+                              }
+                              onChange={(value) =>
+                                handleLanePriceChange(lane.key, value)
+                              }
+                            />
+                          )
+                        })}
                     </div>
+                    {Object.values(laneEnabled).some((v) => !v) && (
+                      <div className='flex justify-center'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          className='text-muted-foreground'
+                          onClick={() => {
+                            const firstDisabled = laneConfigs.find(
+                              (lane) => !laneEnabled[lane.key]
+                            )
+                            if (firstDisabled) {
+                              handleLaneToggle(firstDisabled.key, true)
+                            }
+                          }}
+                        >
+                          <Plus data-icon='inline-start' />
+                          {t('Add price lane')}
+                        </Button>
+                      </div>
+                    )}
                   </FieldGroup>
                 </TabsContent>
 
