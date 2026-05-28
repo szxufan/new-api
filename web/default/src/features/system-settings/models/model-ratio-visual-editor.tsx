@@ -874,7 +874,7 @@ export const ModelRatioVisualEditor = memo(
 
     return (
       <div className='flex flex-col gap-4'>
-        <div className='grid min-h-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(420px,0.82fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(520px,0.9fr)]' style={{ maxHeight: 'calc(100vh - 14rem)' }}>
+        <div className='grid min-h-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(420px,0.82fr)] xl:grid-cols-[minmax(0,1.1fr)_minmax(520px,0.9fr)]'>
           <div className='flex min-w-0 flex-col gap-4'>
             <DataTableToolbar
               table={table}
@@ -917,9 +917,9 @@ export const ModelRatioVisualEditor = memo(
                   : t('No models configured. Use Add model to get started.')}
               </div>
             ) : (
-              <div className='overflow-hidden rounded-md border overflow-y-auto flex-1'>
+              <div className='overflow-hidden rounded-md border'>
                 <Table>
-                  <TableHeader className='sticky top-0 bg-card z-10'>
+                  <TableHeader>
                     {table.getHeaderGroups().map((headerGroup) => (
                       <TableRow key={headerGroup.id}>
                         {headerGroup.headers.map((header) => (
