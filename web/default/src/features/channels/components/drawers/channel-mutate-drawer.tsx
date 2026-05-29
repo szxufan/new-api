@@ -310,6 +310,7 @@ export function ChannelMutateDrawer({
   const initialModelsRef = useRef<string[]>([])
   const initialModelMappingRef = useRef<string>('')
   const initialStatusCodeMappingRef = useRef<string>('')
+  const prevChannelIdRef = useRef<number | null>(null)
   const [statusCodeRiskOpen, setStatusCodeRiskOpen] = useState(false)
   const [statusCodeRiskDetailItems, setStatusCodeRiskDetailItems] = useState<
     string[]
@@ -600,27 +601,29 @@ export function ChannelMutateDrawer({
 
   // Load channel data into form when editing
   useEffect(() => {
-    if (isEditing && channelData?.data) {
+    const channelIdChanged = prevChannelIdRef.current !== channelId
+    prevChannelIdRef.current = channelId
+
+    if (isEditing && channelData?.data && channelIdChanged) {
       const defaults = transformChannelToFormDefaults(channelData.data)
       form.reset(defaults)
       setAdvancedSettingsOpen(
         readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
       )
-      // Store initial values for comparison
       initialModelsRef.current = parseModelsString(
         channelData.data.models || ''
       )
       initialModelMappingRef.current = channelData.data.model_mapping || ''
       initialStatusCodeMappingRef.current =
         channelData.data.status_code_mapping || ''
-    } else if (!isEditing) {
+    } else if (!isEditing && channelIdChanged) {
       form.reset(CHANNEL_FORM_DEFAULT_VALUES)
       setAdvancedSettingsOpen(false)
       initialModelsRef.current = []
       initialModelMappingRef.current = ''
       initialStatusCodeMappingRef.current = ''
     }
-  }, [isEditing, channelData, form])
+  }, [isEditing, channelId, channelData, form])
 
   // Handle type change - set default values for specific types
   useEffect(() => {
