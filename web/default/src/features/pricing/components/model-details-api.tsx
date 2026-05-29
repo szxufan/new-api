@@ -357,6 +357,99 @@ function buildEmbeddingSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+function buildRerankSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+  const query = 'Organic skincare products for sensitive skin'
+  const documents = [
+    'Organic skincare products are made with natural ingredients that are gentle on all skin types.',
+    'Our gentle formulas are perfect for sensitive skin, free from harsh chemicals and irritants.',
+    'Industrial cleaning products for commercial use only. Not suitable for personal care.',
+  ]
+
+  if (lang === 'curl') {
+    const body = JSON.stringify(
+      { model: ctx.modelName, query, documents, top_n: 2 },
+      null,
+      2
+    )
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'from openai import OpenAI',
+      '',
+      `client = OpenAI(base_url="${ctx.baseUrl}/v1", api_key="<YOUR_API_KEY>")`,
+      '',
+      'response = client.post(',
+      '    "/v1/rerank",',
+      '    json={',
+      `        "model": "${ctx.modelName}",`,
+      `        "query": "${query}",`,
+      '        "documents": [',
+      `            "${documents[0]}",`,
+      `            "${documents[1]}",`,
+      `            "${documents[2]}",`,
+      '        ],',
+      '        "top_n": 2,',
+      '    },',
+      ')',
+      '',
+      'print(response["results"][0]["relevance_score"])',
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `const response = await fetch('${url}', {`,
+      `  method: 'POST',`,
+      `  headers: {`,
+      `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+      `    'Content-Type': 'application/json',`,
+      `  },`,
+      `  body: JSON.stringify({`,
+      `    model: '${ctx.modelName}',`,
+      `    query: '${query}',`,
+      `    documents: [`,
+      `      '${documents[0]}',`,
+      `      '${documents[1]}',`,
+      `      '${documents[2]}',`,
+      `    ],`,
+      `    top_n: 2,`,
+      `  }),`,
+      `})`,
+      '',
+      `const data = await response.json()`,
+      `console.log(data.results[0].relevance_score)`,
+    ].join('\n')
+  }
+  return [
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type': 'application/json',`,
+    `  },`,
+    `  body: JSON.stringify({`,
+    `    model: '${ctx.modelName}',`,
+    `    query: '${query}',`,
+    `    documents: [`,
+    `      '${documents[0]}',`,
+    `      '${documents[1]}',`,
+    `      '${documents[2]}',`,
+    `    ],`,
+    `    top_n: 2,`,
+    `  }),`,
+    `})`,
+    '',
+    `const data = await response.json()`,
+    `console.log(data.results[0].relevance_score)`,
+  ].join('\n')
+}
+
 function buildImageSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const prompt = 'A serene koi pond at sunset, ukiyo-e style.'
@@ -436,8 +529,8 @@ function buildSample(
 ): string {
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
-  if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
-    return buildEmbeddingSample(lang, ctx)
+  if (endpointType === 'embeddings') return buildEmbeddingSample(lang, ctx)
+  if (endpointType === 'jina-rerank') return buildRerankSample(lang, ctx)
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
   return buildChatSample(lang, ctx)
 }
