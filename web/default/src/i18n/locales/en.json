@@ -4529,6 +4529,9 @@
     "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom",
     "User Model Consumption Ranking": "User Model Consumption Ranking",
-    "User Model Call Count Ranking": "User Model Call Count Ranking"
+    "User Model Call Count Ranking": "User Model Call Count Ranking",
+    "Fallback Model": "Fallback Model",
+    "e.g. gpt-4o, claude-3-sonnet": "e.g. gpt-4o, claude-3-sonnet",
+    "When the request contains images or videos, automatically use this model instead.": "When the request contains images or videos, automatically use this model instead."
   }
 }

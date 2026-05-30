@@ -89,6 +89,7 @@ const extendedModelFormSchema = z.object({
   name_rule: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
+  fallback_model: z.string(),
   price: z.string().optional(),
   ratio: z.string().optional(),
   cacheRatio: z.string().optional(),
@@ -210,6 +211,7 @@ export function ModelMutateDrawer({
       name_rule: 0,
       status: true,
       sync_official: true,
+      fallback_model: '',
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -269,6 +271,7 @@ export function ModelMutateDrawer({
         name_rule: model.name_rule || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
+        fallback_model: model.fallback_model || '',
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -373,6 +376,7 @@ export function ModelMutateDrawer({
         name_rule: 0,
         status: true,
         sync_official: true,
+        fallback_model: '',
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -775,6 +779,26 @@ export function ModelMutateDrawer({
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name='fallback_model'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Fallback Model')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={t('e.g. gpt-4o, claude-3-sonnet')}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('When the request contains images or videos, automatically use this model instead.')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <Separator />
 

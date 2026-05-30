@@ -254,6 +254,8 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	// Add fallback_model column to models table
+	migrateModelFallbackModel()
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -504,6 +506,26 @@ func migrateTokenModelLimitsToText() error {
 		common.SysLog(fmt.Sprintf("Successfully migrated %s.%s to text", tableName, columnName))
 	}
 	return nil
+}
+
+// migrateModelFallbackModel adds fallback_model column to models table if not present
+func migrateModelFallbackModel() {
+	tableName := "models"
+	columnName := "fallback_model"
+
+	if !DB.Migrator().HasTable(tableName) {
+		return
+	}
+
+	if DB.Migrator().HasColumn(&Model{}, columnName) {
+		return
+	}
+
+	if err := DB.Migrator().AddColumn(&Model{}, columnName); err != nil {
+		common.SysLog(fmt.Sprintf("Warning: failed to add %s column to %s: %v", columnName, tableName, err))
+	} else {
+		common.SysLog(fmt.Sprintf("Successfully added %s column to %s", columnName, tableName))
+	}
 }
 
 // migrateSubscriptionPlanPriceAmount migrates price_amount column from float/double to decimal(10,6)

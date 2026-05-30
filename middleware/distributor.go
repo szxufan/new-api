@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ModelRequest struct {
@@ -38,6 +40,21 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+
+		if modelRequest.Model != "" && shouldSelectChannel {
+			if fallbackModel := model.GetModelFallbackModel(modelRequest.Model); fallbackModel != "" {
+				applied, fallbackErr := applyMultimodalFallback(c, fallbackModel)
+				if fallbackErr == nil && applied {
+					originalModel := modelRequest.Model
+					modelRequest.Model = fallbackModel
+					common.SetContextKey(c, constant.ContextKeyOriginalModelBeforeFallback, originalModel)
+					common.SetContextKey(c, constant.ContextKeyFallbackModel, fallbackModel)
+					logger.LogInfo(c, fmt.Sprintf("model %s downgraded to %s due to multimodal content",
+						originalModel, fallbackModel))
+				}
+			}
+		}
+
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -486,4 +503,79 @@ func extractModelNameFromGeminiPath(path string) string {
 
 	// 返回模型名部分
 	return path[startIndex : startIndex+colonIndex]
+}
+
+func hasMultimodalContentInBytes(body []byte) bool {
+	messages := gjson.GetBytes(body, "messages")
+	if messages.IsArray() {
+		for _, msg := range messages.Array() {
+			content := msg.Get("content")
+			if content.IsArray() {
+				for _, item := range content.Array() {
+					contentType := item.Get("type").String()
+					switch contentType {
+					case "image_url", "video_url", "input_audio", "file", "image":
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	input := gjson.GetBytes(body, "input")
+	if input.IsArray() {
+		for _, item := range input.Array() {
+			itemType := item.Get("type").String()
+			if itemType == "input_image" || itemType == "input_file" || itemType == "input_video" {
+				return true
+			}
+			content := item.Get("content")
+			if content.IsArray() {
+				for _, sub := range content.Array() {
+					subType := sub.Get("type").String()
+					if subType == "input_image" || subType == "input_file" || subType == "input_video" {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func applyMultimodalFallback(c *gin.Context, fallbackModel string) (bool, error) {
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return false, err
+	}
+	body, err := storage.Bytes()
+	if err != nil {
+		return false, err
+	}
+
+	if !hasMultimodalContentInBytes(body) {
+		storage.Seek(0, io.SeekStart)
+		c.Request.Body = io.NopCloser(storage)
+		return false, nil
+	}
+
+	modified, err := sjson.SetBytes(body, "model", fallbackModel)
+	if err != nil {
+		storage.Seek(0, io.SeekStart)
+		c.Request.Body = io.NopCloser(storage)
+		return false, err
+	}
+
+	newStorage, err := common.CreateBodyStorage(modified)
+	if err != nil {
+		storage.Seek(0, io.SeekStart)
+		c.Request.Body = io.NopCloser(storage)
+		return false, err
+	}
+
+	storage.Close()
+	c.Set(common.KeyBodyStorage, newStorage)
+	c.Request.Body = io.NopCloser(newStorage)
+	return true, nil
 }

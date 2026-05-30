@@ -29,3 +29,10 @@ func GetModelQuotaTypes(modelName string) []int {
 	}
 	return []int{quota}
 }
+
+func GetModelFallbackModel(modelName string) string {
+	GetPricing()
+	modelFallbackLock.RLock()
+	defer modelFallbackLock.RUnlock()
+	return modelFallbackModel[modelName]
+}

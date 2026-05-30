@@ -61,6 +61,9 @@ var (
 var (
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
 	modelSupportEndpointsLock = sync.RWMutex{}
+
+	modelFallbackModel = make(map[string]string)
+	modelFallbackLock  = sync.RWMutex{}
 )
 
 func GetPricing() []Pricing {
@@ -165,6 +168,17 @@ func updatePricing() {
 			}
 		}
 	}
+
+	// 构建降级模型缓存
+	newFallback := make(map[string]string)
+	for modelName, meta := range metaMap {
+		if meta.FallbackModel != "" {
+			newFallback[modelName] = meta.FallbackModel
+		}
+	}
+	modelFallbackLock.Lock()
+	modelFallbackModel = newFallback
+	modelFallbackLock.Unlock()
 
 	// 预加载供应商
 	var vendors []Vendor

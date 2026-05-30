@@ -4529,6 +4529,9 @@
     "Zhipu V4": "智谱 V4",
     "Zoom": "缩放",
     "User Model Consumption Ranking": "用户模型消耗排行",
-    "User Model Call Count Ranking": "用户模型调用次数排行"
+    "User Model Call Count Ranking": "用户模型调用次数排行",
+    "Fallback Model": "降级模型",
+    "e.g. gpt-4o, claude-3-sonnet": "例如 gpt-4o, claude-3-sonnet",
+    "When the request contains images or videos, automatically use this model instead.": "当请求包含图片或视频时，自动使用此模型处理。"
   }
 }
