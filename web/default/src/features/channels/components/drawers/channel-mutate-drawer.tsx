@@ -310,7 +310,8 @@ export function ChannelMutateDrawer({
   const initialModelsRef = useRef<string[]>([])
   const initialModelMappingRef = useRef<string>('')
   const initialStatusCodeMappingRef = useRef<string>('')
-  const prevChannelIdRef = useRef<number | null>(null)
+  // Track which channel's data has been loaded into the form
+  const loadedChannelIdRef = useRef<number | null>(null)
   const [statusCodeRiskOpen, setStatusCodeRiskOpen] = useState(false)
   const [statusCodeRiskDetailItems, setStatusCodeRiskDetailItems] = useState<
     string[]
@@ -371,6 +372,8 @@ export function ChannelMutateDrawer({
     if (!open) {
       setChannelKey(null)
       setIsChannelKeyLoading(false)
+      // Reset loaded channel tracking when drawer closes
+      loadedChannelIdRef.current = null
     } else if (channelId) {
       setChannelKey(null)
     }
@@ -600,30 +603,40 @@ export function ChannelMutateDrawer({
     upstreamDetectedModelsPreview.length
 
   // Load channel data into form when editing
+  // This effect handles two scenarios:
+  // 1. When switching to a different channel (channelId changes)
+  // 2. When channelData arrives after the drawer is already open
   useEffect(() => {
-    const channelIdChanged = prevChannelIdRef.current !== channelId
-    prevChannelIdRef.current = channelId
-
-    if (isEditing && channelData?.data && channelIdChanged) {
-      const defaults = transformChannelToFormDefaults(channelData.data)
-      form.reset(defaults)
-      setAdvancedSettingsOpen(
-        readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
-      )
-      initialModelsRef.current = parseModelsString(
-        channelData.data.models || ''
-      )
-      initialModelMappingRef.current = channelData.data.model_mapping || ''
-      initialStatusCodeMappingRef.current =
-        channelData.data.status_code_mapping || ''
-    } else if (!isEditing && channelIdChanged) {
-      form.reset(CHANNEL_FORM_DEFAULT_VALUES)
-      setAdvancedSettingsOpen(false)
-      initialModelsRef.current = []
-      initialModelMappingRef.current = ''
-      initialStatusCodeMappingRef.current = ''
+    // For edit mode: load data when we have channelData for the current channel
+    if (isEditing && channelData?.data) {
+      const dataChannelId = channelData.data.id
+      // Only load if this channel's data hasn't been loaded yet
+      if (dataChannelId !== null && loadedChannelIdRef.current !== dataChannelId) {
+        loadedChannelIdRef.current = dataChannelId
+        const defaults = transformChannelToFormDefaults(channelData.data)
+        form.reset(defaults)
+        setAdvancedSettingsOpen(
+          readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
+        )
+        initialModelsRef.current = parseModelsString(
+          channelData.data.models || ''
+        )
+        initialModelMappingRef.current = channelData.data.model_mapping || ''
+        initialStatusCodeMappingRef.current =
+          channelData.data.status_code_mapping || ''
+      }
+    } else if (!isEditing) {
+      // For create mode: reset form and clear loaded channel tracking
+      if (loadedChannelIdRef.current !== null) {
+        loadedChannelIdRef.current = null
+        form.reset(CHANNEL_FORM_DEFAULT_VALUES)
+        setAdvancedSettingsOpen(false)
+        initialModelsRef.current = []
+        initialModelMappingRef.current = ''
+        initialStatusCodeMappingRef.current = ''
+      }
     }
-  }, [isEditing, channelId, channelData, form])
+  }, [isEditing, channelData, form])
 
   // Handle type change - set default values for specific types
   useEffect(() => {
