@@ -700,6 +700,102 @@ func DeleteChannel(c *gin.Context) {
 	return
 }
 
+// RateLimitChannelRequest 手动限流请求
+type RateLimitChannelRequest struct {
+	DurationHours float64 `json:"duration_hours"` // 限流时长（小时）
+	Reason        string  `json:"reason"`        // 限流原因
+}
+
+// RateLimitChannel 手动设置渠道限流
+func RateLimitChannel(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid channel id",
+		})
+		return
+	}
+
+	var req RateLimitChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid request body",
+		})
+		return
+	}
+
+	if req.DurationHours <= 0 {
+		req.DurationHours = 1.0 // 默认1小时
+	}
+	if req.Reason == "" {
+		req.Reason = "manual rate limit"
+	}
+
+	channel, err := model.GetChannelById(id, false)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "channel not found",
+		})
+		return
+	}
+
+	service.ManualRateLimitChannel(id, channel.Name, req.DurationHours, req.Reason)
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "channel rate limited",
+	})
+}
+
+// UnrateLimitChannelRequest 解除限流请求
+type UnrateLimitChannelRequest struct {
+	KeyIndex *int `json:"key_index"` // 可选，多Key模式下指定Key索引
+}
+
+// UnrateLimitChannel 解除渠道限流
+func UnrateLimitChannel(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid channel id",
+		})
+		return
+	}
+
+	channel, err := model.GetChannelById(id, false)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "channel not found",
+		})
+		return
+	}
+
+	var usingKey string
+	if channel.ChannelInfo.IsMultiKey {
+		var req UnrateLimitChannelRequest
+		if err := c.ShouldBindJSON(&req); err == nil && req.KeyIndex != nil {
+			keys := channel.GetKeys()
+			if *req.KeyIndex >= 0 && *req.KeyIndex < len(keys) {
+				usingKey = keys[*req.KeyIndex]
+			}
+		}
+	}
+
+	service.UnrateLimitChannel(id, usingKey, channel.Name)
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "channel rate limit removed",
+	})
+}
+
 func DeleteDisabledChannel(c *gin.Context) {
 	rows, err := model.DeleteDisabledChannel()
 	if err != nil {

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ChannelRateLimitSection } from '../integrations/channel-rate-limit-section'
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
@@ -38,6 +39,19 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'channel-rate-limit',
+    titleKey: 'Channel Rate Limiting',
+    descriptionKey: 'Configure automatic rate limiting for channels',
+    build: (settings: OperationsSettings) => (
+      <ChannelRateLimitSection
+        defaultValues={{
+          RateLimit429Enabled: settings.RateLimit429Enabled,
+          RateLimit429DurationMinutes: settings.RateLimit429DurationMinutes,
         }}
       />
     ),

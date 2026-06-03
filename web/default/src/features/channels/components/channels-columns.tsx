@@ -918,6 +918,62 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           }
         }
 
+        // Rate limited: show remaining time tooltip
+        if (status === 4 || status === 5) {
+          let rateLimitUntil = 0
+          let rateLimitReason = ''
+          try {
+            const otherInfo = channel.other_info
+              ? JSON.parse(channel.other_info)
+              : null
+            if (otherInfo) {
+              rateLimitUntil = otherInfo.rate_limit_until || 0
+              rateLimitReason = otherInfo.rate_limit_reason || ''
+            }
+          } catch {
+            /* empty */
+          }
+
+          if (rateLimitUntil > 0) {
+            const now = Math.floor(Date.now() / 1000)
+            const remainingSeconds = Math.max(0, rateLimitUntil - now)
+            const remainingMinutes = Math.floor(remainingSeconds / 60)
+            const remainingHours = Math.floor(remainingMinutes / 60)
+            const remainingDisplay =
+              remainingHours > 0
+                ? `${remainingHours}h ${remainingMinutes % 60}m`
+                : `${remainingMinutes}m ${remainingSeconds % 60}s`
+
+            return (
+              <TooltipProvider delay={100}>
+                <Tooltip>
+                  <TooltipTrigger render={<span />}>
+                    <StatusBadge
+                      label={label}
+                      variant={config.variant}
+                      showDot={config.showDot}
+                      size='sm'
+                      copyable={false}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side='top' className='max-w-xs'>
+                    <div className='space-y-1 text-xs'>
+                      <div>
+                        {t('Rate limit remaining:')} {remainingDisplay}
+                      </div>
+                      {rateLimitReason && (
+                        <div>
+                          {t('Reason:')} {rateLimitReason}
+                        </div>
+                      )}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )
+          }
+        }
+
         return (
           <StatusBadge
             label={label}

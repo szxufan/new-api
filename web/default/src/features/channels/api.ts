@@ -151,6 +151,28 @@ export async function deleteChannel(
 }
 
 /**
+ * Rate limit a channel manually
+ */
+export async function rateLimitChannel(
+  id: number,
+  data: { duration_hours: number; reason?: string }
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post(`/api/channel/${id}/rate-limit`, data)
+  return res.data
+}
+
+/**
+ * Remove rate limit from a channel
+ */
+export async function unrateLimitChannel(
+  id: number,
+  data?: { key_index?: number }
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post(`/api/channel/${id}/unrate-limit`, data || {})
+  return res.data
+}
+
+/**
  * Batch delete channels
  */
 export async function batchDeleteChannels(

@@ -100,6 +100,9 @@ func main() {
 		}()
 
 		go model.SyncChannelCache(common.SyncFrequency)
+
+		// 限流恢复定时任务
+		model.StartRateLimitRecoveryTask()
 	}
 
 	// 热更新配置

@@ -15,6 +15,13 @@ var AutomaticDisableKeywords = []string{
 	"Your account is not authorized",
 }
 
+// 429自动限流配置
+var RateLimit429Enabled = true      // 是否启用429自动限流
+var RateLimit429DurationMinutes = 1 // 429限流时长（分钟）
+
+// 手动限流默认时长
+var ManualRateLimitDefaultHours = 1.0 // 默认手动限流时长（小时）
+
 func AutomaticDisableKeywordsToString() string {
 	return strings.Join(AutomaticDisableKeywords, "\n")
 }

@@ -112,6 +112,8 @@ export const CHANNEL_STATUS = {
   ENABLED: 1,
   MANUAL_DISABLED: 2,
   AUTO_DISABLED: 3,
+  RATE_LIMITED_429: 4,
+  MANUALLY_RATE_LIMITED: 5,
 } as const
 
 export const CHANNEL_STATUS_LABELS = {
@@ -119,6 +121,8 @@ export const CHANNEL_STATUS_LABELS = {
   [CHANNEL_STATUS.ENABLED]: 'Enabled',
   [CHANNEL_STATUS.MANUAL_DISABLED]: 'Disabled',
   [CHANNEL_STATUS.AUTO_DISABLED]: 'Auto Disabled',
+  [CHANNEL_STATUS.RATE_LIMITED_429]: '429 Rate Limited',
+  [CHANNEL_STATUS.MANUALLY_RATE_LIMITED]: 'Manual Rate Limited',
 } as const
 
 export const CHANNEL_STATUS_OPTIONS = [
@@ -146,6 +150,16 @@ export const CHANNEL_STATUS_CONFIG = {
   [CHANNEL_STATUS.AUTO_DISABLED]: {
     variant: 'danger' as const,
     label: 'Auto Disabled',
+    showDot: true,
+  },
+  [CHANNEL_STATUS.RATE_LIMITED_429]: {
+    variant: 'warning' as const,
+    label: '429 Rate Limited',
+    showDot: true,
+  },
+  [CHANNEL_STATUS.MANUALLY_RATE_LIMITED]: {
+    variant: 'warning' as const,
+    label: 'Manual Rate Limited',
     showDot: true,
   },
 }

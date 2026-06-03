@@ -26,7 +26,25 @@ func InitChannelCache() {
 	newChannelId2channel := make(map[int]*Channel)
 	var channels []*Channel
 	DB.Find(&channels)
+	now := time.Now().Unix()
 	for _, channel := range channels {
+		// 检查限流状态是否过期
+		if channel.Status == common.ChannelStatusRateLimited429 || channel.Status == common.ChannelStatusManuallyRateLimited {
+			info := channel.GetOtherInfo()
+			if until, ok := info["rate_limit_until"].(int64); ok {
+				if until > now {
+					// 仍在限流期内，保持限流状态
+					newChannelId2channel[channel.Id] = channel
+					continue
+				}
+				// 限流已过期，恢复为启用状态
+				channel.Status = common.ChannelStatusEnabled
+				delete(info, "rate_limit_until")
+				delete(info, "rate_limit_reason")
+				channel.SetOtherInfo(info)
+				_ = channel.SaveWithoutKey()
+			}
+		}
 		newChannelId2channel[channel.Id] = channel
 	}
 	var abilities []*Ability
@@ -92,6 +110,57 @@ func SyncChannelCache(frequency int) {
 		common.SysLog("syncing channels from database")
 		InitChannelCache()
 	}
+}
+
+// RecoverExpiredRateLimitedChannels 恢复已过期限流的渠道
+func RecoverExpiredRateLimitedChannels() {
+	now := time.Now().Unix()
+
+	// 查找所有限流状态的渠道
+	var channels []*Channel
+	DB.Where("status IN ?", []int{common.ChannelStatusRateLimited429, common.ChannelStatusManuallyRateLimited}).Find(&channels)
+
+	for _, channel := range channels {
+		info := channel.GetOtherInfo()
+		if until, ok := info["rate_limit_until"].(int64); ok && until <= now {
+			// 限流已过期，恢复启用
+			UpdateChannelStatus(channel.Id, "", common.ChannelStatusEnabled, "")
+			common.SysLog(fmt.Sprintf("channel #%d rate limit expired, restored to enabled", channel.Id))
+		}
+
+		// 检查Key级别限流
+		if channel.ChannelInfo.IsMultiKey && channel.ChannelInfo.MultiKeyRateLimitedUntil != nil {
+			changed := false
+			for keyIndex, keyUntil := range channel.ChannelInfo.MultiKeyRateLimitedUntil {
+				if keyUntil <= now {
+					delete(channel.ChannelInfo.MultiKeyRateLimitedUntil, keyIndex)
+					// 如果该Key在MultiKeyStatusList中是限流状态，也清除
+					if status, ok := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; ok && status == common.ChannelStatusRateLimited429 {
+						delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+					}
+					changed = true
+				}
+			}
+			if changed {
+				_ = channel.SaveWithoutKey()
+				// 检查是否所有Key都恢复正常
+				if len(channel.ChannelInfo.MultiKeyStatusList) < channel.ChannelInfo.MultiKeySize {
+					// 更新abilities
+					_ = UpdateAbilityStatus(channel.Id, true)
+				}
+			}
+		}
+	}
+}
+
+// StartRateLimitRecoveryTask 启动限流恢复定时任务
+func StartRateLimitRecoveryTask() {
+	go func() {
+		for {
+			time.Sleep(30 * time.Second) // 每30秒检查一次
+			RecoverExpiredRateLimitedChannels()
+		}
+	}()
 }
 
 func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {

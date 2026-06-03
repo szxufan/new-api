@@ -65,6 +65,8 @@ const defaultOperationsSettings: OperationsSettings = {
   'perf_metrics_setting.flush_interval': 5,
   'perf_metrics_setting.bucket_time': 'hour',
   'perf_metrics_setting.retention_days': 0,
+  RateLimit429Enabled: true,
+  RateLimit429DurationMinutes: 1,
 }
 
 export function OperationsSettings() {
@@ -90,6 +92,7 @@ export function OperationsSettings() {
 
   const activeSection = (params?.section ?? OPERATIONS_DEFAULT_SECTION) as
     | 'behavior'
+    | 'channel-rate-limit'
     | 'monitoring'
     | 'email'
     | 'worker'

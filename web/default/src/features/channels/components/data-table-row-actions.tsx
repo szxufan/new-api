@@ -34,6 +34,8 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  Timer,
+  TimerOff,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -126,6 +128,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setCurrentRow(channel)
     setOpen('multi-key-manage')
   }
+
+  const handleRateLimit = () => {
+    setCurrentRow(channel)
+    setOpen('rate-limit')
+  }
+
+  const isRateLimited = channel.status === 4 || channel.status === 5
 
   const handleToggleStatus = async (
     e?: React.MouseEvent<HTMLButtonElement>
@@ -293,6 +302,16 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
               </DropdownMenuShortcut>
             </DropdownMenuItem>
           )}
+
+          <DropdownMenuSeparator />
+
+          {/* Rate Limit */}
+          <DropdownMenuItem onClick={handleRateLimit}>
+            {isRateLimited ? t('Remove Rate Limit') : t('Set Rate Limit')}
+            <DropdownMenuShortcut>
+              {isRateLimited ? <TimerOff size={16} /> : <Timer size={16} />}
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
 
           <DropdownMenuSeparator />
 

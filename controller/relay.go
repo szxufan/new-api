@@ -357,7 +357,14 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+
+	// 429限流处理：优先于自动禁用
+	if err.StatusCode == 429 && operation_setting.RateLimit429Enabled && channelError.AutoBan {
+		gopool.Go(func() {
+			service.RateLimitChannelKey429(channelError)
+		})
+		// 429不触发自动禁用，只触发限流，但仍记录错误日志
+	} else if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})

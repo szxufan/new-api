@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -60,13 +61,14 @@ type Channel struct {
 }
 
 type ChannelInfo struct {
-	IsMultiKey             bool                  `json:"is_multi_key"`                        // 是否多Key模式
-	MultiKeySize           int                   `json:"multi_key_size"`                      // 多Key模式下的Key数量
-	MultiKeyStatusList     map[int]int           `json:"multi_key_status_list"`               // key状态列表，key index -> status
-	MultiKeyDisabledReason map[int]string        `json:"multi_key_disabled_reason,omitempty"` // key禁用原因列表，key index -> reason
-	MultiKeyDisabledTime   map[int]int64         `json:"multi_key_disabled_time,omitempty"`   // key禁用时间列表，key index -> time
-	MultiKeyPollingIndex   int                   `json:"multi_key_polling_index"`             // 多Key模式下轮询的key索引
-	MultiKeyMode           constant.MultiKeyMode `json:"multi_key_mode"`
+	IsMultiKey               bool                  `json:"is_multi_key"`                         // 是否多Key模式
+	MultiKeySize             int                   `json:"multi_key_size"`                       // 多Key模式下的Key数量
+	MultiKeyStatusList       map[int]int           `json:"multi_key_status_list"`                // key状态列表，key index -> status
+	MultiKeyDisabledReason   map[int]string        `json:"multi_key_disabled_reason,omitempty"`  // key禁用原因列表，key index -> reason
+	MultiKeyDisabledTime     map[int]int64         `json:"multi_key_disabled_time,omitempty"`    // key禁用时间列表，key index -> time
+	MultiKeyRateLimitedUntil map[int]int64         `json:"multi_key_rate_limited_until,omitempty"` // key限流结束时间列表，key index -> unix timestamp
+	MultiKeyPollingIndex     int                   `json:"multi_key_polling_index"`              // 多Key模式下轮询的key索引
+	MultiKeyMode             constant.MultiKeyMode `json:"multi_key_mode"`
 }
 
 type ChannelSortOptions struct {
@@ -213,7 +215,10 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	lock.Lock()
 	defer lock.Unlock()
 
+	now := time.Now().Unix()
 	statusList := channel.ChannelInfo.MultiKeyStatusList
+	rateLimitedUntil := channel.ChannelInfo.MultiKeyRateLimitedUntil
+
 	// helper to get key status, default to enabled when missing
 	getStatus := func(idx int) int {
 		if statusList == nil {
@@ -225,10 +230,22 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		return common.ChannelStatusEnabled
 	}
 
-	// Collect indexes of enabled keys
+	// helper to check if key is rate limited
+	isRateLimited := func(idx int) bool {
+		if rateLimitedUntil == nil {
+			return false
+		}
+		if until, ok := rateLimitedUntil[idx]; ok {
+			return until > now
+		}
+		return false
+	}
+
+	// Collect indexes of enabled keys (not disabled and not rate limited)
 	enabledIdx := make([]int, 0, len(keys))
 	for i := range keys {
-		if getStatus(i) == common.ChannelStatusEnabled {
+		status := getStatus(i)
+		if status == common.ChannelStatusEnabled && !isRateLimited(i) {
 			enabledIdx = append(enabledIdx, i)
 		}
 	}
@@ -268,7 +285,7 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		}
 		for i := 0; i < len(keys); i++ {
 			idx := (start + i) % len(keys)
-			if getStatus(idx) == common.ChannelStatusEnabled {
+			if getStatus(idx) == common.ChannelStatusEnabled && !isRateLimited(idx) {
 				// update polling index for next call (point to the next position)
 				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
 				return keys[idx], idx, nil
@@ -745,6 +762,132 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		}
 	}
 	return true
+}
+
+// RateLimitChannel 对整个渠道设置限流状态
+func RateLimitChannel(channelId int, status int, rateLimitUntil int64, reason string) bool {
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+		// 更新缓存状态
+		CacheUpdateChannelStatus(channelId, status)
+	}
+
+	shouldUpdateAbilities := false
+	defer func() {
+		if shouldUpdateAbilities {
+			err := UpdateAbilityStatus(channelId, false)
+			if err != nil {
+				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+			}
+		}
+	}()
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false
+	}
+
+	// 设置限流信息
+	info := channel.GetOtherInfo()
+	info["rate_limit_until"] = rateLimitUntil
+	info["rate_limit_reason"] = reason
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+	channel.Status = status
+	shouldUpdateAbilities = true
+
+	err = channel.SaveWithoutKey()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to rate limit channel: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
+		return false
+	}
+	return true
+}
+
+// RateLimitChannelKey 对多Key渠道的特定Key设置限流状态
+func RateLimitChannelKey(channelId int, usingKey string, rateLimitUntil int64, reason string) bool {
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+		if !channelCache.ChannelInfo.IsMultiKey {
+			return false
+		}
+
+		// Use per-channel lock to prevent concurrent map read/write
+		pollingLock := GetChannelPollingLock(channelId)
+		pollingLock.Lock()
+		handlerMultiKeyRateLimit(channelCache, usingKey, rateLimitUntil, reason)
+		pollingLock.Unlock()
+	}
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false
+	}
+
+	if !channel.ChannelInfo.IsMultiKey {
+		return false
+	}
+
+	pollingLock := GetChannelPollingLock(channelId)
+	pollingLock.Lock()
+	handlerMultiKeyRateLimit(channel, usingKey, rateLimitUntil, reason)
+	pollingLock.Unlock()
+
+	err = channel.SaveWithoutKey()
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to rate limit channel key: channel_id=%d, error=%v", channel.Id, err))
+		return false
+	}
+	return true
+}
+
+// handlerMultiKeyRateLimit 处理多Key渠道的Key级别限流
+func handlerMultiKeyRateLimit(channel *Channel, usingKey string, rateLimitUntil int64, reason string) {
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return
+	}
+
+	var keyIndex int
+	for i, key := range keys {
+		if key == usingKey {
+			keyIndex = i
+			break
+		}
+	}
+
+	if channel.ChannelInfo.MultiKeyRateLimitedUntil == nil {
+		channel.ChannelInfo.MultiKeyRateLimitedUntil = make(map[int]int64)
+	}
+	channel.ChannelInfo.MultiKeyRateLimitedUntil[keyIndex] = rateLimitUntil
+
+	// 同时更新状态列表，标记为限流状态
+	if channel.ChannelInfo.MultiKeyStatusList == nil {
+		channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
+	}
+	channel.ChannelInfo.MultiKeyStatusList[keyIndex] = common.ChannelStatusRateLimited429
+
+	// 检查是否所有Key都被限流或禁用
+	if len(channel.ChannelInfo.MultiKeyStatusList) >= channel.ChannelInfo.MultiKeySize {
+		channel.Status = common.ChannelStatusRateLimited429
+		info := channel.GetOtherInfo()
+		info["rate_limit_until"] = rateLimitUntil
+		info["rate_limit_reason"] = "All keys are rate limited"
+		info["status_time"] = common.GetTimestamp()
+		channel.SetOtherInfo(info)
+	}
 }
 
 func EnableChannelByTag(tag string) error {
