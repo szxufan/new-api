@@ -303,7 +303,7 @@ export function GeminiSettingsCard({ defaultValues }: GeminiSettingsCardProps) {
                 <FormItem className='flex flex-row items-center justify-between'>
                   <div className='space-y-0.5'>
                     <FormLabel className='text-base'>
-                      {t('Thinking Adapter')}
+                      {t('Thinking Suffix Adapter')}
                     </FormLabel>
                     <FormDescription>
                       {t('Supports `-thinking`, `-thinking-')}

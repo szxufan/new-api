@@ -227,11 +227,11 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
                 <FormItem className='flex flex-row items-center justify-between'>
                   <div className='space-y-0.5'>
                     <FormLabel className='text-base'>
-                      {t('Thinking Adapter')}
+                      {t('Thinking Suffix Adapter')}
                     </FormLabel>
                     <FormDescription>
                       {t(
-                        'Translate `-thinking` suffixes into Anthropic native thinking models while keeping pricing predictable.'
+                        'Adapt `-thinking` suffix requests to Anthropic native thinking behavior while keeping billing predictable.'
                       )}
                     </FormDescription>
                   </div>
