@@ -20,6 +20,7 @@ import { useCallback, useState } from 'react'
 import { ArrowUpDown, Check, Copy, Filter, Grid2X2, Table2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -164,12 +165,10 @@ export function PricingToolbar(props: PricingToolbarProps) {
     const modelNames = props.filteredModels
       .map((model) => model.model_name)
       .join('\n')
-    try {
-      await navigator.clipboard.writeText(modelNames)
+    const success = await copyToClipboard(modelNames)
+    if (success) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard API not available or permission denied
     }
   }, [props.filteredModels])
 
@@ -205,32 +204,24 @@ export function PricingToolbar(props: PricingToolbarProps) {
             )}
           </div>
 
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  onClick={handleCopyModels}
-                  disabled={props.filteredModels.length === 0}
-                  className='gap-1.5'
-                >
-                  {copied ? (
-                    <Check className='size-3.5 text-green-500' />
-                  ) : (
-                    <Copy className='size-3.5' />
-                  )}
-                  <span className='hidden sm:inline'>
-                    {copied ? t('Copied') : t('Copy names')}
-                  </span>
-                </Button>
-              }
-            />
-            <TooltipContent side='bottom' className='text-xs'>
-              {t('Copy all filtered model names to clipboard')}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={props.filteredModels.length === 0}
+            className='gap-1.5'
+            onClick={handleCopyModels}
+            title={t('Copy all filtered model names to clipboard')}
+          >
+            {copied ? (
+              <Check className='size-3.5 text-green-500' />
+            ) : (
+              <Copy className='size-3.5' />
+            )}
+            <span className='hidden sm:inline'>
+              {copied ? t('Copied') : t('Copy names')}
+            </span>
+          </Button>
         </div>
 
         <div className='flex flex-wrap items-center gap-2'>
