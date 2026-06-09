@@ -980,6 +980,8 @@
     "Copy Link": "Sao chép liên kết",
     "Copy model name": "Sao chép tên mô hình",
     "Copy model names": "Sao chép tên mô hình",
+    "Copy names": "Sao chép tên",
+    "Copy all filtered model names to clipboard": "Sao chép tất cả tên mô hình đã lọc vào clipboard",
     "Copy prompt": "Sao chép prompt",
     "Copy ready-to-run curl": "Sao chép curl có thể chạy ngay",
     "Copy redemption code": "Sao chép mã đổi thưởng",

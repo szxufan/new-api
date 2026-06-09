@@ -983,6 +983,8 @@
     "Copy Link": "复制链接",
     "Copy model name": "复制模型名称",
     "Copy model names": "复制模型名称列表",
+    "Copy names": "复制名称",
+    "Copy all filtered model names to clipboard": "复制所有筛选后的模型名称到剪贴板",
     "Copy prompt": "复制提示词",
     "Copy ready-to-run curl": "复制可直接运行的 curl",
     "Copy redemption code": "复制兑换码",

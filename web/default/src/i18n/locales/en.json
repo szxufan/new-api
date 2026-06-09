@@ -983,6 +983,8 @@
     "Copy Link": "Copy Link",
     "Copy model name": "Copy model name",
     "Copy model names": "Copy model names",
+    "Copy names": "Copy names",
+    "Copy all filtered model names to clipboard": "Copy all filtered model names to clipboard",
     "Copy prompt": "Copy prompt",
     "Copy ready-to-run curl": "Copy ready-to-run curl",
     "Copy redemption code": "Copy redemption code",

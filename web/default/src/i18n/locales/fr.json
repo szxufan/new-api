@@ -980,6 +980,8 @@
     "Copy Link": "Copier le lien",
     "Copy model name": "Copier le nom du modèle",
     "Copy model names": "Copier les noms des modèles",
+    "Copy names": "Copier les noms",
+    "Copy all filtered model names to clipboard": "Copier tous les noms de modèles filtrés dans le presse-papiers",
     "Copy prompt": "Copier le prompt",
     "Copy ready-to-run curl": "Copier le curl prêt à exécuter",
     "Copy redemption code": "Copier le code de rachat",

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useState } from 'react'
-import { ArrowUpDown, Check, Filter, Grid2X2, Table2 } from 'lucide-react'
+import { ArrowUpDown, Check, Copy, Filter, Grid2X2, Table2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -57,6 +57,7 @@ type SegmentOption = {
 }
 
 export interface PricingToolbarProps {
+  filteredModels: PricingModel[]
   filteredCount: number
   totalCount?: number
   sortBy: string
@@ -141,6 +142,7 @@ function SegmentedControl(props: {
 export function PricingToolbar(props: PricingToolbarProps) {
   const { t } = useTranslation()
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const sortLabels = getSortLabels(t)
 
   const handleTokenUnitChange = useCallback(
@@ -157,6 +159,19 @@ export function PricingToolbar(props: PricingToolbarProps) {
     (value: string) => props.onRechargePriceChange(value === 'recharge'),
     [props]
   )
+
+  const handleCopyModels = useCallback(async () => {
+    const modelNames = props.filteredModels
+      .map((model) => model.model_name)
+      .join('\n')
+    try {
+      await navigator.clipboard.writeText(modelNames)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API not available or permission denied
+    }
+  }, [props.filteredModels])
 
   return (
     <div className='rounded-xl border p-3'>
@@ -189,6 +204,33 @@ export function PricingToolbar(props: PricingToolbarProps) {
               </span>
             )}
           </div>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  onClick={handleCopyModels}
+                  disabled={props.filteredModels.length === 0}
+                  className='gap-1.5'
+                >
+                  {copied ? (
+                    <Check className='size-3.5 text-green-500' />
+                  ) : (
+                    <Copy className='size-3.5' />
+                  )}
+                  <span className='hidden sm:inline'>
+                    {copied ? t('Copied') : t('Copy names')}
+                  </span>
+                </Button>
+              }
+            />
+            <TooltipContent side='bottom' className='text-xs'>
+              {t('Copy all filtered model names to clipboard')}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         <div className='flex flex-wrap items-center gap-2'>

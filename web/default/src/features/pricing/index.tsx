@@ -225,6 +225,7 @@ export function Pricing() {
 
             <main className='min-w-0 space-y-4'>
               <PricingToolbar
+                filteredModels={filteredModels}
                 filteredCount={filteredModels.length}
                 totalCount={models?.length}
                 sortBy={sortBy}

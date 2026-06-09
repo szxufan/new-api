@@ -980,6 +980,8 @@
     "Copy Link": "Копировать ссылку",
     "Copy model name": "Скопировать имя модели",
     "Copy model names": "Скопировать имена моделей",
+    "Copy names": "Скопировать имена",
+    "Copy all filtered model names to clipboard": "Скопировать все отфильтрованные имена моделей в буфер обмена",
     "Copy prompt": "Копировать промпт",
     "Copy ready-to-run curl": "Скопировать готовый curl",
     "Copy redemption code": "Скопировать код активации",

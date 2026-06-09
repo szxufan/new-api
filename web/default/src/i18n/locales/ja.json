@@ -980,6 +980,8 @@
     "Copy Link": "リンクをコピー",
     "Copy model name": "モデル名をコピー",
     "Copy model names": "モデル名をコピー",
+    "Copy names": "名前をコピー",
+    "Copy all filtered model names to clipboard": "フィルタ済みの全モデル名をクリップボードにコピー",
     "Copy prompt": "プロンプトをコピー",
     "Copy ready-to-run curl": "そのまま実行できる curl をコピー",
     "Copy redemption code": "引き換えコードをコピー",
