@@ -735,7 +735,7 @@ func accumulateReasoningAndContent(data string, reasoningBuilder *strings.Builde
 }
 
 func cacheReasoningContentForDeepSeekThinking(c *gin.Context, info *relaycommon.RelayInfo, content string, reasoningContent string, toolCalls json.RawMessage, toolCount int) {
-	if !reasoning.IsDeepSeekThinkingModel(info.UpstreamModelName) && !reasoning.IsDeepSeekThinkingModel(info.OriginModelName) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
 		return
 	}
 	if reasoningContent == "" && content == "" {

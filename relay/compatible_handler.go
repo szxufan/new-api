@@ -226,7 +226,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 }
 
 func fillReasoningContentForDeepSeekThinking(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) {
-	if !reasoning.IsDeepSeekThinkingModel(info.UpstreamModelName) && !reasoning.IsDeepSeekThinkingModel(info.OriginModelName) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
 		return
 	}
 	filled := 0

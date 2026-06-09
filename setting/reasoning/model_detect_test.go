@@ -81,3 +81,109 @@ func TestIsDeepSeekThinkingModel(t *testing.T) {
 		})
 	}
 }
+
+func TestIsMimoThinkingModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		modelName string
+		want      bool
+	}{
+		{
+			name:      "mimo-v2.5-pro",
+			modelName: "mimo-v2.5-pro",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2.5",
+			modelName: "mimo-v2.5",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2-pro",
+			modelName: "mimo-v2-pro",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2-omni",
+			modelName: "mimo-v2-omni",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2-flash",
+			modelName: "mimo-v2-flash",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2.5-pro with suffix should not match",
+			modelName: "mimo-v2.5-pro-max",
+			want:      false,
+		},
+		{
+			name:      "gpt-4",
+			modelName: "gpt-4",
+			want:      false,
+		},
+		{
+			name:      "deepseek-v4-flash",
+			modelName: "deepseek-v4-flash",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsMimoThinkingModel(tt.modelName)
+			if got != tt.want {
+				t.Errorf("IsMimoThinkingModel(%q) = %v, want %v", tt.modelName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsThinkingModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		modelName string
+		want      bool
+	}{
+		{
+			name:      "deepseek-reasoner",
+			modelName: "deepseek-reasoner",
+			want:      true,
+		},
+		{
+			name:      "deepseek-v4-flash",
+			modelName: "deepseek-v4-flash",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2.5-pro",
+			modelName: "mimo-v2.5-pro",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2-flash",
+			modelName: "mimo-v2-flash",
+			want:      true,
+		},
+		{
+			name:      "gpt-4 should not match",
+			modelName: "gpt-4",
+			want:      false,
+		},
+		{
+			name:      "deepseek-chat should not match",
+			modelName: "deepseek-chat",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsThinkingModel(tt.modelName)
+			if got != tt.want {
+				t.Errorf("IsThinkingModel(%q) = %v, want %v", tt.modelName, got, tt.want)
+			}
+		})
+	}
+}
