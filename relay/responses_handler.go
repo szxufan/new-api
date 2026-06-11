@@ -70,6 +70,24 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
+
+	// Check if this channel+model is marked for fallback to ChatCompletions
+	// Skip fallback check for Compact mode (OpenAI-only endpoint)
+	if info.RelayMode != relayconstant.RelayModeResponsesCompact && service.ShouldFallbackResponsesToChat(info.ChannelId, info.OriginModelName) {
+		logger.LogInfo(c, fmt.Sprintf("responses endpoint fallback (cached) for channel %d model %s, using chat/completions", info.ChannelId, info.OriginModelName))
+		usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+		if apiErr != nil {
+			return apiErr
+		}
+		// Handle quota consumption
+		if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
+			service.PostAudioConsumeQuota(c, info, usage, "")
+		} else {
+			service.PostTextConsumeQuota(c, info, usage, nil)
+		}
+		return nil
+	}
+
 	var requestBody io.Reader
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
@@ -125,6 +143,26 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		httpResp = resp.(*http.Response)
 
 		if httpResp.StatusCode != http.StatusOK {
+			// Check for 404 - endpoint not supported, fallback to ChatCompletions
+			// Skip fallback for Compact mode (OpenAI-only endpoint)
+			if httpResp.StatusCode == http.StatusNotFound && info.RelayMode != relayconstant.RelayModeResponsesCompact {
+				logger.LogInfo(c, fmt.Sprintf("responses endpoint not supported (404) for channel %d model %s, falling back to chat/completions", info.ChannelId, info.OriginModelName))
+				// Mark this channel+model for fallback
+				service.MarkResponsesFallback(info.ChannelId, info.OriginModelName)
+				// Retry with ChatCompletions
+				usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+				if apiErr != nil {
+					return apiErr
+				}
+				// Handle quota consumption
+				if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
+					service.PostAudioConsumeQuota(c, info, usage, "")
+				} else {
+					service.PostTextConsumeQuota(c, info, usage, nil)
+				}
+				return nil
+			}
+
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			// reset status code 重置状态码
 			service.ResetStatusCode(newAPIError, statusCodeMappingStr)

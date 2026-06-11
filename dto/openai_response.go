@@ -267,6 +267,16 @@ type OutputTokenDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
+// ResponsesUsage is the usage structure for Responses API responses.
+// It follows the OpenAI Responses API specification exactly.
+type ResponsesUsage struct {
+	InputTokens        int                  `json:"input_tokens"`
+	OutputTokens       int                  `json:"output_tokens"`
+	TotalTokens        int                  `json:"total_tokens"`
+	InputTokensDetails *InputTokenDetails   `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *OutputTokenDetails `json:"output_tokens_details,omitempty"`
+}
+
 type OpenAIResponsesResponse struct {
 	ID                 string             `json:"id"`
 	Object             string             `json:"object"`
@@ -275,19 +285,19 @@ type OpenAIResponsesResponse struct {
 	Error              any                `json:"error,omitempty"`
 	IncompleteDetails  *IncompleteDetails `json:"incomplete_details,omitempty"`
 	Instructions       json.RawMessage    `json:"instructions"`
-	MaxOutputTokens    int                `json:"max_output_tokens"`
+	MaxOutputTokens    int                `json:"max_output_tokens,omitempty"`
 	Model              string             `json:"model"`
 	Output             []ResponsesOutput  `json:"output"`
-	ParallelToolCalls  bool               `json:"parallel_tool_calls"`
+	ParallelToolCalls  *bool              `json:"parallel_tool_calls,omitempty"`
 	PreviousResponseID json.RawMessage    `json:"previous_response_id"`
 	Reasoning          *Reasoning         `json:"reasoning"`
-	Store              bool               `json:"store"`
-	Temperature        float64            `json:"temperature"`
+	Store              bool               `json:"store,omitempty"`
+	Temperature        float64            `json:"temperature,omitempty"`
 	ToolChoice         json.RawMessage    `json:"tool_choice"`
-	Tools              []map[string]any   `json:"tools"`
-	TopP               float64            `json:"top_p"`
+	Tools              []map[string]any   `json:"tools,omitempty"`
+	TopP               float64            `json:"top_p,omitempty"`
 	Truncation         json.RawMessage    `json:"truncation"`
-	Usage              *Usage             `json:"usage"`
+	Usage              *ResponsesUsage    `json:"usage,omitempty"`
 	User               json.RawMessage    `json:"user"`
 	Metadata           json.RawMessage    `json:"metadata"`
 }
@@ -339,12 +349,12 @@ type IncompleteDetails struct {
 
 type ResponsesOutput struct {
 	Type      string                   `json:"type"`
-	ID        string                   `json:"id"`
-	Status    string                   `json:"status"`
-	Role      string                   `json:"role"`
-	Content   []ResponsesOutputContent `json:"content"`
-	Quality   string                   `json:"quality"`
-	Size      string                   `json:"size"`
+	ID        string                   `json:"id,omitempty"`
+	Status    string                   `json:"status,omitempty"`
+	Role      string                   `json:"role,omitempty"`
+	Content   []ResponsesOutputContent `json:"content,omitempty"`
+	Quality   string                   `json:"quality,omitempty"`
+	Size      string                   `json:"size,omitempty"`
 	CallId    string                   `json:"call_id,omitempty"`
 	Name      string                   `json:"name,omitempty"`
 	Arguments json.RawMessage          `json:"arguments,omitempty"`
@@ -366,7 +376,7 @@ func ResponsesArgumentsString(arguments json.RawMessage) string {
 type ResponsesOutputContent struct {
 	Type        string        `json:"type"`
 	Text        string        `json:"text"`
-	Annotations []interface{} `json:"annotations"`
+	Annotations []interface{} `json:"annotations,omitempty"`
 }
 
 type ResponsesReasoningSummaryPart struct {

@@ -165,6 +165,14 @@ func GetLocalRealtimeID(c *gin.Context) string {
 	return fmt.Sprintf("evt_%s", logID)
 }
 
+// GetResponsesID 生成 Responses API 格式的响应 ID
+// 格式: resp_{request_id}
+// 客户端可在后续请求中将此 ID 作为 previous_response_id 使用
+func GetResponsesID(c *gin.Context) string {
+	logID := c.GetString(common.RequestIdKey)
+	return fmt.Sprintf("resp_%s", logID)
+}
+
 func GenerateStartEmptyResponse(id string, createAt int64, model string, systemFingerprint *string) *dto.ChatCompletionsStreamResponse {
 	return &dto.ChatCompletionsStreamResponse{
 		Id:                id,
