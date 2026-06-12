@@ -57,3 +57,38 @@ func GetResponsesFallbackCacheSize() int {
 func makeFallbackKey(channelID int, modelName string) string {
 	return fmt.Sprintf("%d:%s", channelID, modelName)
 }
+
+// --- Strip ResponseFormat cache ---
+// Stores whether a channel+model combination cannot handle both response_format and tools.
+// Key format: "channelID:modelName"
+// Value: true (should strip response_format)
+
+var stripResponseFormatCache sync.Map
+
+// ShouldStripResponseFormat checks if the channel+model combination should have
+// response_format stripped (known to be incompatible with tools/functions).
+func ShouldStripResponseFormat(channelID int, modelName string) bool {
+	key := makeStripRFKey(channelID, modelName)
+	val, ok := stripResponseFormatCache.Load(key)
+	if ok {
+		return val.(bool)
+	}
+	return false
+}
+
+// MarkStripResponseFormat marks a channel+model combination as needing
+// response_format stripped when tools are present.
+func MarkStripResponseFormat(channelID int, modelName string) {
+	key := makeStripRFKey(channelID, modelName)
+	stripResponseFormatCache.Store(key, true)
+}
+
+// ClearStripResponseFormatCache clears all cached strip decisions.
+func ClearStripResponseFormatCache() {
+	stripResponseFormatCache = sync.Map{}
+}
+
+// makeStripRFKey creates the cache key from channelID and modelName.
+func makeStripRFKey(channelID int, modelName string) string {
+	return fmt.Sprintf("%d:%s", channelID, modelName)
+}

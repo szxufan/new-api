@@ -80,36 +80,17 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	// Check cache: strip response_format if known to be incompatible with tools
+	if service.ShouldStripResponseFormat(info.ChannelId, info.OriginModelName) {
+		chatReq.ResponseFormat = nil
+		logger.LogDebug(c, "responsesViaChatCompletions: stripped response_format (cached) for channel %d model %s", info.ChannelId, info.OriginModelName)
+	}
+
 	// Debug: log the converted request structure
 	logger.LogDebug(c, "responsesViaChatCompletions: converted chatReq model=%s, messages_count=%d", chatReq.Model, len(chatReq.Messages))
 	for i, msg := range chatReq.Messages {
 		logger.LogDebug(c, "  message[%d]: role=%s, content_type=%T", i, msg.Role, msg.Content)
 	}
-
-	chatJSON, err := common.Marshal(chatReq)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	chatJSON, err = relaycommon.RemoveDisabledFields(chatJSON, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	if len(info.ParamOverride) > 0 {
-		chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
-		if err != nil {
-			return nil, newAPIErrorFromParamOverride(err)
-		}
-	}
-
-	var overriddenChatReq dto.GeneralOpenAIRequest
-	if err := common.Unmarshal(chatJSON, &overriddenChatReq); err != nil {
-		return nil, types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid, types.ErrOptionWithSkipRetry())
-	}
-
-	// Apply system prompt if configured
-	applySystemPromptIfNeeded(c, info, &overriddenChatReq)
 
 	info.AppendRequestConversion(types.RelayFormatOpenAI)
 
@@ -123,81 +104,172 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 
 	info.RelayMode = relayconstant.RelayModeChatCompletions
 	info.RequestURLPath = "/v1/chat/completions"
-
-	// Convert request using adaptor
-	convertedRequest, err := adaptor.ConvertOpenAIRequest(c, info, &overriddenChatReq)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-	relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
-
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	logger.LogDebug(c, "responsesViaChatCompletions requestBody: %s", jsonData)
-	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
-	if err != nil {
-		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-	}
-	defer closer.Close()
-	requestBodyJSON := jsonData // Save for error logging
-	jsonData = nil
-	info.UpstreamRequestBodySize = size
-	var requestBody io.Reader = body
-
-	// Send request
-	var httpResp *http.Response
-	resp, err := adaptor.DoRequest(c, info, requestBody)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("responsesViaChatCompletions: DoRequest error: %v, requestBody: %s", err, string(requestBodyJSON)))
-		return nil, types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-	}
-	if resp == nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("responsesViaChatCompletions: nil response, requestBody: %s", string(requestBodyJSON)))
-		return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-	}
-
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
-	httpResp = resp.(*http.Response)
-	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
-	if httpResp.StatusCode != http.StatusOK {
-		// Read error response body for debugging
+	// Retry loop: max 2 attempts
+	// First attempt sends with response_format (if present).
+	// If upstream responds with "response format and function call" conflict error,
+	// cache the decision and retry without response_format.
+	var (
+		lastCloser     io.Closer
+		lastReqBodyJSON []byte
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			logger.LogDebug(c, "responsesViaChatCompletions: retry attempt %d without response_format for channel %d model %s", attempt, info.ChannelId, info.OriginModelName)
+		}
+
+		chatJSON, err := common.Marshal(chatReq)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		chatJSON, err = relaycommon.RemoveDisabledFields(chatJSON, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		if len(info.ParamOverride) > 0 {
+			chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
+			if err != nil {
+				if lastCloser != nil {
+					lastCloser.Close()
+				}
+				return nil, newAPIErrorFromParamOverride(err)
+			}
+		}
+
+		var overriddenChatReq dto.GeneralOpenAIRequest
+		if err := common.Unmarshal(chatJSON, &overriddenChatReq); err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid, types.ErrOptionWithSkipRetry())
+		}
+
+		// Apply system prompt if configured
+		applySystemPromptIfNeeded(c, info, &overriddenChatReq)
+
+		// Convert request using adaptor
+		convertedRequest, err := adaptor.ConvertOpenAIRequest(c, info, &overriddenChatReq)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+
+		jsonData, err := common.Marshal(convertedRequest)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		logger.LogDebug(c, "responsesViaChatCompletions requestBody: %s", jsonData)
+		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+		if err != nil {
+			if lastCloser != nil {
+				lastCloser.Close()
+			}
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
+
+		// Close previous attempt's body if retrying
+		if lastCloser != nil {
+			lastCloser.Close()
+		}
+		lastCloser = closer
+		lastReqBodyJSON = jsonData
+
+		info.UpstreamRequestBodySize = size
+		var requestBody io.Reader = body
+
+		// Send request
+		resp, err := adaptor.DoRequest(c, info, requestBody)
+		if err != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("responsesViaChatCompletions: DoRequest error: %v, requestBody: %s", err, string(lastReqBodyJSON)))
+			closer.Close()
+			lastCloser = nil
+			return nil, types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+		}
+		if resp == nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("responsesViaChatCompletions: nil response, requestBody: %s", string(lastReqBodyJSON)))
+			closer.Close()
+			lastCloser = nil
+			return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+
+		httpResp := resp.(*http.Response)
+		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+
+		if httpResp.StatusCode == http.StatusOK {
+			closer.Close()
+			lastCloser = nil
+
+			// Handle response - convert ChatCompletions response back to Responses format
+			var usage *dto.Usage
+			var newApiErr *types.NewAPIError
+
+			if info.IsStream {
+				usage, newApiErr = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp, responsesReq)
+			} else {
+				usage, newApiErr = openaichannel.OaiChatToResponsesHandler(c, info, httpResp, responsesReq)
+			}
+
+			if newApiErr != nil {
+				service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+				return nil, newApiErr
+			}
+			return usage, nil
+		}
+
+		// Error path: read error response body
 		errorBody, readErr := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+
+		// Check if retryable: 400 error with response_format+tools conflict
+		if attempt == 0 && chatReq.ResponseFormat != nil && len(chatReq.Tools) > 0 &&
+			readErr == nil && strings.Contains(string(errorBody), "response format and function call") {
+			service.MarkStripResponseFormat(info.ChannelId, info.OriginModelName)
+			chatReq.ResponseFormat = nil
+			logger.LogDebug(c, "responsesViaChatCompletions: detected response_format conflict, will retry without response_format")
+			continue // Retry
+		}
+
+		// Non-retryable error
 		if readErr != nil {
 			logger.LogError(c.Request.Context(), "responsesViaChatCompletions: failed to read error response body: "+readErr.Error())
 		} else {
-			// Log request with content masked for privacy
-			maskedRequest := maskSensitiveContent(requestBodyJSON)
+			maskedRequest := maskSensitiveContent(lastReqBodyJSON)
 			logger.LogError(c.Request.Context(), fmt.Sprintf("responsesViaChatCompletions: upstream error status=%d, body=%s, request=%s", httpResp.StatusCode, string(errorBody), maskedRequest))
 		}
+		closer.Close()
+		lastCloser = nil
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
 
-	// Handle response - convert ChatCompletions response back to Responses format
-	// Use OpenAI-specific handlers since we're using OpenAI-compatible format
-	// Pass the original Responses request for context storage
-	var usage *dto.Usage
-	var newApiErr *types.NewAPIError
-
-	if info.IsStream {
-		usage, newApiErr = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp, responsesReq)
-	} else {
-		usage, newApiErr = openaichannel.OaiChatToResponsesHandler(c, info, httpResp, responsesReq)
+	// Cleanup if we somehow exit the loop without returning
+	if lastCloser != nil {
+		lastCloser.Close()
 	}
-
-	if newApiErr != nil {
-		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
-		return nil, newApiErr
-	}
-	return usage, nil
+	return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 }

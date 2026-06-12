@@ -146,12 +146,6 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		Metadata:         req.Metadata,
 	}
 
-	// 10. Handle incompatibilities: response_format and tools cannot coexist for some providers
-	// When both are present, prefer tools over response_format
-	if len(tools) > 0 && responseFormat != nil {
-		out.ResponseFormat = nil
-	}
-
 	// ServiceTier: convert string to json.RawMessage
 	if req.ServiceTier != "" {
 		out.ServiceTier = json.RawMessage(`"` + req.ServiceTier + `"`)
