@@ -42,10 +42,11 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	}
 
 	// 3. Merge messages in correct order:
+	// - Multiple system/developer messages should be merged into one
 	// - Regular messages (user/assistant)
 	// - Tool outputs need to follow their corresponding function_call (which is in assistant message)
 	// We need to properly sequence: assistant with tool_calls -> tool messages
-	messages = append(messages, inputMessages...)
+	messages = mergeSystemMessages(messages, inputMessages)
 
 	// Handle function_call items: convert to assistant message with tool_calls
 	// and function_call_output items: convert to tool message
@@ -145,6 +146,12 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		Metadata:         req.Metadata,
 	}
 
+	// 10. Handle incompatibilities: response_format and tools cannot coexist for some providers
+	// When both are present, prefer tools over response_format
+	if len(tools) > 0 && responseFormat != nil {
+		out.ResponseFormat = nil
+	}
+
 	// ServiceTier: convert string to json.RawMessage
 	if req.ServiceTier != "" {
 		out.ServiceTier = json.RawMessage(`"` + req.ServiceTier + `"`)
@@ -162,6 +169,64 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	}
 
 	return out, nil
+}
+
+// mergeSystemMessages merges consecutive system messages into a single message.
+// This is needed because some providers don't support multiple system messages.
+func mergeSystemMessages(existing []dto.Message, new []dto.Message) []dto.Message {
+	result := make([]dto.Message, 0, len(existing)+len(new))
+
+	// Collect all system content
+	var systemContents []string
+
+	// Helper to extract string content from a message
+	extractContent := func(msg dto.Message) string {
+		switch c := msg.Content.(type) {
+		case string:
+			return c
+		default:
+			if b, err := common.Marshal(c); err == nil {
+				return string(b)
+			}
+			return ""
+		}
+	}
+
+	// Process existing messages
+	for _, msg := range existing {
+		if msg.Role == "system" {
+			content := extractContent(msg)
+			if content != "" {
+				systemContents = append(systemContents, content)
+			}
+		} else {
+			result = append(result, msg)
+		}
+	}
+
+	// Process new messages
+	for _, msg := range new {
+		if msg.Role == "system" {
+			content := extractContent(msg)
+			if content != "" {
+				systemContents = append(systemContents, content)
+			}
+		} else {
+			result = append(result, msg)
+		}
+	}
+
+	// Prepend merged system message if any
+	if len(systemContents) > 0 {
+		mergedContent := strings.Join(systemContents, "\n\n")
+		systemMsg := dto.Message{
+			Role:    "system",
+			Content: mergedContent,
+		}
+		result = append([]dto.Message{systemMsg}, result...)
+	}
+
+	return result
 }
 
 // parsedToolCallItem represents a parsed function_call item from Responses input
@@ -255,9 +320,9 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 			}
 
 		default:
-			// Regular message (user/assistant)
+			// Regular message (user/assistant/developer)
 			// itemType can be "input_text", "output_text", "input_image", etc.
-			// Or itemRole can be "user", "assistant"
+			// Or itemRole can be "user", "assistant", "developer"
 			role := itemRole
 			if role == "" {
 				// Infer role from type
@@ -269,6 +334,11 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 				default:
 					role = "user" // default
 				}
+			}
+
+			// Convert "developer" role to "system" (not all providers support developer)
+			if role == "developer" {
+				role = "system"
 			}
 
 			// Parse content
