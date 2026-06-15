@@ -170,6 +170,65 @@ func (c *ClaudeMessage) ParseContent() ([]ClaudeMediaMessage, error) {
 	return common.Any2Type[[]ClaudeMediaMessage](c.Content)
 }
 
+// HasThinkingContent checks if the message already contains a thinking content block.
+func (c *ClaudeMessage) HasThinkingContent() bool {
+	contents, err := c.ParseContent()
+	if err != nil {
+		return false
+	}
+	for _, content := range contents {
+		if content.Type == "thinking" {
+			return true
+		}
+	}
+	return false
+}
+
+// GetTextAndToolUseContent extracts text content and tool_use blocks from the message.
+// Returns the concatenated text content and a JSON representation of tool_use blocks.
+func (c *ClaudeMessage) GetTextAndToolUseContent() (string, json.RawMessage) {
+	contents, err := c.ParseContent()
+	if err != nil {
+		return c.GetStringContent(), nil
+	}
+	var textParts []string
+	var toolUseBlocks []ClaudeMediaMessage
+	for _, content := range contents {
+		switch content.Type {
+		case ContentTypeText:
+			textParts = append(textParts, content.GetText())
+		case "tool_use":
+			toolUseBlocks = append(toolUseBlocks, content)
+		}
+	}
+	text := strings.Join(textParts, "")
+	var toolCallsJSON json.RawMessage
+	if len(toolUseBlocks) > 0 {
+		b, _ := json.Marshal(toolUseBlocks)
+		toolCallsJSON = b
+	}
+	return text, toolCallsJSON
+}
+
+// PrependThinkingBlock prepends a thinking content block to the message.
+func (c *ClaudeMessage) PrependThinkingBlock(thinking string) {
+	contents, err := c.ParseContent()
+	if err != nil {
+		// If content is a string, convert to structured content
+		text := c.GetStringContent()
+		c.Content = []ClaudeMediaMessage{
+			{Type: "thinking", Thinking: &thinking},
+			{Type: ContentTypeText, Text: &text},
+		}
+		return
+	}
+	// Prepend thinking block before existing content
+	newContents := make([]ClaudeMediaMessage, 0, len(contents)+1)
+	newContents = append(newContents, ClaudeMediaMessage{Type: "thinking", Thinking: &thinking})
+	newContents = append(newContents, contents...)
+	c.Content = newContents
+}
+
 type Tool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`

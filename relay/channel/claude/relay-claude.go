@@ -579,12 +579,14 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 }
 
 type ClaudeResponseInfo struct {
-	ResponseId   string
-	Created      int64
-	Model        string
-	ResponseText strings.Builder
-	Usage        *dto.Usage
-	Done         bool
+	ResponseId       string
+	Created          int64
+	Model            string
+	ResponseText     strings.Builder
+	ReasoningText    strings.Builder
+	ToolCalls        []dto.ToolCallResponse
+	Usage            *dto.Usage
+	Done             bool
 }
 
 func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
@@ -738,6 +740,11 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			}
 			if claudeResponse.Delta.Thinking != nil {
 				claudeInfo.ResponseText.WriteString(*claudeResponse.Delta.Thinking)
+				claudeInfo.ReasoningText.WriteString(*claudeResponse.Delta.Thinking)
+			}
+			if claudeResponse.Delta.Type == "input_json_delta" && claudeResponse.Delta.PartialJson != nil && len(claudeInfo.ToolCalls) > 0 {
+				lastTool := &claudeInfo.ToolCalls[len(claudeInfo.ToolCalls)-1]
+				lastTool.Function.Arguments += *claudeResponse.Delta.PartialJson
 			}
 		}
 	} else if claudeResponse.Type == "message_delta" {
@@ -769,6 +776,17 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 		// 判断是否完整
 		claudeInfo.Done = true
 	} else if claudeResponse.Type == "content_block_start" {
+		if claudeResponse.ContentBlock != nil && claudeResponse.ContentBlock.Type == "tool_use" {
+			args, _ := json.Marshal(claudeResponse.ContentBlock.Input)
+			claudeInfo.ToolCalls = append(claudeInfo.ToolCalls, dto.ToolCallResponse{
+				ID:   claudeResponse.ContentBlock.Id,
+				Type: "function",
+				Function: dto.FunctionResponse{
+					Name:      claudeResponse.ContentBlock.Name,
+					Arguments: string(args),
+				},
+			})
+		}
 	} else {
 		return false
 	}
@@ -828,6 +846,8 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	cacheReasoningContentForClaudeStream(c, info, claudeInfo)
+
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
@@ -924,6 +944,8 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		responseData = data
 	}
 
+	cacheReasoningContentForClaudeThinking(c, info, &claudeResponse)
+
 	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
@@ -952,6 +974,80 @@ func ClaudeHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 		return nil, handleErr
 	}
 	return claudeInfo.Usage, nil
+}
+
+// extractClaudeThinkingContent extracts thinking and text content from a Claude response.
+func extractClaudeThinkingContent(claudeResponse *dto.ClaudeResponse) (string, string) {
+	var textContent string
+	var thinkingContent string
+	for _, content := range claudeResponse.Content {
+		switch content.Type {
+		case "text":
+			textContent += content.GetText()
+		case "thinking":
+			if content.Thinking != nil {
+				thinkingContent += *content.Thinking
+			}
+		}
+	}
+	return textContent, thinkingContent
+}
+
+// cacheReasoningContentForClaudeThinking caches reasoning content for thinking models in Claude non-stream responses.
+func cacheReasoningContentForClaudeThinking(c *gin.Context, info *relaycommon.RelayInfo, claudeResponse *dto.ClaudeResponse) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
+		return
+	}
+	textContent, thinkingContent := extractClaudeThinkingContent(claudeResponse)
+	if thinkingContent == "" && textContent == "" {
+		return
+	}
+	// Extract tool_calls if present
+	var toolCallsJSON json.RawMessage
+	tools := make([]dto.ToolCallResponse, 0)
+	for _, content := range claudeResponse.Content {
+		if content.Type == "tool_use" {
+			args, _ := json.Marshal(content.Input)
+			tools = append(tools, dto.ToolCallResponse{
+				ID:   content.Id,
+				Type: "function",
+				Function: dto.FunctionResponse{
+					Name:      content.Name,
+					Arguments: string(args),
+				},
+			})
+		}
+	}
+	if len(tools) > 0 {
+		b, _ := json.Marshal(tools)
+		toolCallsJSON = b
+	}
+	service.StoreReasoningContent(info.TokenKey, textContent, toolCallsJSON, thinkingContent)
+	logger.LogDebug(c, "claude thinking: cached reasoning_content, content_len=%d reasoning_len=%d", len(textContent), len(thinkingContent))
+}
+
+// cacheReasoningContentForClaudeStream caches reasoning content for thinking models in Claude stream responses.
+func cacheReasoningContentForClaudeStream(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
+		return
+	}
+	reasoningContent := claudeInfo.ReasoningText.String()
+	textContent := claudeInfo.ResponseText.String()
+	if reasoningContent == "" && textContent == "" {
+		return
+	}
+	// For stream responses, ResponseText includes both thinking and text content.
+	// We need to subtract reasoningContent from ResponseText to get the actual text content.
+	if reasoningContent != "" && len(textContent) >= len(reasoningContent) {
+		textContent = textContent[len(reasoningContent):]
+	}
+	var toolCallsJSON json.RawMessage
+	if len(claudeInfo.ToolCalls) > 0 {
+		b, _ := json.Marshal(claudeInfo.ToolCalls)
+		toolCallsJSON = b
+	}
+	service.StoreReasoningContent(info.TokenKey, textContent, toolCallsJSON, reasoningContent)
+	logger.LogDebug(c, "claude thinking: cached reasoning_content from stream, content_len=%d reasoning_len=%d", len(textContent), len(reasoningContent))
 }
 
 func mapToolChoice(toolChoice any, parallelToolCalls *bool) *dto.ClaudeToolChoice {

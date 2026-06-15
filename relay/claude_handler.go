@@ -47,6 +47,8 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	adaptor.Init(info)
 
+	fillReasoningContentForClaudeThinking(c, info, request)
+
 	if request.MaxTokens == nil || *request.MaxTokens == 0 {
 		defaultMaxTokens := uint(model_setting.GetClaudeSettings().GetDefaultMaxTokens(request.Model))
 		request.MaxTokens = &defaultMaxTokens
@@ -216,4 +218,38 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+
+// fillReasoningContentForClaudeThinking fills reasoning content for thinking models in Claude format requests.
+// For assistant messages that lack a thinking block, it looks up cached reasoning content and prepends it.
+func fillReasoningContentForClaudeThinking(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
+		return
+	}
+	filled := 0
+	fromCache := 0
+	fromEmpty := 0
+	for i := range request.Messages {
+		msg := &request.Messages[i]
+		if msg.Role != "assistant" {
+			continue
+		}
+		if msg.HasThinkingContent() {
+			continue
+		}
+		textContent, toolCallsJSON := msg.GetTextAndToolUseContent()
+		rc, found := service.LookupReasoningContent(info.TokenKey, textContent, toolCallsJSON)
+		if found {
+			msg.PrependThinkingBlock(rc)
+			filled++
+			fromCache++
+			continue
+		}
+		msg.PrependThinkingBlock("")
+		filled++
+		fromEmpty++
+	}
+	if filled > 0 {
+		logger.LogInfo(c, fmt.Sprintf("claude thinking: filled thinking content for %d assistant message(s), from_cache=%d from_empty=%d", filled, fromCache, fromEmpty))
+	}
 }
