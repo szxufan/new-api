@@ -265,6 +265,109 @@ func (r *GeneralOpenAIRequest) GetMaxTokens() uint {
 	return lo.FromPtrOr(r.MaxTokens, uint(0))
 }
 
+// DeduplicateToolCallIDs removes duplicate tool_call_id entries from Messages.
+// It keeps the first occurrence of each tool_call_id and removes subsequent ones.
+// This prevents upstream API errors when request messages contain repeated tool_call_ids
+// (e.g., from previous_response_id context merging).
+// It deduplicates both assistant.tool_calls[].id and tool.tool_call_id,
+// but treats them as separate namespaces — an ID in assistant.tool_calls does not
+// conflict with the same ID in tool.tool_call_id (they are paired, not duplicated).
+func (r *GeneralOpenAIRequest) DeduplicateToolCallIDs() {
+	if len(r.Messages) == 0 {
+		return
+	}
+	seenAssistantToolCallIDs := make(map[string]bool)
+	seenToolMessageIDs := make(map[string]bool)
+	filtered := make([]Message, 0, len(r.Messages))
+	for _, msg := range r.Messages {
+		if msg.Role == "tool" && msg.ToolCallId != "" {
+			if seenToolMessageIDs[msg.ToolCallId] {
+				continue
+			}
+			seenToolMessageIDs[msg.ToolCallId] = true
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// Deduplicate tool_calls within this assistant message
+			toolCalls := msg.ParseToolCalls()
+			dedupedCalls := make([]ToolCallRequest, 0, len(toolCalls))
+			for _, tc := range toolCalls {
+				if tc.ID != "" {
+					if seenAssistantToolCallIDs[tc.ID] {
+						continue
+					}
+					seenAssistantToolCallIDs[tc.ID] = true
+				}
+				dedupedCalls = append(dedupedCalls, tc)
+			}
+			if len(dedupedCalls) < len(toolCalls) {
+				msg.SetToolCalls(dedupedCalls)
+			}
+		}
+		filtered = append(filtered, msg)
+	}
+	r.Messages = filtered
+}
+
+// MergeConsecutiveMessages merges consecutive messages with the same role.
+// This is needed when previous_response_id context merging causes duplicate
+// consecutive user or assistant messages.
+// Rules:
+//   - Consecutive "user" messages: merge content (string concatenation)
+//   - Consecutive "assistant" messages: merge content and tool_calls
+//   - "system" and "tool" messages are NOT merged (system handled by mergeSystemMessages, tool must stay separate)
+func (r *GeneralOpenAIRequest) MergeConsecutiveMessages() {
+	if len(r.Messages) <= 1 {
+		return
+	}
+	merged := make([]Message, 0, len(r.Messages))
+	merged = append(merged, r.Messages[0])
+
+	for i := 1; i < len(r.Messages); i++ {
+		curr := r.Messages[i]
+		last := &merged[len(merged)-1]
+
+		if curr.Role == "user" && last.Role == "user" {
+			// Merge consecutive user messages: concatenate content
+			lastContent, _ := last.Content.(string)
+			currContent, _ := curr.Content.(string)
+			if lastContent != "" && currContent != "" {
+				last.Content = lastContent + "\n" + currContent
+			} else if currContent != "" {
+				last.Content = currContent
+			}
+			continue
+		}
+
+		if curr.Role == "assistant" && last.Role == "assistant" {
+			// Merge consecutive assistant messages: merge content and tool_calls
+			lastContent, _ := last.Content.(string)
+			currContent, _ := curr.Content.(string)
+
+			// Merge tool_calls
+			lastToolCalls := last.ParseToolCalls()
+			currToolCalls := curr.ParseToolCalls()
+			mergedToolCalls := append(lastToolCalls, currToolCalls...)
+
+			if lastContent != "" && currContent != "" {
+				last.Content = lastContent + "\n" + currContent
+			} else if currContent != "" {
+				last.Content = currContent
+			}
+
+			if len(mergedToolCalls) > 0 {
+				last.SetToolCalls(mergedToolCalls)
+			} else {
+				last.ToolCalls = nil
+			}
+			continue
+		}
+
+		merged = append(merged, curr)
+	}
+
+	r.Messages = merged
+}
+
 func (r *GeneralOpenAIRequest) ParseInput() []string {
 	if r.Input == nil {
 		return nil

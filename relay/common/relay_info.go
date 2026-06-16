@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ThinkingContentInfo struct {
@@ -43,6 +44,7 @@ type ClaudeConvertInfo struct {
 
 	ToolCallBaseIndex      int
 	ToolCallMaxIndexOffset int
+	SeenToolIDs            map[string]bool
 }
 
 type RerankerInfo struct {
@@ -797,69 +799,81 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 
-	var data map[string]interface{}
-	if err := common.Unmarshal(jsonData, &data); err != nil {
-		common.SysError("RemoveDisabledFields Unmarshal error :" + err.Error())
-		return jsonData, nil
-	}
+	result := jsonData
+	var err error
 
 	// 默认移除 service_tier，除非明确允许（避免额外计费风险）
 	if !channelOtherSettings.AllowServiceTier {
-		if _, exists := data["service_tier"]; exists {
-			delete(data, "service_tier")
+		if gjson.GetBytes(result, "service_tier").Exists() {
+			result, err = sjson.DeleteBytes(result, "service_tier")
+			if err != nil {
+				return jsonData, nil
+			}
 		}
 	}
 
 	// 默认移除 inference_geo，除非明确允许（避免在未授权情况下透传数据驻留区域）
 	if !channelOtherSettings.AllowInferenceGeo {
-		if _, exists := data["inference_geo"]; exists {
-			delete(data, "inference_geo")
+		if gjson.GetBytes(result, "inference_geo").Exists() {
+			result, err = sjson.DeleteBytes(result, "inference_geo")
+			if err != nil {
+				return jsonData, nil
+			}
 		}
 	}
 
 	// 默认移除 speed，除非明确允许（避免意外切换 Claude 推理速度模式）
 	if !channelOtherSettings.AllowSpeed {
-		if _, exists := data["speed"]; exists {
-			delete(data, "speed")
+		if gjson.GetBytes(result, "speed").Exists() {
+			result, err = sjson.DeleteBytes(result, "speed")
+			if err != nil {
+				return jsonData, nil
+			}
 		}
 	}
 
 	// 默认允许 store 透传，除非明确禁用（禁用可能影响 Codex 使用）
 	if channelOtherSettings.DisableStore {
-		if _, exists := data["store"]; exists {
-			delete(data, "store")
+		if gjson.GetBytes(result, "store").Exists() {
+			result, err = sjson.DeleteBytes(result, "store")
+			if err != nil {
+				return jsonData, nil
+			}
 		}
 	}
 
 	// 默认移除 safety_identifier，除非明确允许（保护用户隐私，避免向 OpenAI 报告用户信息）
 	if !channelOtherSettings.AllowSafetyIdentifier {
-		if _, exists := data["safety_identifier"]; exists {
-			delete(data, "safety_identifier")
+		if gjson.GetBytes(result, "safety_identifier").Exists() {
+			result, err = sjson.DeleteBytes(result, "safety_identifier")
+			if err != nil {
+				return jsonData, nil
+			}
 		}
 	}
 
 	// 默认移除 stream_options.include_obfuscation，除非明确允许（避免关闭响应流混淆保护）
 	if !channelOtherSettings.AllowIncludeObfuscation {
-		if streamOptionsAny, exists := data["stream_options"]; exists {
-			if streamOptions, ok := streamOptionsAny.(map[string]interface{}); ok {
-				if _, includeExists := streamOptions["include_obfuscation"]; includeExists {
-					delete(streamOptions, "include_obfuscation")
-				}
-				if len(streamOptions) == 0 {
-					delete(data, "stream_options")
-				} else {
-					data["stream_options"] = streamOptions
+		soPath := "stream_options.include_obfuscation"
+		if gjson.GetBytes(result, soPath).Exists() {
+			result, err = sjson.DeleteBytes(result, soPath)
+			if err != nil {
+				return jsonData, nil
+			}
+			// 如果 stream_options 对象为空，删除整个字段
+			remaining := gjson.GetBytes(result, "stream_options")
+			if remaining.Exists() {
+				if m, ok := remaining.Value().(map[string]interface{}); ok && len(m) == 0 {
+					result, err = sjson.DeleteBytes(result, "stream_options")
+					if err != nil {
+						return jsonData, nil
+					}
 				}
 			}
 		}
 	}
 
-	jsonDataAfter, err := common.Marshal(data)
-	if err != nil {
-		common.SysError("RemoveDisabledFields Marshal error :" + err.Error())
-		return jsonData, nil
-	}
-	return jsonDataAfter, nil
+	return result, nil
 }
 
 func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings) bool {
@@ -888,39 +902,47 @@ func RemoveGeminiDisabledFields(jsonData []byte) ([]byte, error) {
 		return jsonData, nil
 	}
 
-	var data map[string]interface{}
-	if err := common.Unmarshal(jsonData, &data); err != nil {
-		common.SysError("RemoveGeminiDisabledFields Unmarshal error: " + err.Error())
-		return jsonData, nil
-	}
-
-	// Process contents array
-	// Handle both camelCase (functionResponse) and snake_case (function_response)
-	if contents, ok := data["contents"].([]interface{}); ok {
-		for _, content := range contents {
-			if contentMap, ok := content.(map[string]interface{}); ok {
-				if parts, ok := contentMap["parts"].([]interface{}); ok {
-					for _, part := range parts {
-						if partMap, ok := part.(map[string]interface{}); ok {
-							// Check functionResponse (camelCase)
-							if funcResp, ok := partMap["functionResponse"].(map[string]interface{}); ok {
-								delete(funcResp, "id")
-							}
-							// Check function_response (snake_case)
-							if funcResp, ok := partMap["function_response"].(map[string]interface{}); ok {
-								delete(funcResp, "id")
-							}
-						}
-					}
-				}
-			}
+	// Use gjson to find all functionResponse.id and function_response.id paths,
+	// then delete them with sjson — avoids map[string]interface{} round-trip
+	// which can corrupt json.RawMessage fields.
+	result := jsonData
+	pathsToDelete := collectGeminiFunctionResponseIdPaths(result)
+	var err error
+	for _, path := range pathsToDelete {
+		result, err = sjson.DeleteBytes(result, path)
+		if err != nil {
+			common.SysError("RemoveGeminiDisabledFields sjson.DeleteBytes error: " + err.Error())
+			return jsonData, nil
 		}
 	}
+	return result, nil
+}
 
-	jsonDataAfter, err := common.Marshal(data)
-	if err != nil {
-		common.SysError("RemoveGeminiDisabledFields Marshal error: " + err.Error())
-		return jsonData, nil
+// collectGeminiFunctionResponseIdPaths finds all JSON paths for functionResponse.id
+// and function_response.id fields in a Gemini request, using gjson for read-only traversal.
+func collectGeminiFunctionResponseIdPaths(data []byte) []string {
+	var paths []string
+	contents := gjson.GetBytes(data, "contents")
+	if !contents.IsArray() {
+		return nil
 	}
-	return jsonDataAfter, nil
+	contents.ForEach(func(contentIdx, contentVal gjson.Result) bool {
+		parts := contentVal.Get("parts")
+		if !parts.IsArray() {
+			return true
+		}
+		parts.ForEach(func(partIdx, partVal gjson.Result) bool {
+			// Check functionResponse.id (camelCase)
+			if fr := partVal.Get("functionResponse.id"); fr.Exists() {
+				paths = append(paths, fmt.Sprintf("contents.%d.parts.%d.functionResponse.id", contentIdx.Int(), partIdx.Int()))
+			}
+			// Check function_response.id (snake_case)
+			if fr := partVal.Get("function_response.id"); fr.Exists() {
+				paths = append(paths, fmt.Sprintf("contents.%d.parts.%d.function_response.id", contentIdx.Int(), partIdx.Int()))
+			}
+			return true
+		})
+		return true
+	})
+	return paths
 }

@@ -288,6 +288,8 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 	isFirstMessage := true
 	// 初始化system消息数组，用于累积多个system消息
 	var systemMessages []dto.ClaudeMediaMessage
+	// 工具调用ID去重：跟踪已见过的tool_use ID
+	seenToolIDs := make(map[string]bool)
 
 	for _, message := range formatMessages {
 		if message.Role == "system" {
@@ -332,6 +334,13 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 				Role: message.Role,
 			}
 			if message.Role == "tool" {
+				// 跳过重复的 tool_call_id
+				if message.ToolCallId != "" {
+					if seenToolIDs[message.ToolCallId] {
+						continue
+					}
+					seenToolIDs[message.ToolCallId] = true
+				}
 				if len(claudeMessages) > 0 && claudeMessages[len(claudeMessages)-1].Role == "user" {
 					lastMessage := claudeMessages[len(claudeMessages)-1]
 					if content, ok := lastMessage.Content.(string); ok {
@@ -405,6 +414,13 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 
 				if message.ToolCalls != nil {
 					for _, toolCall := range message.ParseToolCalls() {
+						// 跳过重复的工具调用ID
+						if toolCall.ID != "" {
+							if seenToolIDs[toolCall.ID] {
+								continue
+							}
+							seenToolIDs[toolCall.ID] = true
+						}
 						inputObj := make(map[string]any)
 						if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inputObj); err != nil {
 							common.SysLog("tool call function arguments is not a map[string]any: " + fmt.Sprintf("%v", toolCall.Function.Arguments))
@@ -532,11 +548,19 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 	}
 	tools := make([]dto.ToolCallResponse, 0)
 	thinkingContent := ""
+	seenToolIDs := make(map[string]bool)
 
 	fullTextResponse.Id = claudeResponse.Id
 	for _, message := range claudeResponse.Content {
 		switch message.Type {
 		case "tool_use":
+			if message.Id != "" {
+				if seenToolIDs[message.Id] {
+					// 跳过重复的工具调用ID
+					continue
+				}
+				seenToolIDs[message.Id] = true
+			}
 			args, _ := json.Marshal(message.Input)
 			tools = append(tools, dto.ToolCallResponse{
 				ID:   message.Id,
@@ -579,14 +603,15 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 }
 
 type ClaudeResponseInfo struct {
-	ResponseId       string
-	Created          int64
-	Model            string
-	ResponseText     strings.Builder
-	ReasoningText    strings.Builder
-	ToolCalls        []dto.ToolCallResponse
-	Usage            *dto.Usage
-	Done             bool
+	ResponseId    string
+	Created       int64
+	Model         string
+	ResponseText  strings.Builder
+	ReasoningText strings.Builder
+	ToolCalls     []dto.ToolCallResponse
+	SeenToolIDs   map[string]bool
+	Usage         *dto.Usage
+	Done          bool
 }
 
 func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
@@ -813,6 +838,20 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	}
 	if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
 		maybeMarkClaudeRefusal(c, *claudeResponse.Delta.StopReason)
+	}
+	// 工具调用ID去重：如果content_block_start携带了已见过的tool_use ID，跳过该chunk
+	if claudeResponse.Type == "content_block_start" && claudeResponse.ContentBlock != nil && claudeResponse.ContentBlock.Type == "tool_use" {
+		toolID := claudeResponse.ContentBlock.Id
+		if toolID != "" {
+			if claudeInfo.SeenToolIDs == nil {
+				claudeInfo.SeenToolIDs = make(map[string]bool)
+			}
+			if claudeInfo.SeenToolIDs[toolID] {
+				// 重复的工具调用ID，跳过该chunk避免ToolCalls重复和参数错配
+				return nil
+			}
+			claudeInfo.SeenToolIDs[toolID] = true
+		}
 	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		FormatClaudeResponseInfo(&claudeResponse, nil, claudeInfo)

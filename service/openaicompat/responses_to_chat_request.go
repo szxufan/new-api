@@ -35,59 +35,14 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		}
 	}
 
-	// 2. Parse and convert input array
-	inputMessages, toolCallItems, toolOutputMessages, err := parseResponsesInputToMessages(req.Input)
+	// 2. Parse and convert input array (preserves original order)
+	inputMessages, err := parseResponsesInputToMessages(req.Input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse input: %w", err)
 	}
 
-	// 3. Merge messages in correct order:
-	// - Multiple system/developer messages should be merged into one
-	// - Regular messages (user/assistant)
-	// - Tool outputs need to follow their corresponding function_call (which is in assistant message)
-	// We need to properly sequence: assistant with tool_calls -> tool messages
+	// 3. Merge system messages and append input messages
 	messages = mergeSystemMessages(messages, inputMessages)
-
-	// Handle function_call items: convert to assistant message with tool_calls
-	// and function_call_output items: convert to tool message
-	for _, tcItem := range toolCallItems {
-		// Find if there's an existing assistant message we can append tool_calls to
-		// Or create a new assistant message
-		existingAssistantIdx := -1
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == "assistant" {
-				existingAssistantIdx = i
-				break
-			}
-		}
-
-		toolCall := dto.ToolCallRequest{
-			ID:   tcItem.callID,
-			Type: "function",
-			Function: dto.FunctionRequest{
-				Name:      tcItem.name,
-				Arguments: tcItem.arguments,
-			},
-		}
-
-		if existingAssistantIdx >= 0 && messages[existingAssistantIdx].Content == "" {
-			// Append tool_calls to existing empty assistant message
-			existingToolCalls := messages[existingAssistantIdx].ParseToolCalls()
-			existingToolCalls = append(existingToolCalls, toolCall)
-			messages[existingAssistantIdx].SetToolCalls(existingToolCalls)
-		} else {
-			// Create new assistant message with tool_calls
-			msg := dto.Message{
-				Role:    "assistant",
-				Content: "",
-			}
-			msg.SetToolCalls([]dto.ToolCallRequest{toolCall})
-			messages = append(messages, msg)
-		}
-	}
-
-	// Add tool output messages
-	messages = append(messages, toolOutputMessages...)
 
 	// 4. Convert tools format
 	// Responses API tools: [{"type": "function", "name": "...", "description": "...", "parameters": {...}}]
@@ -162,6 +117,12 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		out.LogProbs = lo.ToPtr(true)
 	}
 
+	// 工具调用ID去重：previous_response_id 上下文合并可能导致重复的 tool_call_id
+	out.DeduplicateToolCallIDs()
+
+	// 合并连续相同 role 的消息：previous_response_id 合并后可能出现连续的 user/assistant 消息
+	out.MergeConsecutiveMessages()
+
 	return out, nil
 }
 
@@ -223,46 +184,37 @@ func mergeSystemMessages(existing []dto.Message, new []dto.Message) []dto.Messag
 	return result
 }
 
-// parsedToolCallItem represents a parsed function_call item from Responses input
-type parsedToolCallItem struct {
-	callID    string
-	name      string
-	arguments string
-}
-
 // parseResponsesInputToMessages parses the Responses API input field and converts it to messages
+// in the original input order. function_call items are merged into the preceding assistant
+// message (or a new one is created), and function_call_output items become tool messages.
 func parseResponsesInputToMessages(input json.RawMessage) (
-	regularMessages []dto.Message,
-	toolCallItems []parsedToolCallItem,
-	toolOutputMessages []dto.Message,
+	messages []dto.Message,
 	err error,
 ) {
 	if input == nil {
-		return nil, nil, nil, nil
+		return nil, nil
 	}
 
 	// Input can be a string (simple user message)
 	if common.GetJsonType(input) == "string" {
 		var str string
 		if err := common.Unmarshal(input, &str); err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
-		return []dto.Message{{Role: "user", Content: str}}, nil, nil, nil
+		return []dto.Message{{Role: "user", Content: str}}, nil
 	}
 
 	// Input can be an array of items
 	if common.GetJsonType(input) != "array" {
-		return nil, nil, nil, fmt.Errorf("input must be string or array, got %s", common.GetJsonType(input))
+		return nil, fmt.Errorf("input must be string or array, got %s", common.GetJsonType(input))
 	}
 
 	var items []map[string]any
 	if err := common.Unmarshal(input, &items); err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 
-	regularMessages = make([]dto.Message, 0)
-	toolCallItems = make([]parsedToolCallItem, 0)
-	toolOutputMessages = make([]dto.Message, 0)
+	messages = make([]dto.Message, 0)
 
 	for _, item := range items {
 		itemType, _ := item["type"].(string)
@@ -280,23 +232,46 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 			}
 
 			if name != "" && callID != "" {
-				toolCallItems = append(toolCallItems, parsedToolCallItem{
-					callID:    callID,
-					name:      name,
-					arguments: arguments,
-				})
+				toolCall := dto.ToolCallRequest{
+					ID:   callID,
+					Type: "function",
+					Function: dto.FunctionRequest{
+						Name:      name,
+						Arguments: arguments,
+					},
+				}
+				// Try to append to the last assistant message if it's empty (no text content)
+				if len(messages) > 0 {
+					lastMsg := &messages[len(messages)-1]
+					if lastMsg.Role == "assistant" {
+						contentStr, _ := lastMsg.Content.(string)
+						if contentStr == "" {
+							existingToolCalls := lastMsg.ParseToolCalls()
+							existingToolCalls = append(existingToolCalls, toolCall)
+							lastMsg.SetToolCalls(existingToolCalls)
+							continue
+						}
+					}
+				}
+				// Otherwise create a new assistant message
+				msg := dto.Message{
+					Role:    "assistant",
+					Content: "",
+				}
+				msg.SetToolCalls([]dto.ToolCallRequest{toolCall})
+				messages = append(messages, msg)
 			}
 
 		case "function_call_output":
 			// Convert to tool message
 			callID, _ := item["call_id"].(string)
-			output := item["output"]
 
 			if callID == "" {
 				callID, _ = item["id"].(string)
 			}
 
 			if callID != "" {
+				output := item["output"]
 				var contentStr string
 				switch v := output.(type) {
 				case string:
@@ -306,7 +281,7 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 						contentStr = string(b)
 					}
 				}
-				toolOutputMessages = append(toolOutputMessages, dto.Message{
+				messages = append(messages, dto.Message{
 					Role:       "tool",
 					Content:    contentStr,
 					ToolCallId: callID,
@@ -315,8 +290,6 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 
 		default:
 			// Regular message (user/assistant/developer)
-			// itemType can be "input_text", "output_text", "input_image", etc.
-			// Or itemRole can be "user", "assistant", "developer"
 			role := itemRole
 			if role == "" {
 				// Infer role from type
@@ -377,11 +350,11 @@ func parseResponsesInputToMessages(input json.RawMessage) (
 				}
 			}
 
-			regularMessages = append(regularMessages, msg)
+			messages = append(messages, msg)
 		}
 	}
 
-	return regularMessages, toolCallItems, toolOutputMessages, nil
+	return messages, nil
 }
 
 // parseItemContent parses the content of an input item

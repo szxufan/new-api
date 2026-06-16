@@ -2,9 +2,11 @@ package claude
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/stretchr/testify/require"
 )
@@ -379,4 +381,231 @@ func TestRequestOpenAI2ClaudeMessage_ConvertsTextFileContentToText(t *testing.T)
 	require.Equal(t, "text", content[0].Type)
 	require.NotNil(t, content[0].Text)
 	require.Equal(t, "alpha\nbeta", *content[0].Text)
+}
+
+func TestFormatClaudeResponseInfo_ToolIDDedup(t *testing.T) {
+	// 测试流式响应中工具调用ID去重：重复ID的content_block_start应被跳过
+	claudeInfo := &ClaudeResponseInfo{
+		Usage: &dto.Usage{},
+	}
+
+	// 第一个 tool_use content_block_start
+	claudeResponse1 := &dto.ClaudeResponse{
+		Type: "content_block_start",
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Id:   "toolu_001",
+			Type: "tool_use",
+			Name: "get_weather",
+		},
+	}
+	ok := FormatClaudeResponseInfo(claudeResponse1, nil, claudeInfo)
+	require.True(t, ok)
+	require.Len(t, claudeInfo.ToolCalls, 1)
+	require.Equal(t, "toolu_001", claudeInfo.ToolCalls[0].ID)
+
+	// 重复ID的 content_block_start 应被跳过（在HandleStreamResponseData层面处理）
+	// FormatClaudeResponseInfo 本身不做去重，但 SeenToolIDs 在 HandleStreamResponseData 中维护
+	// 这里直接测试 FormatClaudeResponseInfo 仍然会追加（因为去重在 HandleStreamResponseData 中）
+	claudeResponse2 := &dto.ClaudeResponse{
+		Type: "content_block_start",
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Id:   "toolu_001",
+			Type: "tool_use",
+			Name: "get_weather",
+		},
+	}
+	ok = FormatClaudeResponseInfo(claudeResponse2, nil, claudeInfo)
+	require.True(t, ok)
+	// 注意：FormatClaudeResponseInfo 本身不做去重，去重在 HandleStreamResponseData 中
+	require.Len(t, claudeInfo.ToolCalls, 2)
+
+	// 不同ID的 content_block_start 应正常追加
+	claudeResponse3 := &dto.ClaudeResponse{
+		Type: "content_block_start",
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Id:   "toolu_002",
+			Type: "tool_use",
+			Name: "get_time",
+		},
+	}
+	ok = FormatClaudeResponseInfo(claudeResponse3, nil, claudeInfo)
+	require.True(t, ok)
+	require.Len(t, claudeInfo.ToolCalls, 3)
+	require.Equal(t, "toolu_002", claudeInfo.ToolCalls[2].ID)
+}
+
+func TestResponseClaude2OpenAI_ToolIDDedup(t *testing.T) {
+	// 测试非流式响应中工具调用ID去重
+	claudeResponse := &dto.ClaudeResponse{
+		Id:    "msg_123",
+		Model: "claude-3-5-sonnet",
+		Content: []dto.ClaudeMediaMessage{
+			{
+				Type: "text",
+				Text: common.GetPointer[string]("Let me check the weather."),
+			},
+			{
+				Type:  "tool_use",
+				Id:    "toolu_001",
+				Name:  "get_weather",
+				Input: map[string]any{"city": "Beijing"},
+			},
+			{
+				Type:  "tool_use",
+				Id:    "toolu_001", // 重复ID
+				Name:  "get_weather",
+				Input: map[string]any{"city": "Shanghai"},
+			},
+			{
+				Type:  "tool_use",
+				Id:    "toolu_002",
+				Name:  "get_time",
+				Input: map[string]any{},
+			},
+		},
+		StopReason: "end_turn",
+	}
+
+	openaiResp := ResponseClaude2OpenAI(claudeResponse)
+	require.NotNil(t, openaiResp)
+
+	toolCalls := openaiResp.Choices[0].Message.ParseToolCalls()
+	// 重复的 toolu_001 应被去重，只保留第一个
+	require.Len(t, toolCalls, 2)
+	require.Equal(t, "toolu_001", toolCalls[0].ID)
+	require.Equal(t, "toolu_002", toolCalls[1].ID)
+}
+
+func TestRequestOpenAI2ClaudeMessage_ToolCallIDDedup(t *testing.T) {
+	// 测试请求转换中工具调用ID去重
+	toolCallsData, _ := json.Marshal([]dto.ToolCallRequest{
+		{
+			ID:   "call_001",
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "get_weather",
+				Arguments: `{"city":"Beijing"}`,
+			},
+		},
+		{
+			ID:   "call_001", // 重复ID
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "get_weather",
+				Arguments: `{"city":"Shanghai"}`,
+			},
+		},
+		{
+			ID:   "call_002",
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name:      "get_time",
+				Arguments: `{}`,
+			},
+		},
+	})
+	request := dto.GeneralOpenAIRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []dto.Message{
+			{
+				Role: "user",
+				Content: []any{
+					dto.MediaContent{
+						Type: dto.ContentTypeText,
+						Text: "What's the weather?",
+					},
+				},
+			},
+			{
+				Role: "assistant",
+				Content: []any{
+					dto.MediaContent{
+						Type: dto.ContentTypeText,
+						Text: "Let me check.",
+					},
+				},
+				ToolCalls: toolCallsData,
+			},
+		},
+	}
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+
+	// 找到 assistant 消息
+	var assistantMsg *dto.ClaudeMessage
+	for i := range claudeRequest.Messages {
+		if claudeRequest.Messages[i].Role == "assistant" {
+			assistantMsg = &claudeRequest.Messages[i]
+			break
+		}
+	}
+	require.NotNil(t, assistantMsg)
+
+	content, ok := assistantMsg.Content.([]dto.ClaudeMediaMessage)
+	require.True(t, ok)
+
+	// 统计 tool_use 类型的消息
+	var toolUseMessages []dto.ClaudeMediaMessage
+	for _, msg := range content {
+		if msg.Type == "tool_use" {
+			toolUseMessages = append(toolUseMessages, msg)
+		}
+	}
+	// 重复的 call_001 应被去重，只保留第一个
+	require.Len(t, toolUseMessages, 2)
+	require.Equal(t, "call_001", toolUseMessages[0].Id)
+	require.Equal(t, "call_002", toolUseMessages[1].Id)
+}
+
+func TestRequestOpenAI2ClaudeMessage_ToolRoleDedup(t *testing.T) {
+	// 测试 tool role 消息中重复 ToolCallId 的去重
+	request := dto.GeneralOpenAIRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []dto.Message{
+			{
+				Role:    "user",
+				Content: "What's the weather?",
+			},
+			{
+				Role:    "assistant",
+				Content: "",
+			},
+			{
+				Role:       "tool",
+				ToolCallId: "call_001",
+				Content:    "sunny",
+			},
+			{
+				Role:       "tool",
+				ToolCallId: "call_001", // 重复
+				Content:    "rainy",
+			},
+			{
+				Role:       "tool",
+				ToolCallId: "call_002",
+				Content:    "cloudy",
+			},
+		},
+	}
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+
+	// 统计所有 tool_result 消息
+	var toolResults []dto.ClaudeMediaMessage
+	for _, msg := range claudeRequest.Messages {
+		if content, ok := msg.Content.([]dto.ClaudeMediaMessage); ok {
+			for _, item := range content {
+				if item.Type == "tool_result" {
+					toolResults = append(toolResults, item)
+				}
+			}
+		}
+	}
+	// 重复的 call_001 应被去重
+	require.Len(t, toolResults, 2)
+	require.Equal(t, "call_001", toolResults[0].ToolUseId)
+	require.Equal(t, "sunny", toolResults[0].Content)
+	require.Equal(t, "call_002", toolResults[1].ToolUseId)
 }

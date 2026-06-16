@@ -341,6 +341,13 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 			resp.SetIndex(0)
 			claudeResponses = append(claudeResponses, resp)
+			// 记录已见过的工具调用ID
+			if toolCall.ID != "" {
+				if info.ClaudeConvertInfo.SeenToolIDs == nil {
+					info.ClaudeConvertInfo.SeenToolIDs = make(map[string]bool)
+				}
+				info.ClaudeConvertInfo.SeenToolIDs[toolCall.ID] = true
+			}
 			// 首块包含工具 delta，则追加 input_json_delta
 			if toolCall.Function.Arguments != "" {
 				idx := 0
@@ -499,6 +506,17 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					maxOffset = offset
 				}
 				blockIndex := base + offset
+
+				// 工具调用ID去重：如果ID已见过，跳过该toolCall
+				if toolCall.ID != "" && toolCall.Function.Name != "" {
+					if info.ClaudeConvertInfo.SeenToolIDs == nil {
+						info.ClaudeConvertInfo.SeenToolIDs = make(map[string]bool)
+					}
+					if info.ClaudeConvertInfo.SeenToolIDs[toolCall.ID] {
+						continue
+					}
+					info.ClaudeConvertInfo.SeenToolIDs[toolCall.ID] = true
+				}
 
 				idx := blockIndex
 				if toolCall.Function.Name != "" {

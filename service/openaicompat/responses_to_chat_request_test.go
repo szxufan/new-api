@@ -326,3 +326,91 @@ func TestResponsesRequestToChatCompletionsRequest_RoundTrip(t *testing.T) {
 	assert.Equal(t, *originalReq.TopP, *chatReq.TopP)
 	// Note: messages structure may differ slightly due to instructions handling
 }
+
+func TestResponsesRequestToChatCompletionsRequest_DeduplicateToolCallIDs(t *testing.T) {
+	// 测试 previous_response_id 上下文合并导致重复 tool_call_id 的去重
+	inputJSON, _ := json.Marshal([]map[string]any{
+		{"role": "user", "content": "Run command"},
+		{"type": "function_call", "call_id": "shell_command:12", "name": "run_shell", "arguments": "{\"cmd\": \"ls\"}"},
+		{"type": "function_call_output", "call_id": "shell_command:12", "output": "file1.txt"},
+		// 模拟 previous_response_id 合并导致的重复
+		{"type": "function_call_output", "call_id": "shell_command:12", "output": "file1.txt"},
+	})
+
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-4o",
+		Input: inputJSON,
+	}
+
+	result, err := ResponsesRequestToChatCompletionsRequest(req)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// 统计 tool role 消息中 tool_call_id 为 "shell_command:12" 的数量
+	count := 0
+	for _, msg := range result.Messages {
+		if msg.Role == "tool" && msg.ToolCallId == "shell_command:12" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "duplicate tool_call_id should be deduplicated")
+}
+
+func TestResponsesRequestToChatCompletionsRequest_MessageOrder(t *testing.T) {
+	// 测试 previous_response_id 合并后消息顺序正确
+	// 模拟场景：之前的响应包含 function_call + function_call_output，
+	// 当前 input 是新的 user 消息
+	inputJSON, _ := json.Marshal([]map[string]any{
+		{"type": "message", "role": "user", "content": "Run command"},
+		{"type": "message", "role": "assistant", "content": "Let me check."},
+		{"type": "function_call", "call_id": "shell_command:6", "name": "run_shell", "arguments": `{"cmd": "ls"}`},
+		{"type": "function_call_output", "call_id": "shell_command:6", "output": "file1.txt"},
+		{"type": "message", "role": "assistant", "content": "Here are the files."},
+		{"type": "message", "role": "user", "content": "Thanks!"},
+	})
+
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-4o",
+		Input: inputJSON,
+	}
+
+	result, err := ResponsesRequestToChatCompletionsRequest(req)
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// 验证消息顺序
+	assert.GreaterOrEqual(t, len(result.Messages), 5, "should have at least 5 messages")
+
+	// 消息顺序应该是: user -> assistant(text) -> assistant(tool_calls) -> tool -> assistant -> user
+	// 其中前两个 assistant 可能被合并为一个
+	roles := make([]string, 0, len(result.Messages))
+	for _, msg := range result.Messages {
+		roles = append(roles, msg.Role)
+	}
+
+	// 第一个应该是 user
+	assert.Equal(t, "user", result.Messages[0].Role)
+
+	// tool 消息应该在 tool_call 之后
+	toolIdx := -1
+	assistantWithToolCallsIdx := -1
+	for i, msg := range result.Messages {
+		if msg.Role == "tool" && msg.ToolCallId == "shell_command:6" {
+			toolIdx = i
+		}
+		if msg.Role == "assistant" {
+			tc := msg.ParseToolCalls()
+			for _, c := range tc {
+				if c.ID == "shell_command:6" {
+					assistantWithToolCallsIdx = i
+				}
+			}
+		}
+	}
+	assert.NotEqual(t, -1, toolIdx, "should have tool message")
+	assert.NotEqual(t, -1, assistantWithToolCallsIdx, "should have assistant with tool_calls")
+	assert.Less(t, assistantWithToolCallsIdx, toolIdx, "assistant with tool_calls should come before tool result")
+
+	// 最后应该是 user
+	assert.Equal(t, "user", result.Messages[len(result.Messages)-1].Role)
+}
