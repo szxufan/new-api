@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	channelconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -18,6 +19,60 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// zhipuURLSuffixes 定义智谱 API 的路径后缀层级
+// 根据用户设置的 base URL 后缀，智能拼接剩余路径，避免路径重复
+var zhipuURLSuffixes = []struct {
+	suffix      string
+	chatPath    string // chat completions 的剩余路径
+	embeddingPath string
+	imagePath   string
+	claudePath  string
+}{
+	{suffix: "/chat/completions", chatPath: "", embeddingPath: "", imagePath: "", claudePath: ""},           // 已包含完整路径
+	{suffix: "/v4", chatPath: "/chat/completions", embeddingPath: "/embeddings", imagePath: "/images/generations", claudePath: ""},
+	{suffix: "/paas", chatPath: "/v4/chat/completions", embeddingPath: "/v4/embeddings", imagePath: "/v4/images/generations", claudePath: ""},
+	{suffix: "/coding/paas", chatPath: "/v4/chat/completions", embeddingPath: "/v4/embeddings", imagePath: "/v4/images/generations", claudePath: ""},
+}
+
+// buildZhipuURL 根据用户设置的 base URL 后缀智能拼接完整请求 URL
+func buildZhipuURL(baseURL string, relayMode int, relayFormat types.RelayFormat) string {
+	for _, s := range zhipuURLSuffixes {
+		if strings.HasSuffix(baseURL, s.suffix) {
+			switch relayFormat {
+			case types.RelayFormatClaude:
+				if s.claudePath != "" {
+					return fmt.Sprintf("%s%s", baseURL, s.claudePath)
+				}
+				// 未匹配到 claude 路径，回退到默认
+				return fmt.Sprintf("%s/api/anthropic/v1/messages", baseURL)
+			default:
+				switch relayMode {
+				case relayconstant.RelayModeEmbeddings:
+					return fmt.Sprintf("%s%s", baseURL, s.embeddingPath)
+				case relayconstant.RelayModeImagesGenerations:
+					return fmt.Sprintf("%s%s", baseURL, s.imagePath)
+				default:
+					return fmt.Sprintf("%s%s", baseURL, s.chatPath)
+				}
+			}
+		}
+	}
+	// 默认拼接完整路径
+	switch relayFormat {
+	case types.RelayFormatClaude:
+		return fmt.Sprintf("%s/api/anthropic/v1/messages", baseURL)
+	default:
+		switch relayMode {
+		case relayconstant.RelayModeEmbeddings:
+			return fmt.Sprintf("%s/api/paas/v4/embeddings", baseURL)
+		case relayconstant.RelayModeImagesGenerations:
+			return fmt.Sprintf("%s/api/paas/v4/images/generations", baseURL)
+		default:
+			return fmt.Sprintf("%s/api/paas/v4/chat/completions", baseURL)
+		}
+	}
+}
 
 type Adaptor struct {
 }
@@ -55,26 +110,20 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if hasSpecialPlan && specialPlan.ClaudeBaseURL != "" {
 			return fmt.Sprintf("%s/v1/messages", specialPlan.ClaudeBaseURL), nil
 		}
-		return fmt.Sprintf("%s/api/anthropic/v1/messages", baseURL), nil
 	default:
-		switch info.RelayMode {
-		case relayconstant.RelayModeEmbeddings:
-			if hasSpecialPlan && specialPlan.OpenAIBaseURL != "" {
+		if hasSpecialPlan && specialPlan.OpenAIBaseURL != "" {
+			switch info.RelayMode {
+			case relayconstant.RelayModeEmbeddings:
 				return fmt.Sprintf("%s/embeddings", specialPlan.OpenAIBaseURL), nil
-			}
-			return fmt.Sprintf("%s/api/paas/v4/embeddings", baseURL), nil
-		case relayconstant.RelayModeImagesGenerations:
-			if hasSpecialPlan && specialPlan.OpenAIBaseURL != "" {
+			case relayconstant.RelayModeImagesGenerations:
 				return fmt.Sprintf("%s/images/generations", specialPlan.OpenAIBaseURL), nil
-			}
-			return fmt.Sprintf("%s/api/paas/v4/images/generations", baseURL), nil
-		default:
-			if hasSpecialPlan && specialPlan.OpenAIBaseURL != "" {
+			default:
 				return fmt.Sprintf("%s/chat/completions", specialPlan.OpenAIBaseURL), nil
 			}
-			return fmt.Sprintf("%s/api/paas/v4/chat/completions", baseURL), nil
 		}
 	}
+
+	return buildZhipuURL(baseURL, info.RelayMode, info.RelayFormat), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
