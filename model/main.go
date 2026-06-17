@@ -296,7 +296,27 @@ func migrateDB() error {
 			return err
 		}
 	}
+	// 为现有 balance > 0 的渠道补设 BalanceEverNonZero 标志
+	migrateBalanceEverNonZero()
 	return nil
+}
+
+// migrateBalanceEverNonZero 为现有 balance > 0 的渠道补设 BalanceEverNonZero 标志
+// 确保现有有余额的渠道立即获得余额为0自动禁用的资格，无需等待下次余额查询
+func migrateBalanceEverNonZero() {
+	var channels []*Channel
+	if err := DB.Where("balance > 0").Find(&channels).Error; err != nil {
+		common.SysLog("failed to migrate balance_ever_non_zero: " + err.Error())
+		return
+	}
+	for _, ch := range channels {
+		if !ch.ChannelInfo.BalanceEverNonZero {
+			ch.ChannelInfo.BalanceEverNonZero = true
+			if err := ch.SaveChannelInfo(); err != nil {
+				common.SysLog(fmt.Sprintf("failed to set balance_ever_non_zero: channel_id=%d, error=%v", ch.Id, err))
+			}
+		}
+	}
 }
 
 func migrateDBFast() error {

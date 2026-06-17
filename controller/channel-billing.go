@@ -14,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/shopspring/decimal"
 
@@ -444,6 +443,8 @@ func UpdateChannelBalance(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 上游查询返回的余额可能已更新 BalanceEverNonZero 标志，检查是否需要禁用
+	service.DisableChannelIfBalanceDepleted(channel, "余额不足")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -473,7 +474,8 @@ func updateAllChannelsBalance() error {
 		} else {
 			// err is nil & balance <= 0 means quota is used up
 			if balance <= 0 {
-				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "余额不足")
+				// 统一禁用判定：内部检查 BalanceEverNonZero 和 AutoBan，避免误禁用从未有过余额的渠道
+				service.DisableChannelIfBalanceDepleted(channel, "余额不足")
 			}
 		}
 		time.Sleep(common.RequestInterval)

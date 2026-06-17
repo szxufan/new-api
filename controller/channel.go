@@ -985,6 +985,11 @@ func UpdateChannel(c *gin.Context) {
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
 	channel.ChannelInfo = originChannel.ChannelInfo
 
+	// 手动设置非0余额时标记为"曾经有过非0余额"，用于余额为0自动禁用判定
+	if channel.Balance > 0 {
+		channel.ChannelInfo.BalanceEverNonZero = true
+	}
+
 	// If the request explicitly specifies a new MultiKeyMode, apply it on top of the original info.
 	if channel.MultiKeyMode != nil && *channel.MultiKeyMode != "" {
 		channel.ChannelInfo.MultiKeyMode = constant.MultiKeyMode(*channel.MultiKeyMode)
@@ -1074,6 +1079,11 @@ func UpdateChannel(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// 手动设余额为0且曾经有过非0余额时触发禁用（仅当渠道当前为启用状态）
+	// channel.Update() 内部已 First() 重新加载，channel 此时是最新值
+	if channel.Balance <= 0 && channel.Status == common.ChannelStatusEnabled {
+		service.DisableChannelIfBalanceDepleted(&channel.Channel, "余额被手动清零")
 	}
 	model.InitChannelCache()
 	service.ResetProxyClientCache()

@@ -94,6 +94,59 @@ func UnrateLimitChannel(channelId int, usingKey string, channelName string) {
 	}
 }
 
+// DisableChannelIfBalanceDepleted 检查渠道余额是否耗尽并自动禁用
+// 统一封装禁用条件，供消费扣减、余额查询、手动编辑等所有路径复用
+// 返回 true 表示已触发禁用
+func DisableChannelIfBalanceDepleted(channel *model.Channel, reason string) bool {
+	if channel == nil {
+		return false
+	}
+	// 条件1：曾经有过非0余额（从未有过余额的渠道不禁用）
+	if !channel.ChannelInfo.BalanceEverNonZero {
+		return false
+	}
+	// 条件2：当前余额已耗尽（<=0）
+	if channel.Balance > 0 {
+		return false
+	}
+	// 条件3：渠道启用了自动禁用（尊重 AutoBan 设置）
+	if !channel.GetAutoBan() {
+		return false
+	}
+	DisableChannel(*types.NewChannelError(
+		channel.Id, channel.Type, channel.Name,
+		channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan(),
+	), reason)
+	return true
+}
+
+// UpdateChannelQuotaAndBalance 更新渠道已用额度并扣减余额，检查余额耗尽自动禁用
+// 供所有计费路径调用，替代直接调用 model.UpdateChannelUsedQuota
+func UpdateChannelQuotaAndBalance(channelId int, quota int) {
+	// 1. 更新已用额度统计（可能批量延迟）
+	model.UpdateChannelUsedQuota(channelId, quota)
+	if quota <= 0 {
+		return
+	}
+	// 2. 防御 QuotaPerUnit 异常配置（除零保护）
+	if common.QuotaPerUnit <= 0 {
+		common.SysLog(fmt.Sprintf("skip balance deduction: QuotaPerUnit is invalid (%v), channel_id=%d", common.QuotaPerUnit, channelId))
+		return
+	}
+	// 3. 即时扣减余额（独立于批量更新，使用 quota/QuotaPerUnit 作为近似上游成本）
+	deduction := float64(quota) / common.QuotaPerUnit
+	channel, err := model.DeductChannelBalance(channelId, deduction)
+	if err != nil || channel == nil {
+		return
+	}
+	// 4. best-effort 更新缓存中的余额（接受短暂不一致）
+	if common.MemoryCacheEnabled {
+		model.CacheUpdateChannel(channel)
+	}
+	// 5. 检查余额耗尽自动禁用
+	DisableChannelIfBalanceDepleted(channel, "余额耗尽（自动扣减）")
+}
+
 func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if !common.AutomaticDisableChannelEnabled {
 		return false

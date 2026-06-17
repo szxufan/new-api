@@ -69,6 +69,7 @@ type ChannelInfo struct {
 	MultiKeyRateLimitedUntil map[int]int64         `json:"multi_key_rate_limited_until,omitempty"` // key限流结束时间列表，key index -> unix timestamp
 	MultiKeyPollingIndex     int                   `json:"multi_key_polling_index"`              // 多Key模式下轮询的key索引
 	MultiKeyMode             constant.MultiKeyMode `json:"multi_key_mode"`
+	BalanceEverNonZero       bool                  `json:"balance_ever_non_zero,omitempty"`       // 是否曾经有过非0余额（用于余额为0自动禁用判定）
 }
 
 type ChannelSortOptions struct {
@@ -600,13 +601,40 @@ func (channel *Channel) UpdateResponseTime(responseTime int64) {
 }
 
 func (channel *Channel) UpdateBalance(balance float64) {
-	err := DB.Model(channel).Select("balance_updated_time", "balance").Updates(Channel{
-		BalanceUpdatedTime: common.GetTimestamp(),
-		Balance:            balance,
-	}).Error
+	// 使用 map 明确指定更新值，避免结构体 Updates 把旧 balance 写回
+	updates := map[string]interface{}{
+		"balance_updated_time": common.GetTimestamp(),
+		"balance":              balance,
+	}
+	// balance > 0 时标记"曾经有过非0余额"，用于余额为0自动禁用判定
+	if balance > 0 && !channel.ChannelInfo.BalanceEverNonZero {
+		channel.ChannelInfo.BalanceEverNonZero = true
+		updates["channel_info"] = channel.ChannelInfo
+	}
+	err := DB.Model(channel).Updates(updates).Error
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update balance: channel_id=%d, error=%v", channel.Id, err))
 	}
+}
+
+// DeductChannelBalance 原子扣减渠道余额，扣减后不低于0，返回扣减后的渠道信息
+// 仅当 balance > deduction 时正常扣减；0 < balance <= deduction 时归零；balance <= 0 时不扣减
+func DeductChannelBalance(id int, deduction float64) (*Channel, error) {
+	if deduction <= 0 {
+		return GetChannelById(id, true)
+	}
+	// 原子扣减：balance > deduction 时正常扣减，否则归零，避免负余额
+	// CASE WHEN balance > ? THEN balance - ? ELSE 0 END
+	// - balance=0（无余额渠道）→ 0 > deduction 为 false → 返回0（不变）
+	// - 0 < balance <= deduction → 归零
+	// - balance > deduction → 正常扣减
+	err := DB.Model(&Channel{}).Where("id = ?", id).
+		Update("balance", gorm.Expr("CASE WHEN balance > ? THEN balance - ? ELSE 0 END", deduction, deduction)).Error
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to deduct channel balance: channel_id=%d, deduction=%v, error=%v", id, deduction, err))
+		return nil, err
+	}
+	return GetChannelById(id, true)
 }
 
 func (channel *Channel) Delete() error {
