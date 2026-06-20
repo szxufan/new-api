@@ -1324,8 +1324,34 @@ func CopyChannel(c *gin.Context) {
 	}
 
 	// insert
-	if err := model.BatchInsertChannels([]model.Channel{clone}); err != nil {
+	// 注意：不能使用 BatchInsertChannels，因为它内部通过 lo.Chunk 对值类型切片做了 copy，
+	// GORM 回填的自增 ID 只会写到副本里，无法写回 clone，导致返回的 id 恒为 0。
+	// 这里直接使用事务插入并补建 abilities，保证 clone.Id 被正确回填。
+	tx := model.DB.Begin()
+	if tx.Error != nil {
+		common.SysError("failed to begin tx for clone channel: " + tx.Error.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "复制渠道失败，请稍后重试"})
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+	if err := tx.Create(&clone).Error; err != nil {
+		tx.Rollback()
 		common.SysError("failed to clone channel: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "复制渠道失败，请稍后重试"})
+		return
+	}
+	if err := clone.AddAbilities(tx); err != nil {
+		tx.Rollback()
+		common.SysError("failed to add abilities for cloned channel: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "复制渠道失败，请稍后重试"})
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		common.SysError("failed to commit clone channel: " + err.Error())
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "复制渠道失败，请稍后重试"})
 		return
 	}

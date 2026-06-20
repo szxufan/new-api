@@ -19,6 +19,24 @@ var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
 var channelSyncLock sync.RWMutex
 
+// getInt64FromMap 从 map[string]interface{} 中安全读取 int64 值。
+// encoding/json 将 JSON 数字反序列化为 float64 而非 int64，
+// 此函数处理该类型差异，避免类型断言失败。
+func getInt64FromMap(m map[string]interface{}, key string) (int64, bool) {
+	v, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	switch val := v.(type) {
+	case float64:
+		return int64(val), true
+	case int64:
+		return val, true
+	default:
+		return 0, false
+	}
+}
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		return
@@ -31,7 +49,7 @@ func InitChannelCache() {
 		// 检查限流状态是否过期
 		if channel.Status == common.ChannelStatusRateLimited429 || channel.Status == common.ChannelStatusManuallyRateLimited {
 			info := channel.GetOtherInfo()
-			if until, ok := info["rate_limit_until"].(int64); ok {
+			if until, ok := getInt64FromMap(info, "rate_limit_until"); ok {
 				if until > now {
 					// 仍在限流期内，保持限流状态
 					newChannelId2channel[channel.Id] = channel
@@ -122,7 +140,7 @@ func RecoverExpiredRateLimitedChannels() {
 
 	for _, channel := range channels {
 		info := channel.GetOtherInfo()
-		if until, ok := info["rate_limit_until"].(int64); ok && until <= now {
+		if until, ok := getInt64FromMap(info, "rate_limit_until"); ok && until <= now {
 			// 限流已过期，恢复启用
 			UpdateChannelStatus(channel.Id, "", common.ChannelStatusEnabled, "")
 			common.SysLog(fmt.Sprintf("channel #%d rate limit expired, restored to enabled", channel.Id))

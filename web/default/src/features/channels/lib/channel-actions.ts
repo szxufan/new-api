@@ -253,10 +253,11 @@ export async function handleCopyChannel(
 ): Promise<void> {
   try {
     const response = await copyChannel(id, params)
-    if (response.success && response.data?.id) {
+    // 仅以 success 作为成功判定，避免后端未返回 id（或 id 为 0）时漏掉关闭弹窗等后续处理
+    if (response.success) {
       toast.success(i18next.t(SUCCESS_MESSAGES.COPIED))
       queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
-      onSuccess?.(response.data.id)
+      onSuccess?.(response.data?.id ?? 0)
     }
   } catch (_error) {
     toast.error(i18next.t('Failed to copy channel'))
