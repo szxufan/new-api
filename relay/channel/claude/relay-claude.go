@@ -628,7 +628,7 @@ func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
 	return splitCacheCreationTokens
 }
 
-func buildOpenAIStyleUsageFromClaudeUsage(usage *dto.Usage) dto.Usage {
+func BuildOpenAIStyleUsageFromClaudeUsage(usage *dto.Usage) dto.Usage {
 	if usage == nil {
 		return dto.Usage{}
 	}
@@ -880,6 +880,8 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		if err != nil {
 			logger.LogError(c, "send_stream_response_failed: "+err.Error())
 		}
+	} else {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("unsupported relay format %s in claude stream handler, skipping chunk", info.RelayFormat))
 	}
 	return nil
 }
@@ -913,7 +915,7 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		//
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		if info.ShouldIncludeUsage {
-			openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
+			openAIUsage := BuildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 			response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, openAIUsage)
 			err := helper.ObjectData(c, response)
 			if err != nil {
@@ -921,6 +923,8 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			}
 		}
 		helper.Done(c)
+	} else {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("unsupported relay format %s in claude stream final handler", info.RelayFormat))
 	}
 }
 
@@ -974,7 +978,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
-		openaiResponse.Usage = buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
+		openaiResponse.Usage = BuildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 		responseData, err = json.Marshal(openaiResponse)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)

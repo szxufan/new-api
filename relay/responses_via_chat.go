@@ -1,18 +1,24 @@
 package relay
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/openaicompat"
 	"github.com/QuantumNous/new-api/types"
@@ -223,6 +229,19 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 			closer.Close()
 			lastCloser = nil
 
+			// 如果上游是 Claude 适配器，需要先将 Claude 格式响应转换为 OpenAI ChatCompletions 格式
+			if info.ApiType == appconstant.APITypeAnthropic {
+				var convErr error
+				if info.IsStream {
+					httpResp, convErr = convertClaudeStreamToChatCompletions(httpResp, info.UpstreamModelName)
+				} else {
+					httpResp, convErr = convertClaudeResponseToChatCompletions(httpResp)
+				}
+				if convErr != nil {
+					return nil, types.NewOpenAIError(convErr, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				}
+			}
+
 			// Handle response - convert ChatCompletions response back to Responses format
 			var usage *dto.Usage
 			var newApiErr *types.NewAPIError
@@ -272,4 +291,204 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		lastCloser.Close()
 	}
 	return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+}
+
+// convertClaudeResponseToChatCompletions 将 Claude 非流式响应转换为 OpenAI ChatCompletions 格式的 http.Response。
+// 如果 Claude 响应包含错误，返回 error 而非伪装成正常的 http.Response。
+func convertClaudeResponseToChatCompletions(httpResp *http.Response) (*http.Response, error) {
+	body, err := io.ReadAll(httpResp.Body)
+	httpResp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	var claudeResp dto.ClaudeResponse
+	if err := common.Unmarshal(body, &claudeResp); err != nil {
+		return nil, err
+	}
+
+	// 检查 Claude 错误 — 直接返回 error，避免 Claude 格式错误体被传给 OpenAI handler 导致二次解析失败
+	if claudeErr := claudeResp.GetClaudeError(); claudeErr != nil && claudeErr.Type != "" {
+		return nil, fmt.Errorf("claude upstream error: %s - %s", claudeErr.Type, claudeErr.Message)
+	}
+
+	// 提取 usage
+	usage := &dto.Usage{}
+	if claudeResp.Usage != nil {
+		usage.PromptTokens = claudeResp.Usage.InputTokens
+		usage.CompletionTokens = claudeResp.Usage.OutputTokens
+		usage.TotalTokens = claudeResp.Usage.InputTokens + claudeResp.Usage.OutputTokens
+		usage.UsageSemantic = "anthropic"
+		usage.PromptTokensDetails.CachedTokens = claudeResp.Usage.CacheReadInputTokens
+		usage.PromptTokensDetails.CachedCreationTokens = claudeResp.Usage.CacheCreationInputTokens
+		usage.ClaudeCacheCreation5mTokens = claudeResp.Usage.GetCacheCreation5mTokens()
+		usage.ClaudeCacheCreation1hTokens = claudeResp.Usage.GetCacheCreation1hTokens()
+	}
+
+	// usage 校验：如果 TotalTokens 为零，记录 warning
+	if usage.TotalTokens == 0 {
+		common.SysLog("convertClaudeResponseToChatCompletions: claude response has zero total tokens, usage may be incorrect")
+	}
+
+	// 转换为 OpenAI 格式
+	openaiResp := claude.ResponseClaude2OpenAI(&claudeResp)
+	openaiResp.Usage = claude.BuildOpenAIStyleUsageFromClaudeUsage(usage)
+
+	openaiJSON, err := common.Marshal(openaiResp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Response{
+		StatusCode: httpResp.StatusCode,
+		Header:     httpResp.Header,
+		Body:       io.NopCloser(bytes.NewReader(openaiJSON)),
+	}, nil
+}
+
+// convertClaudeStreamToChatCompletions 将 Claude 流式响应转换为 OpenAI ChatCompletions 流式格式的 http.Response。
+//
+// 已知局限：如果 Claude 流异常截断（没有 message_delta 事件），usage 将只有 promptTokens 而无 completionTokens。
+// 正常情况下 Claude API 总会发送 message_delta 包含 output_tokens。
+// 此函数无法做 ResponseText2Usage 兜底估算（需要 gin.Context 和累积文本），如需更健壮的兜底，
+// 需在 responsesViaChatCompletions 调用方层面处理。
+func convertClaudeStreamToChatCompletions(httpResp *http.Response, model string) (*http.Response, error) {
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer httpResp.Body.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				common.SysError(fmt.Sprintf("panic in convertClaudeStreamToChatCompletions: %v", r))
+			}
+			pw.Close()
+		}()
+
+		scanner := bufio.NewScanner(httpResp.Body)
+		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+
+		var (
+			promptTokens      int
+			completionTokens  int
+			cacheReadTokens   int
+			cacheCreateTokens int
+			cacheCreate5m     int
+			cacheCreate1h     int
+			actualModel       = model
+		)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				pw.Write([]byte("data: [DONE]\n\n"))
+				break
+			}
+
+			var claudeResp dto.ClaudeResponse
+			if err := common.UnmarshalJsonStr(data, &claudeResp); err != nil {
+				continue
+			}
+
+			// 检查错误 — 写入错误信息后终止
+			if claudeErr := claudeResp.GetClaudeError(); claudeErr != nil && claudeErr.Type != "" {
+				// 构造 OpenAI 格式的错误响应
+				errChunk := &dto.ChatCompletionsStreamResponse{
+					Id:      fmt.Sprintf("chatcmpl-error-%d", time.Now().UnixNano()),
+					Object:  "chat.completion.chunk",
+					Created: time.Now().Unix(),
+					Model:   actualModel,
+					Choices: []dto.ChatCompletionsStreamResponseChoice{
+						{
+							Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+								Content: common.GetPointer(claudeErr.Message),
+							},
+							FinishReason: common.GetPointer("stop"),
+						},
+					},
+				}
+				errJSON, _ := common.Marshal(errChunk)
+				pw.Write([]byte("data: " + string(errJSON) + "\n\n"))
+				pw.Write([]byte("data: [DONE]\n\n"))
+				break
+			}
+
+			// 提取 usage
+			// message_start 事件的 usage 在 message.usage 中（嵌套），message_delta 的 usage 在顶层
+			var usagePtr *dto.ClaudeUsage
+			if claudeResp.Type == "message_start" && claudeResp.Message != nil && claudeResp.Message.Usage != nil {
+				usagePtr = claudeResp.Message.Usage
+				// 从 message_start 提取实际 model 名
+				if claudeResp.Message.Model != "" {
+					actualModel = claudeResp.Message.Model
+				}
+			} else if claudeResp.Usage != nil {
+				usagePtr = claudeResp.Usage
+			}
+
+			if usagePtr != nil {
+				if claudeResp.Type == "message_start" {
+					promptTokens = usagePtr.InputTokens
+					cacheReadTokens = usagePtr.CacheReadInputTokens
+					cacheCreateTokens = usagePtr.CacheCreationInputTokens
+					cacheCreate5m = usagePtr.GetCacheCreation5mTokens()
+					cacheCreate1h = usagePtr.GetCacheCreation1hTokens()
+				} else if claudeResp.Type == "message_delta" {
+					completionTokens = usagePtr.OutputTokens
+					// message_delta 中也可能包含 cache 字段
+					if c5m := usagePtr.GetCacheCreation5mTokens(); c5m > 0 {
+						cacheCreate5m = c5m
+					}
+					if c1h := usagePtr.GetCacheCreation1hTokens(); c1h > 0 {
+						cacheCreate1h = c1h
+					}
+				}
+			}
+
+			// 转换为 OpenAI 流式格式
+			openaiChunk := claude.StreamResponseClaude2OpenAI(&claudeResp)
+			if openaiChunk == nil {
+				continue
+			}
+
+			chunkJSON, err := common.Marshal(openaiChunk)
+			if err != nil {
+				continue
+			}
+			pw.Write([]byte("data: " + string(chunkJSON) + "\n\n"))
+		}
+
+		// 发送 final usage chunk
+		if promptTokens > 0 || completionTokens > 0 {
+			usage := &dto.Usage{
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+				TotalTokens:      promptTokens + completionTokens,
+				UsageSemantic:    "anthropic",
+			}
+			usage.PromptTokensDetails.CachedTokens = cacheReadTokens
+			usage.PromptTokensDetails.CachedCreationTokens = cacheCreateTokens
+			usage.ClaudeCacheCreation5mTokens = cacheCreate5m
+			usage.ClaudeCacheCreation1hTokens = cacheCreate1h
+
+			openaiUsage := claude.BuildOpenAIStyleUsageFromClaudeUsage(usage)
+			finalChunk := helper.GenerateFinalUsageResponse("", common.GetTimestamp(), actualModel, openaiUsage)
+			finalJSON, err := common.Marshal(finalChunk)
+			if err == nil {
+				pw.Write([]byte("data: " + string(finalJSON) + "\n\n"))
+			}
+		}
+
+		// 始终发送 [DONE] 标记结束流（Claude SSE 不包含 [DONE]，需要我们自行添加）
+		pw.Write([]byte("data: [DONE]\n\n"))
+	}()
+
+	return &http.Response{
+		StatusCode: httpResp.StatusCode,
+		Header:     httpResp.Header,
+		Body:       pr,
+	}, nil
 }

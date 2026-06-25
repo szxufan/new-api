@@ -191,7 +191,7 @@ func TestBuildOpenAIStyleUsageFromClaudeUsage(t *testing.T) {
 		UsageSemantic:               "anthropic",
 	}
 
-	openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(usage)
+	openAIUsage := BuildOpenAIStyleUsageFromClaudeUsage(usage)
 
 	if openAIUsage.PromptTokens != 180 {
 		t.Fatalf("PromptTokens = %d, want 180", openAIUsage.PromptTokens)
@@ -248,7 +248,7 @@ func TestBuildOpenAIStyleUsageFromClaudeUsagePreservesCacheCreationRemainder(t *
 				UsageSemantic:               "anthropic",
 			}
 
-			openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(usage)
+			openAIUsage := BuildOpenAIStyleUsageFromClaudeUsage(usage)
 
 			if openAIUsage.PromptTokens != tt.expectedTotalInputToken {
 				t.Fatalf("PromptTokens = %d, want %d", openAIUsage.PromptTokens, tt.expectedTotalInputToken)
@@ -271,7 +271,7 @@ func TestBuildOpenAIStyleUsageFromClaudeUsageDefaultsAggregateCacheCreationTo5m(
 		UsageSemantic: "anthropic",
 	}
 
-	openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(usage)
+	openAIUsage := BuildOpenAIStyleUsageFromClaudeUsage(usage)
 
 	require.Equal(t, 50, openAIUsage.ClaudeCacheCreation5mTokens)
 	require.Equal(t, 0, openAIUsage.ClaudeCacheCreation1hTokens)

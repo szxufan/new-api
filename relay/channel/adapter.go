@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
@@ -11,6 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// ErrResponsesNotImplemented 表示该适配器不支持 /v1/responses 端点。
+// 调用方应捕获此错误并 fallback 到 /v1/chat/completions 路径。
+var ErrResponsesNotImplemented = errors.New("responses api not implemented for this channel type")
 
 type Adaptor interface {
 	// Init IsStream bool

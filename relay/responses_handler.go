@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -98,6 +100,20 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
+			if errors.Is(err, channel.ErrResponsesNotImplemented) {
+				logger.LogInfo(c, fmt.Sprintf("responses endpoint not supported by adaptor for channel %d model %s, falling back to chat/completions", info.ChannelId, info.OriginModelName))
+				service.MarkResponsesFallback(info.ChannelId, info.OriginModelName)
+				usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+				if apiErr != nil {
+					return apiErr
+				}
+				if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
+					service.PostAudioConsumeQuota(c, info, usage, "")
+				} else {
+					service.PostTextConsumeQuota(c, info, usage, nil)
+				}
+				return nil
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
