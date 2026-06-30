@@ -168,6 +168,8 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 					if channel == nil {
+						logger.LogWarn(c.Request.Context(), fmt.Sprintf("[no_channel] group=%s model=%s cache_enabled=%t path=%s",
+							usingGroup, modelRequest.Model, common.MemoryCacheEnabled, c.Request.URL.Path))
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}

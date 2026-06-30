@@ -200,6 +200,34 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 
 	if len(channels) == 0 {
+		// Log cache state for debugging: whether the group exists and what models are available
+		cacheNil := group2model2channels == nil
+		groupExists := false
+		modelKeys := ""
+		// Also log the raw bytes of the requested model to detect hidden characters
+		modelHex := fmt.Sprintf("%x", model)
+		if !cacheNil {
+			if models, ok := group2model2channels[group]; ok {
+				groupExists = true
+				keys := make([]string, 0, len(models))
+				for k := range models {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				modelKeys = strings.Join(keys, ",")
+				// Check if any key matches case-insensitively
+				modelLower := strings.ToLower(model)
+				for _, k := range keys {
+					if strings.ToLower(k) == modelLower {
+						logger.LogWarn(nil, fmt.Sprintf("[cache_miss_case_mismatch] requested_model=%s cache_key=%s requested_hex=%s key_hex=%x",
+							model, k, modelHex, k))
+						break
+					}
+				}
+			}
+		}
+		logger.LogWarn(nil, fmt.Sprintf("[cache_miss] group=%s model=%s model_hex=%s cache_enabled=true cache_nil=%t group_exists=%t group_models=[%s]",
+			group, model, modelHex, cacheNil, groupExists, modelKeys))
 		return nil, nil
 	}
 
