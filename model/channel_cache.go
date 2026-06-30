@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -181,56 +180,53 @@ func StartRateLimitRecoveryTask() {
 	}()
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
-	// if memory cache is disabled, get channel directly from database
-	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
-	}
-
-	channelSyncLock.RLock()
-	defer channelSyncLock.RUnlock()
-
-	// First, try to find channels with the exact model name.
+// getChannelIDsForModel 获取分组+模型对应的所有渠道ID（normalized 匹配）
+func getChannelIDsForModel(group, model string) []int {
 	channels := group2model2channels[group][model]
-
-	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		channels = group2model2channels[group][normalizedModel]
 	}
+	return channels
+}
 
-	if len(channels) == 0 {
-		// Log cache state for debugging: whether the group exists and what models are available
-		cacheNil := group2model2channels == nil
-		groupExists := false
-		modelKeys := ""
-		// Also log the raw bytes of the requested model to detect hidden characters
-		modelHex := fmt.Sprintf("%x", model)
-		if !cacheNil {
-			if models, ok := group2model2channels[group]; ok {
-				groupExists = true
-				keys := make([]string, 0, len(models))
-				for k := range models {
-					keys = append(keys, k)
-				}
-				sort.Strings(keys)
-				modelKeys = strings.Join(keys, ",")
-				// Check if any key matches case-insensitively
-				modelLower := strings.ToLower(model)
-				for _, k := range keys {
-					if strings.ToLower(k) == modelLower {
-						logger.LogWarn(nil, fmt.Sprintf("[cache_miss_case_mismatch] requested_model=%s cache_key=%s requested_hex=%s key_hex=%x",
-							model, k, modelHex, k))
-						break
-					}
+// logCacheMiss 记录缓存未命中的调试日志
+func logCacheMiss(group, model string) {
+	cacheNil := group2model2channels == nil
+	groupExists := false
+	modelKeys := ""
+	modelHex := fmt.Sprintf("%x", model)
+	if !cacheNil {
+		if models, ok := group2model2channels[group]; ok {
+			groupExists = true
+			keys := make([]string, 0, len(models))
+			for k := range models {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			modelKeys = strings.Join(keys, ",")
+			modelLower := strings.ToLower(model)
+			for _, k := range keys {
+				if strings.ToLower(k) == modelLower {
+					logger.LogWarn(nil, fmt.Sprintf("[cache_miss_case_mismatch] requested_model=%s cache_key=%s requested_hex=%s key_hex=%x",
+						model, k, modelHex, k))
+					break
 				}
 			}
 		}
-		logger.LogWarn(nil, fmt.Sprintf("[cache_miss] group=%s model=%s model_hex=%s cache_enabled=true cache_nil=%t group_exists=%t group_models=[%s]",
-			group, model, modelHex, cacheNil, groupExists, modelKeys))
+	}
+	logger.LogWarn(nil, fmt.Sprintf("[cache_miss] group=%s model=%s model_hex=%s cache_enabled=true cache_nil=%t group_exists=%t group_models=[%s]",
+		group, model, modelHex, cacheNil, groupExists, modelKeys))
+}
+
+// selectChannelFromList 从给定渠道ID列表中按优先级+权重选择
+// 复用现有的分层优先级 + 加权随机算法
+// 返回 nil, nil 表示当前 retry 层级无匹配渠道（非数据错误）
+// 返回 nil, error 表示数据一致性问题（渠道 ID 不存在）
+func selectChannelFromList(channels []int, retry int) (*Channel, error) {
+	if len(channels) == 0 {
 		return nil, nil
 	}
-
 	if len(channels) == 1 {
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
@@ -257,7 +253,6 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 	targetPriority := int64(sortedUniquePriorities[retry])
 
-	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
@@ -272,38 +267,121 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 
 	if len(targetChannels) == 0 {
-		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
+		return nil, nil
 	}
 
-	// smoothing factor and adjustment
 	smoothingFactor := 1
 	smoothingAdjustment := 0
 
 	if sumWeight == 0 {
-		// when all channels have weight 0, set sumWeight to the number of channels and set smoothing adjustment to 100
-		// each channel's effective weight = 100
 		sumWeight = len(targetChannels) * 100
 		smoothingAdjustment = 100
 	} else if sumWeight/len(targetChannels) < 10 {
-		// when the average weight is less than 10, set smoothing factor to 100
 		smoothingFactor = 100
 	}
 
-	// Calculate the total weight of all channels up to endIdx
 	totalWeight := sumWeight * smoothingFactor
-
-	// Generate a random value in the range [0, totalWeight)
 	randomWeight := rand.Intn(totalWeight)
 
-	// Find a channel based on its weight
 	for _, channel := range targetChannels {
 		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
 		if randomWeight < 0 {
 			return channel, nil
 		}
 	}
-	// return null if no channel is not found
-	return nil, errors.New("channel not found")
+	return nil, nil
+}
+
+func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+	// if memory cache is disabled, get channel directly from database
+	if !common.MemoryCacheEnabled {
+		return GetChannel(group, model, retry)
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	allChannelIDs := getChannelIDsForModel(group, model)
+	if len(allChannelIDs) == 0 {
+		logCacheMiss(group, model)
+		return nil, nil
+	}
+
+	return selectChannelFromList(allChannelIDs, retry)
+}
+
+// GetRandomSatisfiedChannelWithPreference 优先从 preferredTypes 中选择渠道。
+// 如果优先类型全部不可用，回退到所有渠道。
+// 支持 auto group 场景下的跨组回退。
+//
+// 参数:
+//   - group: 用户分组
+//   - model: 模型名称
+//   - retry: 当前重试次数（决定优先级层级）
+//   - preferredTypes: 优先渠道类型列表，为空则等价于 GetRandomSatisfiedChannel
+//
+// 返回:
+//   - (*Channel, nil): 选中渠道
+//   - (nil, nil): 无可用渠道或优先类型未命中且已回退
+//   - (nil, error): 数据一致性问题
+//   - fellBack: true 表示发生了类型回退（优先类型有渠道但不可用，回退到全量）
+func GetRandomSatisfiedChannelWithPreference(
+	group string, model string, retry int, preferredTypes []int,
+) (channel *Channel, err error, fellBack bool) {
+	if len(preferredTypes) == 0 {
+		channel, err = GetRandomSatisfiedChannel(group, model, retry)
+		return channel, err, false
+	}
+
+	if !common.MemoryCacheEnabled {
+		// DB 回退路径：暂不支持类型优先，走原有逻辑。
+		// 未来可扩展为带类型过滤的 SQL 查询：WHERE type IN (...)
+		channel, err = GetChannel(group, model, retry)
+		return channel, err, false
+	}
+
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	// 获取模型对应的所有渠道ID
+	allChannelIDs := getChannelIDsForModel(group, model)
+	if len(allChannelIDs) == 0 {
+		return nil, nil, false
+	}
+
+	// 第一步：按类型优先级过滤
+	typeSet := make(map[int]bool, len(preferredTypes))
+	for _, t := range preferredTypes {
+		typeSet[t] = true
+	}
+
+	preferredChannelIDs := make([]int, 0, len(allChannelIDs))
+	for _, channelId := range allChannelIDs {
+		if ch, ok := channelsIDM[channelId]; ok && typeSet[ch.Type] {
+			preferredChannelIDs = append(preferredChannelIDs, channelId)
+		}
+	}
+
+	if len(preferredChannelIDs) > 0 {
+		channel, err := selectChannelFromList(preferredChannelIDs, retry)
+		if err != nil {
+			return nil, err, false
+		}
+		if channel != nil {
+			// 类型优先命中
+			logger.LogDebug(nil, fmt.Sprintf(
+				"[channel_type_preference] hit: group=%s model=%s types=%v channel_id=%d type=%d",
+				group, model, preferredTypes, channel.Id, channel.Type,
+			))
+			return channel, nil, false
+		}
+		// 优先类型有渠道但当前 retry 层级无匹配，回退到全量
+		// 注：重试循环会递增 retry，后续可能匹配到更低优先级层级
+	}
+
+	// 第二步：回退到所有渠道
+	fallbackChannel, fallbackErr := selectChannelFromList(allChannelIDs, retry)
+	return fallbackChannel, fallbackErr, true
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

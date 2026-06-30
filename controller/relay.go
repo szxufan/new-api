@@ -178,11 +178,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	// 根据请求路径（RelayFormat）推断优先渠道类型
+	preferredTypes := types.GetPreferredChannelTypesByRelayFormat(relayFormat)
+
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:                   c,
+		TokenGroup:            relayInfo.TokenGroup,
+		ModelName:             relayInfo.OriginModelName,
+		Retry:                 common.GetPointer(0),
+		PreferredChannelTypes: preferredTypes,
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil

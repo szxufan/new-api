@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -17,6 +18,11 @@ type RetryParam struct {
 	ModelName    string
 	Retry        *int
 	resetNextTry bool
+	// PreferredChannelTypes 优先渠道类型列表（按顺序）。
+	// 为空或 nil 时不启用类型优先选择。
+	PreferredChannelTypes []int
+	// channelTypeFallbackLogged 用于确保 fallback 日志只打印一次
+	channelTypeFallbackLogged bool
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -115,7 +121,28 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
+			// 类型优先：auto group 每个分组都使用偏好类型过滤
+			if len(param.PreferredChannelTypes) > 0 {
+				var fellBack bool
+				channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
+					autoGroup, param.ModelName, priorityRetry,
+					param.PreferredChannelTypes,
+				)
+				if fellBack && !param.channelTypeFallbackLogged {
+					param.channelTypeFallbackLogged = true
+					logger.LogInfo(param.Ctx, fmt.Sprintf(
+						"[channel_type_preference] fallback: group=%s model=%s types=%v exhausted, fallback to all",
+						autoGroup, param.ModelName, param.PreferredChannelTypes,
+					))
+				}
+			} else {
+				channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
+			}
+
+			if err != nil {
+				return nil, selectGroup, err
+			}
+
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -153,7 +180,23 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
+		// 非 auto group 分支
+		if len(param.PreferredChannelTypes) > 0 {
+			var fellBack bool
+			channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
+				param.TokenGroup, param.ModelName, param.GetRetry(),
+				param.PreferredChannelTypes,
+			)
+			if fellBack && !param.channelTypeFallbackLogged {
+				param.channelTypeFallbackLogged = true
+				logger.LogInfo(param.Ctx, fmt.Sprintf(
+					"[channel_type_preference] fallback: group=%s model=%s types=%v exhausted, fallback to all",
+					param.TokenGroup, param.ModelName, param.PreferredChannelTypes,
+				))
+			}
+		} else {
+			channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
+		}
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
