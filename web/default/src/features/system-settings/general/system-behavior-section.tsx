@@ -37,7 +37,7 @@ import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
-  RetryTimes: z.coerce.number().min(0).max(10),
+  RetryTimes: z.coerce.number().min(0).max(50),
   RetryIntervalMs: z.coerce.number().min(0).max(60000),
   DefaultCollapseSidebar: z.boolean(),
   DemoSiteEnabled: z.boolean(),
@@ -90,7 +90,7 @@ export function SystemBehaviorSection({
                   <Input
                     type='number'
                     min='0'
-                    max='10'
+                    max='50'
                     value={field.value as number}
                     onChange={(e) => field.onChange(e.target.valueAsNumber)}
                     name={field.name}
@@ -99,7 +99,7 @@ export function SystemBehaviorSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Number of times to retry failed requests (0-10)')}
+                  {t('Number of times to retry failed requests (0-50)')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
