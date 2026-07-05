@@ -36,6 +36,7 @@ const OPERATIONS_SECTIONS = [
       <SystemBehaviorSection
         defaultValues={{
           RetryTimes: settings.RetryTimes,
+          RetryIntervalMs: settings.RetryIntervalMs,
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,

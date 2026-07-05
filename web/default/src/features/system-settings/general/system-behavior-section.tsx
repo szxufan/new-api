@@ -38,6 +38,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
   RetryTimes: z.coerce.number().min(0).max(10),
+  RetryIntervalMs: z.coerce.number().min(0).max(60000),
   DefaultCollapseSidebar: z.boolean(),
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
@@ -99,6 +100,32 @@ export function SystemBehaviorSection({
                 </FormControl>
                 <FormDescription>
                   {t('Number of times to retry failed requests (0-10)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RetryIntervalMs'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Retry Interval (ms)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='0'
+                    max='60000'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Milliseconds to wait before each retry (0-60000, 0 = no delay)')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

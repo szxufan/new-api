@@ -274,6 +274,17 @@ export default function GeneralSettings(props) {
                 />
               </Col>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'RetryIntervalMs'}
+                  type='number'
+                  label={t('重试间隔 (ms)')}
+                  initValue={''}
+                  placeholder={t('重试间隔 (ms)')}
+                  onChange={handleFieldChange('RetryIntervalMs')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Select
                   field='general_setting.quota_display_type'
                   label={t('额度展示类型')}

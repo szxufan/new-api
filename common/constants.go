@@ -151,6 +151,7 @@ var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
 var RetryTimes = 0
+var RetryIntervalMs = 0 // 重试间隔（毫秒），0 表示无间隔立即重试
 
 //var RootUserEmail = ""
 

@@ -29,6 +29,7 @@ import {
 
 const defaultOperationsSettings: OperationsSettings = {
   RetryTimes: 0,
+  RetryIntervalMs: 0,
   DefaultCollapseSidebar: false,
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
