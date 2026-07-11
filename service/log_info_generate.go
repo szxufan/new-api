@@ -79,6 +79,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
+	// 写入重试次数和重试耗时（如果有重试的话）
+	retryCount := common.GetContextKeyInt(ctx, constant.ContextKeyRetryCount)
+	if retryCount > 0 {
+		other["retry_count"] = retryCount
+		other["retry_duration_ms"] = common.GetContextKeyInt64(ctx, constant.ContextKeyRetryDurationMs)
+	}
 	return other
 }
 

@@ -65,6 +65,9 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			// the upstream (actual) model name that the request was routed to.
 			delete(otherMap, "is_model_mapped")
 			delete(otherMap, "upstream_model_name")
+			// 重试信息仅管理员可见
+			delete(otherMap, "retry_count")
+			delete(otherMap, "retry_duration_ms")
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = startIdx + i + 1

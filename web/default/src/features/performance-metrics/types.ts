@@ -58,3 +58,15 @@ export type PerfSummaryAllData = {
     models: PerfModelSummary[]
   }
 }
+
+export type ActiveRequestStats = {
+  active_requests: number
+  requests_10m: number
+  requests_1h: number
+}
+
+export type ActiveRequestData = {
+  success: boolean
+  message?: string
+  data: ActiveRequestStats
+}

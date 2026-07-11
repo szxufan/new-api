@@ -68,4 +68,9 @@ const (
 	// ContextKeyLanguage stores the user's language preference for i18n
 	ContextKeyLanguage ContextKey = "language"
 	ContextKeyIsStream ContextKey = "is_stream"
+
+	// ContextKeyRetryCount 记录当前请求的重试次数（不含首次请求）
+	ContextKeyRetryCount ContextKey = "retry_count"
+	// ContextKeyRetryDurationMs 记录从首次请求开始到最终结束的总耗时（毫秒）
+	ContextKeyRetryDurationMs ContextKey = "retry_duration_ms"
 )

@@ -549,6 +549,27 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 <DetailRow label={t('Retry Chain')} value={channelChain} mono />
               )}
 
+              {props.isAdmin && other?.retry_count != null && other.retry_count > 0 && (
+                <DetailRow
+                  label={t('Retry Count')}
+                  value={`×${other.retry_count}`}
+                  mono
+                />
+              )}
+
+              {props.isAdmin && other?.retry_duration_ms != null && other.retry_duration_ms > 0 && (
+                <DetailRow
+                  label={t('Retry Duration')}
+                  value={(() => {
+                    const sec = other.retry_duration_ms! / 1000
+                    return sec >= 1
+                      ? `${sec.toFixed(1)}s`
+                      : `${other.retry_duration_ms}ms`
+                  })()}
+                  mono
+                />
+              )}
+
               {props.log.token_name && (
                 <DetailRow
                   label={t('Token')}

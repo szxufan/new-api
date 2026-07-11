@@ -18,13 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Gauge, HeartPulse, Timer } from 'lucide-react'
+import { Activity, BarChart3, Clock, Gauge, HeartPulse, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+import { getActiveRequests, getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import {
   formatLatency,
+  formatRequestCount,
   formatThroughput,
   formatUptimePct,
 } from '@/features/performance-metrics/lib/format'
@@ -102,6 +103,14 @@ export function PerformanceOverview() {
     retry: false,
   })
 
+  const activeQuery = useQuery({
+    queryKey: ['perf-metrics-active'],
+    queryFn: () => getActiveRequests(),
+    refetchInterval: 5000,
+    staleTime: 0,
+    retry: false,
+  })
+
   const models = useMemo(
     () => metricsQuery.data?.data.models ?? [],
     [metricsQuery.data]
@@ -109,6 +118,8 @@ export function PerformanceOverview() {
   const summary = useMemo(() => buildPerformanceSummary(models), [models])
   const topModels = useMemo(() => models.slice(0, TOP_MODEL_LIMIT), [models])
   const loading = metricsQuery.isLoading
+  const activeLoading = activeQuery.isLoading
+  const activeStats = activeQuery.data?.data
   const hasData = models.length > 0
 
   if (!loading && !hasData) {
@@ -163,6 +174,39 @@ export function PerformanceOverview() {
               icon={Gauge}
               label={t('Throughput')}
               value={formatThroughput(summary.avgTps)}
+            />
+          </div>
+        )}
+
+        {/* Separator */}
+        <div className='bg-border hidden h-4 w-px sm:block' />
+
+        {/* 3 active request inline metrics */}
+        {activeLoading ? (
+          <div className='flex flex-wrap items-center gap-x-5 gap-y-2'>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className='flex items-center gap-1.5'>
+                <Skeleton className='h-3 w-14' />
+                <Skeleton className='h-4 w-16' />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className='flex flex-wrap items-center gap-x-5 gap-y-2'>
+            <InlineMetric
+              icon={Activity}
+              label={t('Active requests')}
+              value={activeStats ? formatRequestCount(activeStats.active_requests) : '—'}
+            />
+            <InlineMetric
+              icon={Clock}
+              label={t('Requests (10m)')}
+              value={activeStats ? formatRequestCount(activeStats.requests_10m) : '—'}
+            />
+            <InlineMetric
+              icon={BarChart3}
+              label={t('Requests (1h)')}
+              value={activeStats ? formatRequestCount(activeStats.requests_1h) : '—'}
             />
           </div>
         )}

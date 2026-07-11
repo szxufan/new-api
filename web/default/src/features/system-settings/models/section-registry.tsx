@@ -24,6 +24,7 @@ import { ClaudeSettingsCard } from './claude-settings-card'
 import { GeminiSettingsCard } from './gemini-settings-card'
 import { GlobalSettingsCard } from './global-settings-card'
 import { GrokSettingsCard } from './grok-settings-card'
+import { McpSettingsCard } from './mcp-settings-card'
 
 function formatJsonForEditor(value: string, fallback: string) {
   const raw = (value ?? '').toString().trim()
@@ -154,6 +155,24 @@ const MODELS_SECTIONS = [
         defaultValues={{
           enabled: settings['model_deployment.ionet.enabled'],
           apiKey: settings['model_deployment.ionet.api_key'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'mcp-image',
+    titleKey: 'MCP Image Generation',
+    descriptionKey:
+      'Configure per-group image generation models for MCP endpoints',
+    build: (settings: ModelSettings) => (
+      <McpSettingsCard
+        defaultValues={{
+          mcp: {
+            group_image_models: formatJsonForEditor(
+              settings['mcp_setting.group_image_models'],
+              '{"default":"dall-e-3"}'
+            ),
+          },
         }}
       />
     ),

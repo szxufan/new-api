@@ -169,6 +169,9 @@ export interface LogOtherData {
     end_error?: string
     errors?: string[]
   }
+  // Retry info (set by backend when a request was retried)
+  retry_count?: number
+  retry_duration_ms?: number
   // Violation fee fields
   violation_fee?: boolean
   violation_fee_code?: string

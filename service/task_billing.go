@@ -50,6 +50,12 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	// 写入重试次数和重试耗时（如果有重试的话）
+	retryCount := common.GetContextKeyInt(c, constant.ContextKeyRetryCount)
+	if retryCount > 0 {
+		other["retry_count"] = retryCount
+		other["retry_duration_ms"] = common.GetContextKeyInt64(c, constant.ContextKeyRetryDurationMs)
+	}
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
 		ModelName: info.OriginModelName,

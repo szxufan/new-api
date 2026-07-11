@@ -661,6 +661,45 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     },
 
     {
+      accessorKey: 'retry',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Retry')} />
+      ),
+      cell: ({ row }) => {
+        const log = row.original
+        if (!isDisplayableLogType(log.type)) return null
+
+        const other = parseLogOther(log.other)
+        const retryCount = other?.retry_count ?? 0
+        const retryDurationMs = other?.retry_duration_ms ?? 0
+
+        if (retryCount === 0) {
+          return (
+            <span className='text-muted-foreground/50 text-xs'>-</span>
+          )
+        }
+
+        const durationSec = retryDurationMs / 1000
+        const durationDisplay =
+          durationSec >= 1
+            ? `${durationSec.toFixed(1)}s`
+            : `${retryDurationMs}ms`
+
+        return (
+          <div className='flex flex-col gap-0.5'>
+            <span className='font-mono text-xs font-medium text-amber-600/85 dark:text-amber-400/85'>
+              ×{retryCount}
+            </span>
+            <span className='text-muted-foreground/70 text-[11px]'>
+              {durationDisplay}
+            </span>
+          </div>
+        )
+      },
+      meta: { label: t('Retry'), mobileHidden: true },
+    },
+
+    {
       accessorKey: 'prompt_tokens',
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='Tokens' />

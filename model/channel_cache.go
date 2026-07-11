@@ -219,11 +219,74 @@ func logCacheMiss(group, model string) {
 		group, model, modelHex, cacheNil, groupExists, modelKeys))
 }
 
+// CalcSamePriorityRetryBudget 计算同一优先级层级内的重试预算。
+//
+// 在引入"同优先级内重试"机制后，全局 retry 计数不再直接映射到优先级层级索引，
+// 而是先在同一优先级层级内重试 budget 次后再降级到下一层级。
+//
+// 规则：
+//   - RetryTimes <= 0（不重试）时返回 0，保持原行为
+//   - 否则返回 max(1, ceil(RetryTimes * 10%))，即总重试次数的 10% 向上取整，至少 1 次
+//
+// 示例：
+//   - RetryTimes=0  → budget=0（不重试）
+//   - RetryTimes=1  → budget=1（同层级重试 1 次后降级）
+//   - RetryTimes=10 → budget=1
+//   - RetryTimes=15 → budget=2
+//   - RetryTimes=20 → budget=2
+//   - RetryTimes=50 → budget=5
+func CalcSamePriorityRetryBudget(retryTimes int) int {
+	if retryTimes <= 0 {
+		return 0
+	}
+	// 向上取整 10%：(retryTimes + 9) / 10
+	budget := (retryTimes + 9) / 10
+	if budget < 1 {
+		budget = 1
+	}
+	return budget
+}
+
+// mapRetryToPriorityLevel 将全局 retry 计数映射为优先级层级索引。
+//
+// 在同优先级内重试 budget 次后再降级到下一优先级层级。
+// 当 budget 为 0（RetryTimes=0）时，等价于直接用 retry 作为层级索引（原行为）。
+//
+// 参数:
+//   - retry: 全局重试计数
+//   - budget: 同优先级内重试预算（由 CalcSamePriorityRetryBudget 计算）
+//   - numPriorities: 优先级层级数量
+//
+// 返回: 优先级层级索引（已夹取到 [0, numPriorities-1]）
+func mapRetryToPriorityLevel(retry, budget, numPriorities int) int {
+	if numPriorities <= 0 {
+		return 0
+	}
+	var level int
+	if budget <= 0 {
+		// RetryTimes=0 或 budget 未启用，回退到原始行为
+		level = retry
+	} else {
+		level = retry / budget
+	}
+	if level >= numPriorities {
+		level = numPriorities - 1
+	}
+	return level
+}
+
 // selectChannelFromList 从给定渠道ID列表中按优先级+权重选择
 // 复用现有的分层优先级 + 加权随机算法
+//
+// 同优先级内重试机制：
+//   - retry 不再直接作为优先级层级索引，而是先按 CalcSamePriorityRetryBudget(RetryTimes)
+//     计算 budget，在同一层级内重试 budget 次后才降级到下一层级
+//   - usedChannelIDs 用于在同一优先级层级内排除已使用的渠道，避免重复选中同一渠道
+//   - 若排除后当前层级无可用渠道，回退到不排除（避免无渠道可选）
+//
 // 返回 nil, nil 表示当前 retry 层级无匹配渠道（非数据错误）
 // 返回 nil, error 表示数据一致性问题（渠道 ID 不存在）
-func selectChannelFromList(channels []int, retry int) (*Channel, error) {
+func selectChannelFromList(channels []int, retry int, usedChannelIDs []int) (*Channel, error) {
 	if len(channels) == 0 {
 		return nil, nil
 	}
@@ -248,10 +311,10 @@ func selectChannelFromList(channels []int, retry int) (*Channel, error) {
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
 
-	if retry >= len(uniquePriorities) {
-		retry = len(uniquePriorities) - 1
-	}
-	targetPriority := int64(sortedUniquePriorities[retry])
+	// 同优先级内重试：将全局 retry 映射为优先级层级索引
+	budget := CalcSamePriorityRetryBudget(common.RetryTimes)
+	priorityLevel := mapRetryToPriorityLevel(retry, budget, len(uniquePriorities))
+	targetPriority := int64(sortedUniquePriorities[priorityLevel])
 
 	var sumWeight = 0
 	var targetChannels []*Channel
@@ -268,6 +331,27 @@ func selectChannelFromList(channels []int, retry int) (*Channel, error) {
 
 	if len(targetChannels) == 0 {
 		return nil, nil
+	}
+
+	// 在同一优先级层级内排除已使用的渠道，避免重复选中
+	if len(usedChannelIDs) > 0 && len(targetChannels) > 1 {
+		usedSet := make(map[int]bool, len(usedChannelIDs))
+		for _, id := range usedChannelIDs {
+			usedSet[id] = true
+		}
+		filtered := make([]*Channel, 0, len(targetChannels))
+		filteredSumWeight := 0
+		for _, ch := range targetChannels {
+			if !usedSet[ch.Id] {
+				filtered = append(filtered, ch)
+				filteredSumWeight += ch.GetWeight()
+			}
+		}
+		// 只有当过滤后仍有可用渠道时才使用过滤结果，否则回退到全量（避免无渠道可选）
+		if len(filtered) > 0 {
+			targetChannels = filtered
+			sumWeight = filteredSumWeight
+		}
 	}
 
 	smoothingFactor := 1
@@ -292,10 +376,19 @@ func selectChannelFromList(channels []int, retry int) (*Channel, error) {
 	return nil, nil
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+// GetRandomSatisfiedChannel 从内存缓存中按优先级+权重选择渠道。
+//
+// 参数:
+//   - group: 用户分组
+//   - model: 模型名称
+//   - retry: 全局重试计数（内部按同优先级内重试预算映射为优先级层级）
+//   - usedChannelIDs: 当前请求已使用的渠道ID列表，用于在同一优先级层级内排除
+//
+// 内存缓存关闭时回退到 DB 路径 GetChannel。
+func GetRandomSatisfiedChannel(group string, model string, retry int, usedChannelIDs []int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		return GetChannel(group, model, retry, usedChannelIDs)
 	}
 
 	channelSyncLock.RLock()
@@ -307,7 +400,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
-	return selectChannelFromList(allChannelIDs, retry)
+	return selectChannelFromList(allChannelIDs, retry, usedChannelIDs)
 }
 
 // GetRandomSatisfiedChannelWithPreference 优先从 preferredTypes 中选择渠道。
@@ -317,8 +410,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 // 参数:
 //   - group: 用户分组
 //   - model: 模型名称
-//   - retry: 当前重试次数（决定优先级层级）
+//   - retry: 全局重试次数（内部按同优先级内重试预算映射为优先级层级）
 //   - preferredTypes: 优先渠道类型列表，为空则等价于 GetRandomSatisfiedChannel
+//   - usedChannelIDs: 当前请求已使用的渠道ID列表，用于在同一优先级层级内排除
 //
 // 返回:
 //   - (*Channel, nil): 选中渠道
@@ -326,17 +420,17 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 //   - (nil, error): 数据一致性问题
 //   - fellBack: true 表示发生了类型回退（优先类型有渠道但不可用，回退到全量）
 func GetRandomSatisfiedChannelWithPreference(
-	group string, model string, retry int, preferredTypes []int,
+	group string, model string, retry int, preferredTypes []int, usedChannelIDs []int,
 ) (channel *Channel, err error, fellBack bool) {
 	if len(preferredTypes) == 0 {
-		channel, err = GetRandomSatisfiedChannel(group, model, retry)
+		channel, err = GetRandomSatisfiedChannel(group, model, retry, usedChannelIDs)
 		return channel, err, false
 	}
 
 	if !common.MemoryCacheEnabled {
 		// DB 回退路径：暂不支持类型优先，走原有逻辑。
 		// 未来可扩展为带类型过滤的 SQL 查询：WHERE type IN (...)
-		channel, err = GetChannel(group, model, retry)
+		channel, err = GetChannel(group, model, retry, usedChannelIDs)
 		return channel, err, false
 	}
 
@@ -363,7 +457,7 @@ func GetRandomSatisfiedChannelWithPreference(
 	}
 
 	if len(preferredChannelIDs) > 0 {
-		channel, err := selectChannelFromList(preferredChannelIDs, retry)
+		channel, err := selectChannelFromList(preferredChannelIDs, retry, usedChannelIDs)
 		if err != nil {
 			return nil, err, false
 		}
@@ -380,7 +474,7 @@ func GetRandomSatisfiedChannelWithPreference(
 	}
 
 	// 第二步：回退到所有渠道
-	fallbackChannel, fallbackErr := selectChannelFromList(allChannelIDs, retry)
+	fallbackChannel, fallbackErr := selectChannelFromList(allChannelIDs, retry, usedChannelIDs)
 	return fallbackChannel, fallbackErr, true
 }
 

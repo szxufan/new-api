@@ -68,6 +68,7 @@ const defaultModelSettings: ModelSettings = {
   'channel_affinity_setting.rules': '[]',
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
+  'mcp_setting.group_image_models': '{"default":"dall-e-3"}',
 }
 
 export function ModelSettings() {

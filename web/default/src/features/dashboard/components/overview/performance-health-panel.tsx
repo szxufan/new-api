@@ -18,13 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Gauge, HeartPulse, Timer } from 'lucide-react'
+import { Activity, BarChart3, Clock, Gauge, HeartPulse, Timer } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+import { getActiveRequests, getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import {
   formatLatency,
+  formatRequestCount,
   formatThroughput,
   formatUptimePct,
 } from '@/features/performance-metrics/lib/format'
@@ -74,6 +75,14 @@ export function PerformanceHealthPanel() {
     retry: false,
   })
 
+  const activeQuery = useQuery({
+    queryKey: ['perf-metrics-active'],
+    queryFn: () => getActiveRequests(),
+    refetchInterval: 5000,
+    staleTime: 0,
+    retry: false,
+  })
+
   const models = useMemo(
     () => metricsQuery.data?.data.models ?? [],
     [metricsQuery.data]
@@ -91,6 +100,8 @@ export function PerformanceHealthPanel() {
 
   const topModels = useMemo(() => models.slice(0, TOP_MODEL_LIMIT), [models])
   const loading = metricsQuery.isLoading
+  const activeLoading = activeQuery.isLoading
+  const activeStats = activeQuery.data?.data
   const hasData = models.length > 0
 
   return (
@@ -123,6 +134,27 @@ export function PerformanceHealthPanel() {
             label={t('Throughput')}
             value={formatThroughput(summary.avgTps)}
             loading={loading}
+          />
+        </div>
+
+        <div className='grid grid-cols-3 gap-2'>
+          <MetricCell
+            icon={Activity}
+            label={t('Active requests')}
+            value={activeStats ? formatRequestCount(activeStats.active_requests) : '—'}
+            loading={activeLoading}
+          />
+          <MetricCell
+            icon={Clock}
+            label={t('Requests (10m)')}
+            value={activeStats ? formatRequestCount(activeStats.requests_10m) : '—'}
+            loading={activeLoading}
+          />
+          <MetricCell
+            icon={BarChart3}
+            label={t('Requests (1h)')}
+            value={activeStats ? formatRequestCount(activeStats.requests_1h) : '—'}
+            loading={activeLoading}
           />
         </div>
 

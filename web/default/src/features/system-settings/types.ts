@@ -181,6 +181,7 @@ export type ModelSettings = {
   'channel_affinity_setting.rules': string
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
+  'mcp_setting.group_image_models': string
 }
 
 export type BillingSettings = {

@@ -60,7 +60,15 @@ require (
 	gorm.io/gorm v1.25.2
 )
 
-require github.com/waffo-com/waffo-pancake-sdk-go v0.2.0
+require (
+	github.com/modelcontextprotocol/go-sdk v0.8.0
+	github.com/waffo-com/waffo-pancake-sdk-go v0.2.0
+)
+
+require (
+	github.com/google/jsonschema-go v0.3.0 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+)
 
 require (
 	github.com/DmitriyVTitov/size v1.5.0 // indirect

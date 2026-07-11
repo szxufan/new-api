@@ -71,6 +71,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
+	perfmetrics.ActiveTracker.OnRequestStart()
+	defer perfmetrics.ActiveTracker.OnRequestEnd()
+
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
@@ -238,7 +241,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		if common.RetryIntervalMs > 0 {
-			time.Sleep(time.Duration(common.RetryIntervalMs) * time.Millisecond)
+			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
 		}
 	}
 
@@ -248,6 +251,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
+		// 重试全部失败后，统一记录一条合并的错误日志
+		recordFinalErrorLog(c, relayInfo, newAPIError)
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
@@ -265,6 +270,16 @@ func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
 	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 	c.Set("use_channel", useChannel)
+	// 每次添加渠道后更新重试信息到 context，供消费日志在 relay handler 内部生成时读取
+	retryCount := len(useChannel) - 1
+	if retryCount > 0 {
+		common.SetContextKey(c, constant.ContextKeyRetryCount, retryCount)
+		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+		if !startTime.IsZero() {
+			retryDurationMs := time.Since(startTime).Milliseconds()
+			common.SetContextKey(c, constant.ContextKeyRetryDurationMs, retryDurationMs)
+		}
+	}
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -370,48 +385,63 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		gopool.Go(func() {
 			service.RateLimitChannelKey429(channelError)
 		})
-		// 429不触发自动禁用，只触发限流，但仍记录错误日志
+		// 429不触发自动禁用，只触发限流
 	} else if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
 	}
 
-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
-		// 保存错误日志到mysql中
-		userId := c.GetInt("id")
-		tokenName := c.GetString("token_name")
-		modelName := c.GetString("original_model")
-		tokenId := c.GetInt("token_id")
-		userGroup := c.GetString("group")
-		channelId := c.GetInt("channel_id")
-		other := make(map[string]interface{})
-		if c.Request != nil && c.Request.URL != nil {
-			other["request_path"] = c.Request.URL.Path
-		}
-		other["error_type"] = err.GetErrorType()
-		other["error_code"] = err.GetErrorCode()
-		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
-		adminInfo := make(map[string]interface{})
-		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
-		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
-		if isMultiKey {
-			adminInfo["is_multi_key"] = true
-			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
-		}
-		service.AppendChannelAffinityAdminInfo(c, adminInfo)
-		other["admin_info"] = adminInfo
-		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
-		if startTime.IsZero() {
-			startTime = time.Now()
-		}
-		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	// 错误日志不再在此处记录，改为在重试循环结束后统一记录一条合并的错误日志
+}
+
+// recordFinalErrorLog 在重试循环全部结束后，统一记录一条合并的错误日志。
+// 该日志包含重试次数和重试耗时，替代之前每次渠道失败都记录一条错误日志的行为。
+func recordFinalErrorLog(c *gin.Context, relayInfo *relaycommon.RelayInfo, err *types.NewAPIError) {
+	if !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
+		return
+	}
+	userId := c.GetInt("id")
+	tokenName := c.GetString("token_name")
+	modelName := c.GetString("original_model")
+	tokenId := c.GetInt("token_id")
+	userGroup := c.GetString("group")
+	channelId := c.GetInt("channel_id")
+
+	other := make(map[string]interface{})
+	if c.Request != nil && c.Request.URL != nil {
+		other["request_path"] = c.Request.URL.Path
+	}
+	other["error_type"] = err.GetErrorType()
+	other["error_code"] = err.GetErrorCode()
+	other["status_code"] = err.StatusCode
+	other["channel_id"] = channelId
+	other["channel_name"] = c.GetString("channel_name")
+	other["channel_type"] = c.GetInt("channel_type")
+
+	// 写入重试次数和重试耗时
+	retryCount := common.GetContextKeyInt(c, constant.ContextKeyRetryCount)
+	if retryCount > 0 {
+		other["retry_count"] = retryCount
+		other["retry_duration_ms"] = common.GetContextKeyInt64(c, constant.ContextKeyRetryDurationMs)
 	}
 
+	adminInfo := make(map[string]interface{})
+	adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+	isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
+	if isMultiKey {
+		adminInfo["is_multi_key"] = true
+		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
+	}
+	service.AppendChannelAffinityAdminInfo(c, adminInfo)
+	other["admin_info"] = adminInfo
+
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	useTimeSeconds := int(time.Since(startTime).Seconds())
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 }
 
 func RelayMidjourney(c *gin.Context) {
@@ -497,6 +527,9 @@ func RelayTaskFetch(c *gin.Context) {
 }
 
 func RelayTask(c *gin.Context) {
+	perfmetrics.ActiveTracker.OnRequestStart()
+	defer perfmetrics.ActiveTracker.OnRequestEnd()
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, &dto.TaskError{
@@ -576,7 +609,7 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 		if common.RetryIntervalMs > 0 {
-			time.Sleep(time.Duration(common.RetryIntervalMs) * time.Millisecond)
+			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
 		}
 	}
 
@@ -667,4 +700,44 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	return true
+}
+
+// retryKeepAliveSleep 在重试等待期间定期发送 SSE 保活信息。
+// 仅在流式请求（SSE 响应头已设置）时发送保活，非流式请求退化为普通 Sleep。
+// 保活间隔复用全局 PingIntervalSeconds 配置，若未配置则默认 5 秒。
+func retryKeepAliveSleep(c *gin.Context, totalWait time.Duration) {
+	// 非流式请求直接 Sleep
+	if _, set := c.Get("event_stream_headers_set"); !set {
+		time.Sleep(totalWait)
+		return
+	}
+
+	// 确定保活间隔
+	generalSettings := operation_setting.GetGeneralSetting()
+	pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
+	if pingInterval <= 0 {
+		pingInterval = 5 * time.Second
+	}
+	if pingInterval > totalWait {
+		pingInterval = totalWait
+	}
+
+	deadline := time.Now().Add(totalWait)
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return
+			}
+			if err := helper.RetryKeepAlive(c); err != nil {
+				logger.LogDebug(c, "retry keepalive send failed: %s", err.Error())
+				return
+			}
+		case <-c.Request.Context().Done():
+			return
+		}
+	}
 }

@@ -80,3 +80,12 @@ func filterActiveGroups(groups []perfmetrics.GroupResult) []perfmetrics.GroupRes
 		return ok || g.Group == "auto"
 	})
 }
+
+// GetActiveRequests 返回当前活跃请求数、最近 10 分钟请求数和最近 1 小时请求数
+func GetActiveRequests(c *gin.Context) {
+	stats := perfmetrics.ActiveTracker.Snapshot()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    stats,
+	})
+}

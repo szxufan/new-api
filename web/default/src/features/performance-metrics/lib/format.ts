@@ -32,3 +32,10 @@ export function formatUptimePct(pct: number): string {
   if (!Number.isFinite(pct)) return '—'
   return `${pct.toFixed(2)}%`
 }
+
+export function formatRequestCount(count: number): string {
+  if (!Number.isFinite(count) || count < 0) return '—'
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
+  return String(count)
+}

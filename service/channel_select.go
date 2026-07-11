@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -11,6 +12,25 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
+
+// getUsedChannelIDsFromContext 从 gin.Context 的 "use_channel" 键读取已使用的渠道ID字符串切片，
+// 转换为 []int 用于在同一优先级层级内排除已用渠道。
+// 转换失败的条目会被跳过（不影响其他条目）。
+func getUsedChannelIDsFromContext(c *gin.Context) []int {
+	useChannelStr := c.GetStringSlice("use_channel")
+	if len(useChannelStr) == 0 {
+		return nil
+	}
+	result := make([]int, 0, len(useChannelStr))
+	for _, s := range useChannelStr {
+		id, err := strconv.Atoi(s)
+		if err != nil {
+			continue
+		}
+		result = append(result, id)
+	}
+	return result
+}
 
 type RetryParam struct {
 	Ctx          *gin.Context
@@ -91,6 +111,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+	// 读取当前请求已使用的渠道ID列表，用于在同一优先级层级内排除
+	usedChannelIDs := getUsedChannelIDsFromContext(param.Ctx)
 
 	if param.TokenGroup == "auto" {
 		if len(setting.GetAutoGroups()) == 0 {
@@ -121,12 +143,23 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
+			// 同优先级内重试机制适配：
+			// priorityRetry 是分组内的优先级层级索引（原设计语义），
+			// 但底层 selectChannelFromList 内部会做 retry/budget 映射。
+			// 为避免双重映射，将 priorityRetry 乘以 budget 后传给底层，
+			// 使底层 (priorityRetry * budget) / budget = priorityRetry，还原为正确的层级索引。
+			budget := model.CalcSamePriorityRetryBudget(common.RetryTimes)
+			mappedRetry := priorityRetry
+			if budget > 0 {
+				mappedRetry = priorityRetry * budget
+			}
+
 			// 类型优先：auto group 每个分组都使用偏好类型过滤
 			if len(param.PreferredChannelTypes) > 0 {
 				var fellBack bool
 				channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
-					autoGroup, param.ModelName, priorityRetry,
-					param.PreferredChannelTypes,
+					autoGroup, param.ModelName, mappedRetry,
+					param.PreferredChannelTypes, usedChannelIDs,
 				)
 				if fellBack && !param.channelTypeFallbackLogged {
 					param.channelTypeFallbackLogged = true
@@ -136,7 +169,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 					))
 				}
 			} else {
-				channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
+				channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, mappedRetry, usedChannelIDs)
 			}
 
 			if err != nil {
@@ -185,7 +218,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			var fellBack bool
 			channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
 				param.TokenGroup, param.ModelName, param.GetRetry(),
-				param.PreferredChannelTypes,
+				param.PreferredChannelTypes, usedChannelIDs,
 			)
 			if fellBack && !param.channelTypeFallbackLogged {
 				param.channelTypeFallbackLogged = true
@@ -195,7 +228,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				))
 			}
 		} else {
-			channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
+			channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), usedChannelIDs)
 		}
 		if err != nil {
 			return nil, param.TokenGroup, err

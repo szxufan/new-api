@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
@@ -197,6 +199,41 @@ func SetRelayRouter(router *gin.Engine) {
 		relayGeminiRouter.POST("/models/*path", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatGemini)
 		})
+	}
+
+	// MCP 图片代理路由（独立于 MCP 通配符路由，避免 Gin 路由冲突）
+	mcpImageRouter := router.Group("/v1/mcp-image")
+	mcpImageRouter.Use(middleware.RouteTag("relay"))
+	mcpImageRouter.Use(middleware.SystemPerformanceCheck())
+	{
+		mcpImageRouter.GET("/:imageId", controller.ServeMCPImage)
+	}
+
+	// MCP (Model Context Protocol) 路由
+	// 使用 StreamableHTTP 传输，复用 TokenAuth 认证
+	// MCP tool handler 通过 context 获取 gin context 中的分组信息
+	mcpRouter := router.Group("/v1/mcp")
+	mcpRouter.Use(middleware.RouteTag("relay"))
+	mcpRouter.Use(middleware.SystemPerformanceCheck())
+	mcpRouter.Use(middleware.TokenAuth())
+	{
+		mcpHandler := controller.MCPServerHandler()
+		// 将 gin context 注入到 http request context，
+		// 以便 MCP tool handler 能通过 context.Value 获取 usingGroup 等信息
+		injectGinContext := func(c *gin.Context) {
+			ctx := context.WithValue(c.Request.Context(), controller.MCPGinContextKey{}, c)
+			c.Request = c.Request.WithContext(ctx)
+			mcpHandler.ServeHTTP(c.Writer, c.Request)
+		}
+		// 注册空路径和通配符路径，同时匹配 /v1/mcp 和 /v1/mcp/...
+		// Gin 的 /*path 通配符要求 URL 必须带尾部斜杠，
+		// MCP 客户端可能请求 /v1/mcp（无尾部斜杠），需要额外注册空路径路由
+		mcpRouter.POST("", injectGinContext)
+		mcpRouter.POST("/*path", injectGinContext)
+		mcpRouter.GET("", injectGinContext)
+		mcpRouter.GET("/*path", injectGinContext)
+		mcpRouter.DELETE("", injectGinContext)
+		mcpRouter.DELETE("/*path", injectGinContext)
 	}
 }
 

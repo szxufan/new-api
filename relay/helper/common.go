@@ -106,6 +106,26 @@ func PingData(c *gin.Context) error {
 	return FlushWriter(c)
 }
 
+// RetryKeepAlive 在重试等待期间向客户端发送 SSE 注释行保活信息。
+// 仅在流式请求且 SSE 响应头已设置时有效，非流式请求直接返回 nil。
+// 发送格式为 SSE 注释行 `: retrying\n\n`，客户端自动忽略。
+func RetryKeepAlive(c *gin.Context) error {
+	if c == nil || c.Writer == nil {
+		return nil
+	}
+	// 仅在 SSE 响应头已设置时发送保活（即流式请求且已进入 doRequest）
+	if _, set := c.Get("event_stream_headers_set"); !set {
+		return nil
+	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+	}
+	if _, err := c.Writer.Write([]byte(": retrying\n\n")); err != nil {
+		return fmt.Errorf("write retry keepalive failed: %w", err)
+	}
+	return FlushWriter(c)
+}
+
 func ObjectData(c *gin.Context, object interface{}) error {
 	if object == nil {
 		return errors.New("object is nil")

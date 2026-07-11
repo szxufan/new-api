@@ -58,7 +58,17 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func getPriority(group string, model string, retry int) (int, error) {
+// getPriority 查询分组+模型下所有启用的不同优先级（降序），
+// 并按同优先级内重试预算将全局 retry 映射为目标优先级层级。
+//
+// 同优先级内重试机制：
+//   - budget = CalcSamePriorityRetryBudget(common.RetryTimes)
+//   - priorityLevel = mapRetryToPriorityLevel(retry, budget, len(priorities))
+//   - 即在同一优先级层级内重试 budget 次后才降级到下一层级
+//
+// usedChannelIDs 参数在 getPriority 中未使用（优先级层级判定与已用渠道无关，
+// 排除已用渠道的逻辑在下游 GetChannel 中完成）。保留参数以保持调用链签名一致。
+func getPriority(group string, model string, retry int, usedChannelIDs []int) (int, error) {
 
 	var priorities []int
 	err := DB.Model(&Ability{}).
@@ -77,22 +87,17 @@ func getPriority(group string, model string, retry int) (int, error) {
 		return 0, errors.New("数据库一致性被破坏")
 	}
 
-	// 确定要使用的优先级
-	var priorityToUse int
-	if retry >= len(priorities) {
-		// 如果重试次数大于优先级数，则使用最小的优先级
-		priorityToUse = priorities[len(priorities)-1]
-	} else {
-		priorityToUse = priorities[retry]
-	}
-	return priorityToUse, nil
+	// 同优先级内重试：将全局 retry 映射为优先级层级索引
+	budget := CalcSamePriorityRetryBudget(common.RetryTimes)
+	priorityLevel := mapRetryToPriorityLevel(retry, budget, len(priorities))
+	return priorities[priorityLevel], nil
 }
 
-func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
+func getChannelQuery(group string, model string, retry int, usedChannelIDs []int) (*gorm.DB, error) {
 	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
 	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
 	if retry != 0 {
-		priority, err := getPriority(group, model, retry)
+		priority, err := getPriority(group, model, retry, usedChannelIDs)
 		if err != nil {
 			return nil, err
 		} else {
@@ -103,22 +108,48 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int) (*Channel, error) {
+// GetChannel 从数据库按优先级+权重选择渠道（内存缓存关闭时的回退路径）。
+//
+// 同优先级内重试机制：
+//   - 通过 getPriority 内部的 budget 映射实现层级降级
+//   - usedChannelIDs 用于在同一优先级层级内排除已使用的渠道（DB 路径同样支持）
+//
+// 参数:
+//   - group: 用户分组
+//   - model: 模型名称
+//   - retry: 全局重试计数
+//   - usedChannelIDs: 当前请求已使用的渠道ID列表
+func GetChannel(group string, model string, retry int, usedChannelIDs []int) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
+	channelQuery, err := getChannelQuery(group, model, retry, usedChannelIDs)
 	if err != nil {
 		return nil, err
 	}
-	if common.UsingSQLite || common.UsingPostgreSQL {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
-	} else {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
-	}
+	err = channelQuery.Order("weight DESC").Find(&abilities).Error
 	if err != nil {
 		return nil, err
 	}
+
+	// 在同一优先级层级内排除已使用的渠道
+	if len(usedChannelIDs) > 0 && len(abilities) > 1 {
+		usedSet := make(map[int]bool, len(usedChannelIDs))
+		for _, id := range usedChannelIDs {
+			usedSet[id] = true
+		}
+		filtered := make([]Ability, 0, len(abilities))
+		for _, a := range abilities {
+			if !usedSet[a.ChannelId] {
+				filtered = append(filtered, a)
+			}
+		}
+		// 只有当过滤后仍有可用渠道时才使用过滤结果
+		if len(filtered) > 0 {
+			abilities = filtered
+		}
+	}
+
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
