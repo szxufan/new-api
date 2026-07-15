@@ -48,6 +48,7 @@ const dataDashboardSchema = z.object({
   DataExportEnabled: z.boolean(),
   DataExportInterval: z.number().int().min(1).max(1440),
   DataExportDefaultTime: z.enum(['hour', 'day', 'week']),
+  PerfTopModelLimit: z.number().int().min(1).max(100),
 })
 
 type DataDashboardFormValues = z.infer<typeof dataDashboardSchema>
@@ -60,6 +61,14 @@ const granularityOptions = [
   { label: 'Hour', value: 'hour' },
   { label: 'Day', value: 'day' },
   { label: 'Week', value: 'week' },
+]
+
+const topModelLimitOptions = [
+  { label: '5 models', value: 5 },
+  { label: '10 models', value: 10 },
+  { label: '15 models', value: 15 },
+  { label: '20 models', value: 20 },
+  { label: '50 models', value: 50 },
 ]
 
 export function DashboardSection({ defaultValues }: DashboardSectionProps) {
@@ -176,6 +185,54 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                   <FormDescription>
                     {t(
                       'UI granularity only &mdash; data is still aggregated hourly'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-6 sm:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='PerfTopModelLimit'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Performance health model limit')}</FormLabel>
+                  <Select
+                    items={[
+                      ...topModelLimitOptions.map((option) => ({
+                        value: String(option.value),
+                        label: option.label,
+                      })),
+                    ]}
+                    onValueChange={(value) => field.onChange(Number(value))}
+                    value={String(field.value)}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={t('Select model limit')}
+                        />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {topModelLimitOptions.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={String(option.value)}
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    {t(
+                      'Maximum number of models displayed in the performance health panel'
                     )}
                   </FormDescription>
                   <FormMessage />

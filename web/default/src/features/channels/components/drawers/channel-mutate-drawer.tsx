@@ -114,12 +114,14 @@ import {
   getGroups,
   getPrefillGroups,
   refreshCodexCredential,
+  searchChannels,
   updateChannel,
 } from '../../api'
 import {
   ADD_MODE_OPTIONS,
   CHANNEL_TYPE_OPTIONS,
   CHANNEL_TYPE_WARNINGS,
+  CHANNEL_TYPES,
   ERROR_MESSAGES,
   FIELD_DESCRIPTIONS,
   FIELD_PLACEHOLDERS,
@@ -355,6 +357,15 @@ export function ChannelMutateDrawer({
     queryFn: () => getPrefillGroups('model'),
   })
 
+  // Fetch channels for fallback selector
+  const { data: fallbackChannelsData } = useQuery({
+    queryKey: channelsQueryKeys.lists(),
+    queryFn: () =>
+      searchChannels({ status: 'enabled', page_size: 200 }).then(
+        (res) => res.data?.items ?? []
+      ),
+  })
+
   const { copyToClipboard } = useCopyToClipboard()
 
   const {
@@ -403,6 +414,7 @@ export function ChannelMutateDrawer({
     'upstream_model_update_check_enabled'
   )
   const currentSettings = form.watch('settings')
+  const currentFallbackChannelIds = form.watch('fallback_channel_ids')
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -508,6 +520,33 @@ export function ChannelMutateDrawer({
       label: model,
     }))
   }, [allModelsList, currentModelsArray])
+
+  // Build fallback channel options (exclude current channel)
+  const fallbackChannelOptions = useMemo(() => {
+    const channels = fallbackChannelsData ?? []
+    return channels
+      .filter((ch) => ch.id !== channelId)
+      .map((ch) => {
+        const typeLabel =
+          CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] ||
+          `#${ch.type}`
+        return {
+          value: String(ch.id),
+          label: `${ch.name} (${t(typeLabel)})`,
+        }
+      })
+  }, [fallbackChannelsData, channelId, t])
+
+  // Handle fallback channel selection change
+  const handleFallbackChannelsChange = useCallback(
+    (selected: string[]) => {
+      form.setValue(
+        'fallback_channel_ids',
+        selected.map(Number)
+      )
+    },
+    [form]
+  )
 
   const modelMappingGuardrail = useMemo<ModelMappingGuardrail>(() => {
     if (!currentModelMapping?.trim()) {
@@ -2567,6 +2606,40 @@ export function ChannelMutateDrawer({
                                 }
                               />
                             </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className='space-y-4 border-t pt-4'>
+                      <SubHeading
+                        title={t('Fallback Channels')}
+                        icon={<Server className='h-3.5 w-3.5' />}
+                      />
+                      <FormField
+                        control={form.control}
+                        name='fallback_channel_ids'
+                        render={() => (
+                          <FormItem>
+                            <FormLabel>{t('Fallback Channels')}</FormLabel>
+                            <FormControl>
+                              <MultiSelect
+                                options={fallbackChannelOptions}
+                                selected={
+                                  currentFallbackChannelIds?.map(String) ?? []
+                                }
+                                onChange={handleFallbackChannelsChange}
+                                placeholder={t(
+                                  'Select fallback channels (first = highest priority)'
+                                )}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'When this channel is unavailable, requests will be forwarded to fallback channels in order'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
                           </FormItem>
                         )}
                       />

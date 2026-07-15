@@ -78,6 +78,8 @@ export const channelFormSchema = z.object({
   upstream_model_update_check_enabled: z.boolean().optional(),
   upstream_model_update_auto_sync_enabled: z.boolean().optional(),
   upstream_model_update_ignored_models: z.string().optional(),
+  // Fallback channels (stored in other_info JSON)
+  fallback_channel_ids: z.array(z.number()).optional(),
 })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -135,6 +137,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  fallback_channel_ids: [],
 }
 
 // ============================================================================
@@ -219,6 +222,19 @@ export function transformChannelToFormDefaults(
     }
   }
 
+  // Parse fallback_channel_ids from other_info
+  let fallbackChannelIds: number[] = []
+  if (channel.other_info) {
+    try {
+      const otherInfo = JSON.parse(channel.other_info)
+      if (Array.isArray(otherInfo.fallback_channel_ids)) {
+        fallbackChannelIds = otherInfo.fallback_channel_ids
+      }
+    } catch (error) {
+      // ignore
+    }
+  }
+
   return {
     name: channel.name || '',
     type: channel.type,
@@ -262,6 +278,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    fallback_channel_ids: fallbackChannelIds,
   }
 }
 
@@ -424,6 +441,11 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     other: formData.other || '',
   }
 
+  // Write fallback_channel_ids into other_info
+  if (formData.fallback_channel_ids && formData.fallback_channel_ids.length > 0) {
+    channel.other_info = JSON.stringify({ fallback_channel_ids: formData.fallback_channel_ids })
+  }
+
   // Clean up empty strings to null for optional fields
   Object.keys(channel).forEach((key) => {
     if (channel[key as keyof typeof channel] === '') {
@@ -494,6 +516,13 @@ export function transformFormDataToUpdatePayload(
   payload.status_code_mapping = formData.status_code_mapping || ''
   payload.param_override = formData.param_override || ''
   payload.header_override = formData.header_override || ''
+
+  // Write fallback_channel_ids into other_info
+  if (formData.fallback_channel_ids && formData.fallback_channel_ids.length > 0) {
+    payload.other_info = JSON.stringify({ fallback_channel_ids: formData.fallback_channel_ids })
+  } else {
+    payload.other_info = '{}'
+  }
 
   return payload
 }

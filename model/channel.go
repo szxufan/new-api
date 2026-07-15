@@ -334,12 +334,43 @@ func (channel *Channel) GetOtherInfo() map[string]interface{} {
 }
 
 func (channel *Channel) SetOtherInfo(otherInfo map[string]interface{}) {
-	otherInfoBytes, err := json.Marshal(otherInfo)
+	otherInfoBytes, err := common.Marshal(otherInfo)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to marshal other info: channel_id=%d, tag=%s, name=%s, error=%v", channel.Id, channel.GetTag(), channel.Name, err))
 		return
 	}
 	channel.OtherInfo = string(otherInfoBytes)
+}
+
+// GetFallbackChannelIDs 获取后备渠道ID列表
+func (channel *Channel) GetFallbackChannelIDs() []int {
+	info := channel.GetOtherInfo()
+	if ids, ok := info["fallback_channel_ids"]; ok {
+		switch v := ids.(type) {
+		case []interface{}:
+			result := make([]int, 0, len(v))
+			for _, item := range v {
+				if f, ok := item.(float64); ok {
+					result = append(result, int(f))
+				}
+			}
+			return result
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+// SetFallbackChannelIDs 设置后备渠道ID列表
+func (channel *Channel) SetFallbackChannelIDs(ids []int) {
+	info := channel.GetOtherInfo()
+	if len(ids) == 0 {
+		delete(info, "fallback_channel_ids")
+	} else {
+		info["fallback_channel_ids"] = ids
+	}
+	channel.SetOtherInfo(info)
 }
 
 func (channel *Channel) GetTag() string {

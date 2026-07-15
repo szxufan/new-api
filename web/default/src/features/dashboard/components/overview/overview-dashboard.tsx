@@ -56,6 +56,7 @@ import {
   useApiInfo,
   useDashboardContentVisibility,
 } from '../../hooks/use-status-data'
+import { useStatus } from '@/hooks/use-status'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -435,6 +436,15 @@ export function OverviewDashboard() {
   const [manualSetupGuideExpanded, setManualSetupGuideExpanded] = useState<
     boolean | null
   >(() => getSavedSetupGuideExpanded())
+  const { status } = useStatus()
+
+  const perfTopModelLimit = useMemo(() => {
+    const raw = status?.perf_top_model_limit
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 1) {
+      return undefined
+    }
+    return Math.round(raw)
+  }, [status])
 
   const requestCount = Number(user?.request_count ?? 0)
   const remainQuota = Number(user?.quota ?? 0)
@@ -746,7 +756,7 @@ export function OverviewDashboard() {
             >
               {isAdmin && (
                 <CardStaggerItem className='lg:col-span-2'>
-                  <PerformanceHealthPanel />
+                  <PerformanceHealthPanel topModelLimit={perfTopModelLimit} />
                 </CardStaggerItem>
               )}
               {showApiInfoPanel && (

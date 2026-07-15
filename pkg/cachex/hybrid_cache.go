@@ -66,6 +66,11 @@ func (c *HybridCache[V]) redisOn() bool {
 	return c.redisEnabled()
 }
 
+// IsRedisOn 返回当前缓存是否运行在 Redis 模式。
+func (c *HybridCache[V]) IsRedisOn() bool {
+	return c.redisOn()
+}
+
 func (c *HybridCache[V]) memCache() *hot.HotCache[string, V] {
 	c.memOnce.Do(func() {
 		if c.memInit == nil {

@@ -127,6 +127,7 @@ export type ContentSettings = {
   DataExportEnabled: boolean
   DataExportDefaultTime: string
   DataExportInterval: number
+  PerfTopModelLimit: number
   Chats: string
   DrawingEnabled: boolean
   MjNotifyEnabled: boolean

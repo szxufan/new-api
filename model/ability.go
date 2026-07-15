@@ -58,120 +58,65 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-// getPriority 查询分组+模型下所有启用的不同优先级（降序），
-// 并按同优先级内重试预算将全局 retry 映射为目标优先级层级。
+// GetSortedChannelsDB 从数据库获取按优先级降序+亲和性升序排序的渠道列表（DB 回退路径）。
 //
-// 同优先级内重试机制：
-//   - budget = CalcSamePriorityRetryBudget(common.RetryTimes)
-//   - priorityLevel = mapRetryToPriorityLevel(retry, budget, len(priorities))
-//   - 即在同一优先级层级内重试 budget 次后才降级到下一层级
+// 当 MemoryCacheEnabled 关闭时，作为 GetSortedChannelsByPriorityAndAffinity 的回退路径。
+// DB 路径不支持 preferredTypes 过滤，返回全量渠道的排序结果。
 //
-// usedChannelIDs 参数在 getPriority 中未使用（优先级层级判定与已用渠道无关，
-// 排除已用渠道的逻辑在下游 GetChannel 中完成）。保留参数以保持调用链签名一致。
-func getPriority(group string, model string, retry int, usedChannelIDs []int) (int, error) {
-
-	var priorities []int
-	err := DB.Model(&Ability{}).
-		Select("DISTINCT(priority)").
-		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
-		Order("priority DESC").              // 按优先级降序排序
-		Pluck("priority", &priorities).Error // Pluck用于将查询的结果直接扫描到一个切片中
-
-	if err != nil {
-		// 处理错误
-		return 0, err
-	}
-
-	if len(priorities) == 0 {
-		// 如果没有查询到优先级，则返回错误
-		return 0, errors.New("数据库一致性被破坏")
-	}
-
-	// 同优先级内重试：将全局 retry 映射为优先级层级索引
-	budget := CalcSamePriorityRetryBudget(common.RetryTimes)
-	priorityLevel := mapRetryToPriorityLevel(retry, budget, len(priorities))
-	return priorities[priorityLevel], nil
-}
-
-func getChannelQuery(group string, model string, retry int, usedChannelIDs []int) (*gorm.DB, error) {
-	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
-	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
-	if retry != 0 {
-		priority, err := getPriority(group, model, retry, usedChannelIDs)
-		if err != nil {
-			return nil, err
-		} else {
-			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
-		}
-	}
-
-	return channelQuery, nil
-}
-
-// GetChannel 从数据库按优先级+权重选择渠道（内存缓存关闭时的回退路径）。
-//
-// 同优先级内重试机制：
-//   - 通过 getPriority 内部的 budget 映射实现层级降级
-//   - usedChannelIDs 用于在同一优先级层级内排除已使用的渠道（DB 路径同样支持）
+// 实现逻辑:
+//  1. 查询 abilities 表获取该 group+model 下所有启用的渠道，按 priority DESC 排序
+//  2. 对每个 ability.ChannelId 查询 Channel 获取完整渠道信息（应用 ability 上的优先级/权重）
+//  3. 如果 affinityCounts 非空，同优先级内按 affinityCount/effectiveWeight 升序排列
+//  4. 返回排序后的渠道列表
 //
 // 参数:
 //   - group: 用户分组
 //   - model: 模型名称
-//   - retry: 全局重试计数
-//   - usedChannelIDs: 当前请求已使用的渠道ID列表
-func GetChannel(group string, model string, retry int, usedChannelIDs []int) (*Channel, error) {
+//   - affinityCounts: 渠道亲和性计数（为 nil 时不启用亲和性感知排序）
+//
+// 返回排序后的渠道指针切片。无可用渠道或查询出错时返回 nil。
+func GetSortedChannelsDB(group, model string, affinityCounts map[int]int64) []*Channel {
 	var abilities []Ability
-
-	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry, usedChannelIDs)
-	if err != nil {
-		return nil, err
-	}
-	err = channelQuery.Order("weight DESC").Find(&abilities).Error
-	if err != nil {
-		return nil, err
+	err := DB.Where(commonGroupCol+" = ? AND model = ? AND enabled = ?", group, model, true).
+		Order("priority DESC").
+		Find(&abilities).Error
+	if err != nil || len(abilities) == 0 {
+		return nil
 	}
 
-	// 在同一优先级层级内排除已使用的渠道
-	if len(usedChannelIDs) > 0 && len(abilities) > 1 {
-		usedSet := make(map[int]bool, len(usedChannelIDs))
-		for _, id := range usedChannelIDs {
-			usedSet[id] = true
+	channels := make([]*Channel, 0, len(abilities))
+	for _, ability := range abilities {
+		var ch Channel
+		if e := DB.First(&ch, "id = ?", ability.ChannelId).Error; e != nil {
+			continue
 		}
-		filtered := make([]Ability, 0, len(abilities))
-		for _, a := range abilities {
-			if !usedSet[a.ChannelId] {
-				filtered = append(filtered, a)
-			}
-		}
-		// 只有当过滤后仍有可用渠道时才使用过滤结果
-		if len(filtered) > 0 {
-			abilities = filtered
-		}
+		// 应用 ability 上的优先级/权重（以 ability 为准，与内存路径保持一致）
+		ch.Priority = ability.Priority
+		w := ability.Weight
+		ch.Weight = &w
+		channels = append(channels, &ch)
 	}
 
-	channel := Channel{}
-	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
-		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
-			}
-		}
-	} else {
+	sortChannelsByPriorityAndAffinity(channels, affinityCounts)
+	return channels
+}
+
+// GetChannel 从数据库按优先级+权重选择渠道（内存缓存关闭时的回退路径）。
+//
+// 已废弃：保留签名以兼容调用方，内部简化为调用 GetSortedChannelsDB
+// 并返回排序后的第一个渠道。
+//
+// 参数:
+//   - group: 用户分组
+//   - model: 模型名称
+//   - retry: 全局重试计数（已废弃）
+//   - usedChannelIDs: 已废弃，保留签名兼容
+func GetChannel(group string, model string, retry int, usedChannelIDs []int) (*Channel, error) {
+	channels := GetSortedChannelsDB(group, model, nil)
+	if len(channels) == 0 {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
-	return &channel, err
+	return channels[0], nil
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

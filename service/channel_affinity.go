@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/hot"
+	"github.com/samber/hot/pkg/base"
 	"github.com/tidwall/gjson"
 )
 
@@ -28,6 +31,7 @@ const (
 
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
 	channelAffinityUsageCacheStatsNamespace = "new-api:channel_affinity_usage_cache_stats:v1"
+	channelAffinityIndexNamespace           = "new-api:channel_affinity_index:v1"
 )
 
 var (
@@ -38,6 +42,10 @@ var (
 	channelAffinityUsageCacheStatsCache *cachex.HybridCache[ChannelAffinityUsageCacheCounters]
 
 	channelAffinityRegexCache sync.Map // map[string]*regexp.Regexp
+
+	// channelAffinityCountMap 存储每个渠道的亲和性条目计数（内存模式精确值）。
+	// key: channelID (int), value: *atomic.Int64
+	channelAffinityCountMap sync.Map
 )
 
 type channelAffinityMeta struct {
@@ -101,11 +109,193 @@ func getChannelAffinityCache() *cachex.HybridCache[int] {
 				return hot.NewHotCache[string, int](hot.LRU, capacity).
 					WithTTL(time.Duration(defaultTTLSeconds) * time.Second).
 					WithJanitor().
+					WithEvictionCallback(func(reason base.EvictionReason, key string, value int) {
+						// 条目被淘汰（容量淘汰或 TTL 过期），递减对应渠道的亲和性计数
+						decrementChannelAffinityCount(value)
+					}).
 					Build()
 			},
 		})
 	})
 	return channelAffinityCache
+}
+
+// ---- 内存模式亲和性计数器 ----
+
+// incrementChannelAffinityCount 原子递增指定渠道的亲和性计数（内存模式）。
+func incrementChannelAffinityCount(channelID int) {
+	val, _ := channelAffinityCountMap.LoadOrStore(channelID, new(atomic.Int64))
+	val.(*atomic.Int64).Add(1)
+}
+
+// decrementChannelAffinityCount 原子递减指定渠道的亲和性计数（内存模式）。
+// 计数不低于 0。
+func decrementChannelAffinityCount(channelID int) {
+	val, ok := channelAffinityCountMap.Load(channelID)
+	if !ok {
+		return
+	}
+	counter := val.(*atomic.Int64)
+	for {
+		cur := counter.Load()
+		if cur <= 0 {
+			return
+		}
+		if counter.CompareAndSwap(cur, cur-1) {
+			return
+		}
+	}
+}
+
+// resetChannelAffinityCounts 清除所有亲和性计数（内存模式）。
+func resetChannelAffinityCounts() {
+	channelAffinityCountMap.Range(func(key, _ interface{}) bool {
+		channelAffinityCountMap.Delete(key)
+		return true
+	})
+}
+
+// getChannelAffinityCountsMem 从内存原子计数器读取指定渠道的亲和性计数。
+func getChannelAffinityCountsMem(channelIDs []int) map[int]int64 {
+	result := make(map[int]int64, len(channelIDs))
+	for _, id := range channelIDs {
+		val, ok := channelAffinityCountMap.Load(id)
+		if ok {
+			result[id] = val.(*atomic.Int64).Load()
+		} else {
+			result[id] = 0
+		}
+	}
+	return result
+}
+
+// ---- Redis 反向索引 ----
+
+// recordChannelAffinityIndexRedis 在 Redis 中维护渠道亲和性反向索引。
+// 写入时：SADD index:{channelID} cacheKeySuffix
+// 覆盖时：先 SREM index:{oldChannelID} cacheKeySuffix，再 SADD index:{newChannelID} cacheKeySuffix
+func recordChannelAffinityIndexRedis(cacheKeySuffix string, oldChannelID, newChannelID int) {
+	if common.RDB == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pipe := common.RDB.Pipeline()
+
+	if oldChannelID > 0 && oldChannelID != newChannelID {
+		oldKey := fmt.Sprintf("%s:%d", channelAffinityIndexNamespace, oldChannelID)
+		pipe.SRem(ctx, oldKey, cacheKeySuffix)
+	}
+
+	newKey := fmt.Sprintf("%s:%d", channelAffinityIndexNamespace, newChannelID)
+	pipe.SAdd(ctx, newKey, cacheKeySuffix)
+
+	_, _ = pipe.Exec(ctx)
+}
+
+// getChannelAffinityCountsRedis 从 Redis 反向索引精确统计指定渠道的亲和性计数。
+// 1. SMEMBERS 获取该渠道的所有亲和性键
+// 2. MGET 确认哪些键仍然存在
+// 3. 惰性清理已过期的键
+func getChannelAffinityCountsRedis(channelIDs []int) map[int]int64 {
+	result := make(map[int]int64, len(channelIDs))
+	if common.RDB == nil || len(channelIDs) == 0 {
+		for _, id := range channelIDs {
+			result[id] = 0
+		}
+		return result
+	}
+
+	for _, channelID := range channelIDs {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		indexKey := fmt.Sprintf("%s:%d", channelAffinityIndexNamespace, channelID)
+		members, err := common.RDB.SMembers(ctx, indexKey).Result()
+		cancel()
+		if err != nil || len(members) == 0 {
+			result[channelID] = 0
+			continue
+		}
+
+		// 构造完整的主缓存键
+		fullKeys := make([]string, len(members))
+		for i, suffix := range members {
+			fullKeys[i] = channelAffinityCacheNamespace + ":" + suffix
+		}
+
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		vals, err := common.RDB.MGet(ctx2, fullKeys...).Result()
+		cancel2()
+		if err != nil {
+			result[channelID] = 0
+			continue
+		}
+
+		count := int64(0)
+		var expiredSuffixes []string
+		for i, val := range vals {
+			if val != nil {
+				count++
+			} else {
+				expiredSuffixes = append(expiredSuffixes, members[i])
+			}
+		}
+
+		// 惰性清理已过期的键
+		if len(expiredSuffixes) > 0 {
+			ctx3, cancel3 := context.WithTimeout(context.Background(), 5*time.Second)
+			pipe := common.RDB.Pipeline()
+			for _, suffix := range expiredSuffixes {
+				pipe.SRem(ctx3, indexKey, suffix)
+			}
+			_, _ = pipe.Exec(ctx3)
+			cancel3()
+		}
+
+		result[channelID] = count
+	}
+
+	return result
+}
+
+// clearChannelAffinityIndexRedis 清除 Redis 中指定渠道的反向索引。
+func clearChannelAffinityIndexRedis(channelIDs []int) {
+	if common.RDB == nil || len(channelIDs) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pipe := common.RDB.Pipeline()
+	for _, channelID := range channelIDs {
+		indexKey := fmt.Sprintf("%s:%d", channelAffinityIndexNamespace, channelID)
+		pipe.Del(ctx, indexKey)
+	}
+	_, _ = pipe.Exec(ctx)
+}
+
+// ---- 统一查询接口 ----
+
+// GetChannelAffinityCounts 返回指定渠道的亲和性计数（精确值）。
+// 内存模式：从原子计数器读取。
+// Redis 模式：通过反向索引 Set + MGET 精确统计。
+func GetChannelAffinityCounts(channelIDs []int) map[int]int64 {
+	cache := getChannelAffinityCache()
+	if cache.IsRedisOn() {
+		return getChannelAffinityCountsRedis(channelIDs)
+	}
+	return getChannelAffinityCountsMem(channelIDs)
+}
+
+// IsChannelAffinityMatched 检查当前请求是否匹配了亲和性规则。
+// 由 GetPreferredChannelByAffinity 在匹配规则时设置 ginKeyChannelAffinityCacheKey。
+func IsChannelAffinityMatched(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	_, ok := c.Get(ginKeyChannelAffinityCacheKey)
+	return ok
 }
 
 func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
@@ -203,6 +393,35 @@ func ClearChannelAffinityCacheAll() int {
 		keys = nil
 	}
 	if len(keys) > 0 {
+		// 在删除前维护亲和性计数
+		if cache.IsRedisOn() {
+			// Redis 模式：收集所有渠道 ID，清除反向索引
+			channelIDSet := make(map[int]bool)
+			prefix := channelAffinityCacheNamespace + ":"
+			for _, fullKey := range keys {
+				suffix := strings.TrimPrefix(fullKey, prefix)
+				val, found, _ := cache.Get(suffix)
+				if found {
+					channelIDSet[val] = true
+				}
+			}
+			var channelIDs []int
+			for id := range channelIDSet {
+				channelIDs = append(channelIDs, id)
+			}
+			clearChannelAffinityIndexRedis(channelIDs)
+		} else {
+			// 内存模式：遍历所有键获取值并递减计数
+			prefix := channelAffinityCacheNamespace + ":"
+			for _, fullKey := range keys {
+				suffix := strings.TrimPrefix(fullKey, prefix)
+				val, found, _ := cache.Get(suffix)
+				if found {
+					decrementChannelAffinityCount(val)
+				}
+			}
+		}
+
 		if _, err := cache.DeleteMany(keys); err != nil {
 			common.SysError(fmt.Sprintf("channel affinity cache delete many failed: err=%v", err))
 		}
@@ -238,6 +457,42 @@ func ClearChannelAffinityCacheByRuleName(ruleName string) (int, error) {
 	}
 
 	cache := getChannelAffinityCache()
+
+	// 在删除前维护亲和性计数：遍历该规则前缀下的所有键
+	allKeys, _ := cache.Keys()
+	prefix := channelAffinityCacheNamespace + ":" + ruleName
+	if cache.IsRedisOn() {
+		// Redis 模式：收集受影响渠道 ID，清除反向索引
+		channelIDSet := make(map[int]bool)
+		for _, fullKey := range allKeys {
+			if !strings.HasPrefix(fullKey, prefix) {
+				continue
+			}
+			suffix := strings.TrimPrefix(fullKey, channelAffinityCacheNamespace+":")
+			val, found, _ := cache.Get(suffix)
+			if found {
+				channelIDSet[val] = true
+			}
+		}
+		var channelIDs []int
+		for id := range channelIDSet {
+			channelIDs = append(channelIDs, id)
+		}
+		clearChannelAffinityIndexRedis(channelIDs)
+	} else {
+		// 内存模式：递减计数
+		for _, fullKey := range allKeys {
+			if !strings.HasPrefix(fullKey, prefix) {
+				continue
+			}
+			suffix := strings.TrimPrefix(fullKey, channelAffinityCacheNamespace+":")
+			val, found, _ := cache.Get(suffix)
+			if found {
+				decrementChannelAffinityCount(val)
+			}
+		}
+	}
+
 	deleted, err := cache.DeleteByPrefix(ruleName)
 	if err != nil {
 		return 0, err
@@ -702,8 +957,32 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		ttlSeconds = 3600
 	}
 	cache := getChannelAffinityCache()
+
+	// 从完整缓存键中提取 suffix（去掉 namespace 前缀），用于反向索引
+	cacheKeySuffix := strings.TrimPrefix(cacheKey, channelAffinityCacheNamespace+":")
+
+	// 检查是否覆盖已有条目（同一 cacheKey 映射到不同渠道）
+	existingChannelID, found, _ := cache.Get(cacheKeySuffix)
+	var oldChannelID int
+	if found && existingChannelID != channelID {
+		oldChannelID = existingChannelID
+	}
+
 	if err := cache.SetWithTTL(cacheKey, channelID, time.Duration(ttlSeconds)*time.Second); err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache set failed: key=%s, err=%v", cacheKey, err))
+		return
+	}
+
+	// 维护亲和性计数
+	if cache.IsRedisOn() {
+		// Redis 模式：维护反向索引
+		recordChannelAffinityIndexRedis(cacheKeySuffix, oldChannelID, channelID)
+	} else {
+		// 内存模式：维护原子计数器
+		if oldChannelID > 0 {
+			decrementChannelAffinityCount(oldChannelID)
+		}
+		incrementChannelAffinityCount(channelID)
 	}
 }
 

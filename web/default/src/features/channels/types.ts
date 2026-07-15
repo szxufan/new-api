@@ -134,10 +134,17 @@ export interface SearchChannelsResponse {
   }
 }
 
+export interface FallbackChannelInfo {
+  id: number
+  name: string
+  type: number
+}
+
 export interface GetChannelResponse {
   success: boolean
   message?: string
   data?: Channel
+  fallback_channels?: FallbackChannelInfo[]
 }
 
 export interface ChannelTestResponse {
@@ -323,6 +330,8 @@ export interface ChannelFormData {
   multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
   multi_key_type?: 'random' | 'polling'
   batch_add_set_key_prefix_2_name?: boolean
+  // Fallback channels
+  fallback_channel_ids?: number[]
 }
 
 // ============================================================================

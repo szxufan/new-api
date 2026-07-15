@@ -122,9 +122,31 @@ func Distribute() func(c *gin.Context) {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil {
 						if preferred.Status != common.ChannelStatusEnabled {
-							if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-								abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
-								return
+							// 亲和性渠道不可用，区分原因处理
+							if preferred.Status == common.ChannelStatusRateLimited429 || preferred.Status == common.ChannelStatusAutoDisabled {
+								// 429 限流或自动禁用：尝试后备渠道
+								fallbackChannel, fallbackErr := model.CacheGetFallbackChannel(preferred.GetFallbackChannelIDs(), modelRequest.Model)
+								if fallbackErr == nil && fallbackChannel != nil {
+									// 使用后备渠道，但亲和性仍记录为原渠道
+									channel = fallbackChannel
+									selectGroup = usingGroup
+									service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
+									common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, preferred.Id)
+									common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fallbackChannel.Id)
+									common.SetContextKey(c, constant.ContextKeyOriginalChannelId, preferred.Id)
+								} else {
+									// 后备渠道也不可用，走原有逻辑
+									if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+										abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
+										return
+									}
+								}
+							} else {
+								// 其他非启用状态（手动禁用等），走原有逻辑
+								if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+									abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
+									return
+								}
 							}
 						} else if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
@@ -159,28 +181,63 @@ func Distribute() func(c *gin.Context) {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 						}
 						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
-						// 如果错误，但是渠道不为空，说明是数据库一致性问题
-						//if channel != nil {
-						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						//	message = "数据库一致性已被破坏，请联系管理员"
-						//}
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
 						return
 					}
 					if channel == nil {
-						logger.LogWarn(c.Request.Context(), fmt.Sprintf("[no_channel] group=%s model=%s cache_enabled=%t path=%s",
-							usingGroup, modelRequest.Model, common.MemoryCacheEnabled, c.Request.URL.Path))
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
-						return
+						// 常规渠道选择找不到可用渠道，尝试从被限流/禁用的渠道中寻找后备渠道
+						if usingGroup == "auto" {
+							// auto 模式下，遍历所有 auto 分组
+							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+							autoGroups := service.GetUserAutoGroup(userGroup)
+							for _, g := range autoGroups {
+								fallbackCh, originalId, fallbackErr := model.CacheGetDisabledChannelsWithFallback(g, modelRequest.Model)
+								if fallbackErr == nil && fallbackCh != nil {
+									channel = fallbackCh
+									selectGroup = g
+									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
+									common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalId)
+									common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fallbackCh.Id)
+									common.SetContextKey(c, constant.ContextKeyOriginalChannelId, originalId)
+									break
+								}
+							}
+						} else {
+							fallbackCh, originalId, fallbackErr := model.CacheGetDisabledChannelsWithFallback(usingGroup, modelRequest.Model)
+							if fallbackErr == nil && fallbackCh != nil {
+								channel = fallbackCh
+								selectGroup = usingGroup
+								common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalId)
+								common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fallbackCh.Id)
+								common.SetContextKey(c, constant.ContextKeyOriginalChannelId, originalId)
+							}
+						}
+						if channel == nil {
+							logger.LogWarn(c.Request.Context(), fmt.Sprintf("[no_channel] group=%s model=%s cache_enabled=%t path=%s",
+								usingGroup, modelRequest.Model, common.MemoryCacheEnabled, c.Request.URL.Path))
+							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+							return
+						}
 					}
 				}
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		// 记录首次选中的渠道 ID（供重试路径使用）
+		if channel != nil {
+			if originalId := common.GetContextKeyInt(c, constant.ContextKeyOriginalChannelId); originalId <= 0 {
+				common.SetContextKey(c, constant.ContextKeyOriginalChannelId, channel.Id)
+			}
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
-			service.RecordChannelAffinity(c, channel.Id)
+			// 如果使用了后备渠道，亲和性记录为原渠道
+			if fallbackFromId := common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId); fallbackFromId > 0 {
+				service.RecordChannelAffinity(c, fallbackFromId)
+			} else {
+				service.RecordChannelAffinity(c, channel.Id)
+			}
 		}
 	}
 }

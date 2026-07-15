@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -13,25 +12,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getUsedChannelIDsFromContext 从 gin.Context 的 "use_channel" 键读取已使用的渠道ID字符串切片，
-// 转换为 []int 用于在同一优先级层级内排除已用渠道。
-// 转换失败的条目会被跳过（不影响其他条目）。
-func getUsedChannelIDsFromContext(c *gin.Context) []int {
-	useChannelStr := c.GetStringSlice("use_channel")
-	if len(useChannelStr) == 0 {
-		return nil
-	}
-	result := make([]int, 0, len(useChannelStr))
-	for _, s := range useChannelStr {
-		id, err := strconv.Atoi(s)
-		if err != nil {
-			continue
-		}
-		result = append(result, id)
-	}
-	return result
-}
-
+// RetryParam 封装单次请求重试过程中所需的状态与上下文。
+//
+// 预排序+顺序消费模式：
+//   - channelSequence: 首次调用 CacheGetRandomSatisfiedChannel 时一次性构建的有序渠道列表
+//   - perChannelAttempts: 每个渠道的尝试次数（由 calcPerChannelAttempts 计算）
+//   - groupRanges: auto group 下每个分组在 channelSequence 中的 [start, end) 范围
+//
+// 重试时通过 getChannelFromSequence 按 channelIndex = retry / perChannelAttempts
+// 顺序取出渠道，避免同优先级内重试选到同一渠道。
 type RetryParam struct {
 	Ctx          *gin.Context
 	TokenGroup   string
@@ -43,6 +32,20 @@ type RetryParam struct {
 	PreferredChannelTypes []int
 	// channelTypeFallbackLogged 用于确保 fallback 日志只打印一次
 	channelTypeFallbackLogged bool
+
+	// channelSequence 预排序的渠道尝试列表（首次调用时初始化）
+	channelSequence []*model.Channel
+	// perChannelAttempts 每个渠道的尝试次数
+	perChannelAttempts int
+	// groupRanges auto group 下每个分组的渠道范围 [start, end)
+	groupRanges []GroupRange
+}
+
+// GroupRange 描述 auto group 中某个分组在 channelSequence 中的范围 [Start, End)。
+type GroupRange struct {
+	Group string
+	Start int
+	End   int
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -71,168 +74,269 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
-// CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
-// 尝试获取一个满足要求的随机渠道。
+// calcPerChannelAttempts 计算每个渠道的尝试次数。
 //
-// For "auto" tokenGroup with cross-group Retry enabled:
-// 对于启用了跨分组重试的 "auto" tokenGroup：
+// 规则：max(1, ceil(RetryTimes / 10))
+//   - RetryTimes=0 时返回 1（只尝试一次，不重试）
+//   - RetryTimes=10 时返回 1（每个渠道尝试 1 次）
+//   - RetryTimes=15 时返回 2
+//   - RetryTimes=50 时返回 5
+func calcPerChannelAttempts(retryTimes int) int {
+	if retryTimes <= 0 {
+		return 1
+	}
+	attempts := (retryTimes + 9) / 10
+	if attempts < 1 {
+		attempts = 1
+	}
+	return attempts
+}
+
+// getAffinityCountsForGroups 汇总指定分组列表下当前模型的渠道亲和性计数。
 //
-//   - Each group will exhaust all its priorities before moving to the next group.
-//     每个分组会用完所有优先级后才会切换到下一个分组。
+// 当请求匹配亲和性规则（IsChannelAffinityMatched）时，收集各分组下该模型的所有渠道 ID，
+// 通过 GetChannelAffinityCounts 获取精确计数，用于排序时优先选择亲和性计数/权重最小的渠道。
+// 未匹配亲和性规则时返回 nil（不启用亲和性感知排序）。
+func getAffinityCountsForGroups(ctx *gin.Context, groups []string, modelName string) map[int]int64 {
+	if !IsChannelAffinityMatched(ctx) {
+		return nil
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	// 汇总所有分组下的渠道 ID（去重）
+	idSet := make(map[int]struct{})
+	for _, g := range groups {
+		for _, id := range model.GetChannelIDsForModel(g, modelName) {
+			idSet[id] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return nil
+	}
+	channelIDs := make([]int, 0, len(idSet))
+	for id := range idSet {
+		channelIDs = append(channelIDs, id)
+	}
+	return GetChannelAffinityCounts(channelIDs)
+}
+
+// buildChannelSequence 一次性获取并排序所有可用渠道，返回预排序的渠道切片。
 //
-//   - Uses ContextKeyAutoGroupIndex to track current group index.
-//     使用 ContextKeyAutoGroupIndex 跟踪当前分组索引。
+// 排序规则（由 model.GetSortedChannelsByPriorityAndAffinity 完成）：
+//   - 优先级降序
+//   - 同优先级内按亲和性计数/有效权重升序
+//   - PreferredChannelTypes 非空时，匹配类型的渠道整体排在前面（仅内存缓存路径）
 //
-//   - Uses ContextKeyAutoGroupRetryIndex to track the global Retry count when current group started.
-//     使用 ContextKeyAutoGroupRetryIndex 跟踪当前分组开始时的全局重试次数。
+// 对非 auto group：获取 TokenGroup + ModelName 的所有渠道并排序。
+// 对 auto group：遍历 autoGroups，逐组获取渠道并排序，按分组顺序合并到同一切片，
+// 并通过 groupRanges 记录每个分组在合并切片中的 [start, end) 范围，供跨分组重试使用。
 //
-//   - priorityRetry = Retry - startRetryIndex, represents the priority level within current group.
-//     priorityRetry = Retry - startRetryIndex，表示当前分组内的优先级级别。
+// 内存缓存关闭时，model.GetSortedChannelsByPriorityAndAffinity 内部会回退到 DB 路径
+// model.GetSortedChannelsDB。
+func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel {
+	preferredTypes := param.PreferredChannelTypes
+
+	if param.TokenGroup != "auto" {
+		affinityCounts := getAffinityCountsForGroups(param.Ctx, []string{param.TokenGroup}, param.ModelName)
+		return model.GetSortedChannelsByPriorityAndAffinity(param.TokenGroup, param.ModelName, preferredTypes, affinityCounts)
+	}
+
+	// auto group：遍历各分组，逐组获取并排序，按分组顺序合并
+	autoGroups := GetUserAutoGroup(userGroup)
+	param.groupRanges = make([]GroupRange, 0, len(autoGroups))
+	var sequence []*model.Channel
+
+	for _, g := range autoGroups {
+		// 每个分组分别获取亲和性计数（不同分组下的渠道 ID 不同）
+		affinityCounts := getAffinityCountsForGroups(param.Ctx, []string{g}, param.ModelName)
+		channels := model.GetSortedChannelsByPriorityAndAffinity(g, param.ModelName, preferredTypes, affinityCounts)
+		if len(channels) == 0 {
+			continue
+		}
+		start := len(sequence)
+		sequence = append(sequence, channels...)
+		param.groupRanges = append(param.groupRanges, GroupRange{
+			Group: g,
+			Start: start,
+			End:   len(sequence),
+		})
+	}
+	return sequence
+}
+
+// getChannelFromSequence 根据全局 retry 计数从预排序列表中按顺序取出渠道。
 //
-//   - When GetRandomSatisfiedChannel returns nil (priorities exhausted), moves to next group.
-//     当 GetRandomSatisfiedChannel 返回 nil（优先级用完）时，切换到下一个分组。
+// 映射：channelIndex = retry / perChannelAttempts
+//   - 每个 channelIndex 对应一个渠道，每个渠道尝试 perChannelAttempts 次后才前进到下一个渠道
+//   - 当 channelIndex 超出 channelSequence 长度时返回 nil（渠道已耗尽）
+// getChannelFromSequence 根据全局 retry 计数从预排序列表中取渠道。
 //
-// Example flow (2 groups, each with 2 priorities, RetryTimes=3):
-// 示例流程（2个分组，每个有2个优先级，RetryTimes=3）：
+// channelIndex = retry / perChannelAttempts，每个渠道尝试 perChannelAttempts 次后切换到下一个。
+// 如果当前渠道已被禁用或限流（重试过程中被 processChannelError 异步禁用），
+// 跳过该渠道直接前进到下一个启用渠道。超出列表长度返回 nil。
+func getChannelFromSequence(param *RetryParam) *model.Channel {
+	if len(param.channelSequence) == 0 {
+		return nil
+	}
+	if param.perChannelAttempts <= 0 {
+		param.perChannelAttempts = 1
+	}
+	baseIndex := param.GetRetry() / param.perChannelAttempts
+	// 从 baseIndex 开始查找第一个启用的渠道
+	for i := baseIndex; i < len(param.channelSequence); i++ {
+		ch := param.channelSequence[i]
+		if ch.Status == common.ChannelStatusEnabled {
+			return ch
+		}
+		// 渠道已被禁用或限流，跳过
+		logger.LogDebug(param.Ctx, "channel #%d (index=%d) is not enabled (status=%d), skipping to next channel",
+			ch.Id, i, ch.Status)
+	}
+	return nil
+}
+
+// determineSelectGroup 根据当前 retry 对应的 channelIndex 从 groupRanges 中找到所属分组。
 //
-//	Retry=0: GroupA, priority0 (startRetryIndex=0, priorityRetry=0)
-//	         分组A, 优先级0
+// auto group 下，channelSequence 按分组顺序拼接，每个 GroupRange 记录了 [Start, End) 范围。
+// 通过 channelIndex 落入哪个 range 即可确定实际使用的分组。
+// 未匹配时返回空字符串。
+func determineSelectGroup(param *RetryParam) string {
+	if len(param.groupRanges) == 0 {
+		return ""
+	}
+	if param.perChannelAttempts <= 0 {
+		param.perChannelAttempts = 1
+	}
+	channelIndex := param.GetRetry() / param.perChannelAttempts
+	for _, r := range param.groupRanges {
+		if channelIndex >= r.Start && channelIndex < r.End {
+			return r.Group
+		}
+	}
+	return ""
+}
+
+// updateAutoGroupContext 更新 auto group 跨分组重试所需的 context 状态。
 //
-//	Retry=1: GroupA, priority1 (startRetryIndex=0, priorityRetry=1)
-//	         分组A, 优先级1
+// 当 channelIndex 超出当前分组的范围时，意味着即将切换到下一个分组，
+// 此时需要更新 ContextKeyAutoGroupIndex 以反映新的分组索引，
+// 并通过 ResetRetryNextTry 避免下次重试时 retry 被错误递增。
 //
-//	Retry=2: GroupA exhausted → GroupB, priority0 (startRetryIndex=2, priorityRetry=0)
-//	         分组A用完 → 分组B, 优先级0
+// 参数:
+//   - param: 重试参数（包含 groupRanges 与 retry 状态）
+//   - currentGroupIndex: 当前所属分组在 groupRanges 中的索引
+//   - crossGroupRetry: 是否启用了跨分组重试
+func updateAutoGroupContext(param *RetryParam, currentGroupIndex int, crossGroupRetry bool) {
+	if len(param.groupRanges) == 0 {
+		return
+	}
+	if param.perChannelAttempts <= 0 {
+		param.perChannelAttempts = 1
+	}
+	channelIndex := param.GetRetry() / param.perChannelAttempts
+	currentRange := param.groupRanges[currentGroupIndex]
+
+	// channelIndex 仍在当前分组范围内，无需切换
+	if channelIndex < currentRange.End {
+		common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, currentGroupIndex)
+		return
+	}
+
+	// 已超出当前分组范围，准备切换到下一个分组
+	// 本次请求仍使用当前渠道（由调用方已取出），但 context 状态更新为下一分组索引
+	nextGroupIndex := currentGroupIndex + 1
+	if crossGroupRetry && nextGroupIndex < len(param.groupRanges) {
+		logger.LogDebug(param.Ctx, "auto group cross-group switch: from %s (range=[%d,%d)) to %s, channelIndex=%d",
+			currentRange.Group, currentRange.Start, currentRange.End,
+			param.groupRanges[nextGroupIndex].Group, channelIndex)
+		common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, nextGroupIndex)
+		param.SetRetry(0)
+		param.ResetRetryNextTry()
+	}
+}
+
+// CacheGetRandomSatisfiedChannel 尝试获取一个满足要求的渠道。
 //
-//	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
-//	         分组B, 优先级1
+// 预排序+顺序消费模式：
+//   - 首次调用时通过 buildChannelSequence 一次性获取并排序所有可用渠道
+//   - 每个渠道尝试 perChannelAttempts 次（由 calcPerChannelAttempts(common.RetryTimes) 计算）
+//   - 重试时按顺序前进到下一个渠道，避免同优先级内重试选到同一渠道
+//
+// 对 auto tokenGroup：
+//   - channelSequence 按分组顺序拼接，每个分组内的渠道尝试 perChannelAttempts 次后自然进入下一分组的渠道
+//   - 通过 groupRanges 判断当前所属分组，并更新 ContextKeyAutoGroup 等 context 状态
+//   - 当 setting.GetAutoGroups() 为空时返回错误 "auto groups is not enabled"
+//
+// 返回:
+//   - (channel, selectGroup, nil): 选中渠道及其所属分组
+//   - (nil, selectGroup, nil): 渠道序列已耗尽
+//   - (nil, selectGroup, error): auto group 未启用等错误
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
-	var channel *model.Channel
-	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
-	// 读取当前请求已使用的渠道ID列表，用于在同一优先级层级内排除
-	usedChannelIDs := getUsedChannelIDsFromContext(param.Ctx)
 
+	// auto group 前置校验
 	if param.TokenGroup == "auto" {
 		if len(setting.GetAutoGroups()) == 0 {
 			return nil, selectGroup, errors.New("auto groups is not enabled")
 		}
-		autoGroups := GetUserAutoGroup(userGroup)
+	}
 
-		// startGroupIndex: the group index to start searching from
-		// startGroupIndex: 开始搜索的分组索引
-		startGroupIndex := 0
-		crossGroupRetry := common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry)
+	// 首次调用时构建渠道序列
+	if param.channelSequence == nil {
+		param.channelSequence = buildChannelSequence(param, userGroup)
+		param.perChannelAttempts = calcPerChannelAttempts(common.RetryTimes)
+	}
 
-		if lastGroupIndex, exists := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex); exists {
-			if idx, ok := lastGroupIndex.(int); ok {
-				startGroupIndex = idx
-			}
-		}
-
-		for i := startGroupIndex; i < len(autoGroups); i++ {
-			autoGroup := autoGroups[i]
-			// Calculate priorityRetry for current group
-			// 计算当前分组的 priorityRetry
-			priorityRetry := param.GetRetry()
-			// If moved to a new group, reset priorityRetry and update startRetryIndex
-			// 如果切换到新分组，重置 priorityRetry 并更新 startRetryIndex
-			if i > startGroupIndex {
-				priorityRetry = 0
-			}
-			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
-
-			// 同优先级内重试机制适配：
-			// priorityRetry 是分组内的优先级层级索引（原设计语义），
-			// 但底层 selectChannelFromList 内部会做 retry/budget 映射。
-			// 为避免双重映射，将 priorityRetry 乘以 budget 后传给底层，
-			// 使底层 (priorityRetry * budget) / budget = priorityRetry，还原为正确的层级索引。
-			budget := model.CalcSamePriorityRetryBudget(common.RetryTimes)
-			mappedRetry := priorityRetry
-			if budget > 0 {
-				mappedRetry = priorityRetry * budget
-			}
-
-			// 类型优先：auto group 每个分组都使用偏好类型过滤
-			if len(param.PreferredChannelTypes) > 0 {
-				var fellBack bool
-				channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
-					autoGroup, param.ModelName, mappedRetry,
-					param.PreferredChannelTypes, usedChannelIDs,
-				)
-				if fellBack && !param.channelTypeFallbackLogged {
-					param.channelTypeFallbackLogged = true
-					logger.LogInfo(param.Ctx, fmt.Sprintf(
-						"[channel_type_preference] fallback: group=%s model=%s types=%v exhausted, fallback to all",
-						autoGroup, param.ModelName, param.PreferredChannelTypes,
-					))
-				}
-			} else {
-				channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, mappedRetry, usedChannelIDs)
-			}
-
-			if err != nil {
-				return nil, selectGroup, err
-			}
-
-			if channel == nil {
-				// Current group has no available channel for this model, try next group
-				// 当前分组没有该模型的可用渠道，尝试下一个分组
-				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", autoGroup, param.ModelName, priorityRetry)
-				// 重置状态以尝试下一个分组
-				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
-				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
-				// Reset retry counter so outer loop can continue for next group
-				// 重置重试计数器，以便外层循环可以为下一个分组继续
-				param.SetRetry(0)
-				continue
-			}
-			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, autoGroup)
-			selectGroup = autoGroup
-			logger.LogDebug(param.Ctx, "Auto selected group: %s", autoGroup)
-
-			// Prepare state for next retry
-			// 为下一次重试准备状态
-			if crossGroupRetry && priorityRetry >= common.RetryTimes {
-				// Current group has exhausted all retries, prepare to switch to next group
-				// This request still uses current group, but next retry will use next group
-				// 当前分组已用完所有重试次数，准备切换到下一个分组
-				// 本次请求仍使用当前分组，但下次重试将使用下一个分组
-				logger.LogDebug(param.Ctx, "Current group %s retries exhausted (priorityRetry=%d >= RetryTimes=%d), preparing switch to next group for next retry", autoGroup, priorityRetry, common.RetryTimes)
-				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
-				// Reset retry counter so outer loop can continue for next group
-				// 重置重试计数器，以便外层循环可以为下一个分组继续
-				param.SetRetry(0)
-				param.ResetRetryNextTry()
-			} else {
-				// Stay in current group, save current state
-				// 保持在当前分组，保存当前状态
-				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i)
-			}
-			break
-		}
-	} else {
-		// 非 auto group 分支
-		if len(param.PreferredChannelTypes) > 0 {
-			var fellBack bool
-			channel, err, fellBack = model.GetRandomSatisfiedChannelWithPreference(
-				param.TokenGroup, param.ModelName, param.GetRetry(),
-				param.PreferredChannelTypes, usedChannelIDs,
-			)
-			if fellBack && !param.channelTypeFallbackLogged {
-				param.channelTypeFallbackLogged = true
-				logger.LogInfo(param.Ctx, fmt.Sprintf(
-					"[channel_type_preference] fallback: group=%s model=%s types=%v exhausted, fallback to all",
-					param.TokenGroup, param.ModelName, param.PreferredChannelTypes,
-				))
-			}
-		} else {
-			channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), usedChannelIDs)
-		}
-		if err != nil {
-			return nil, param.TokenGroup, err
+	channel := getChannelFromSequence(param)
+	// 渠道序列遍历完毕，但外层重试循环可能还有剩余次数
+	// 重置序列重新构建（期间可能有渠道恢复或新渠道加入）
+	if channel == nil && param.GetRetry() <= common.RetryTimes {
+		logger.LogDebug(param.Ctx, "channel sequence exhausted (retry=%d, RetryTimes=%d), rebuilding sequence",
+			param.GetRetry(), common.RetryTimes)
+		param.channelSequence = nil
+		param.groupRanges = nil
+		param.channelSequence = buildChannelSequence(param, userGroup)
+		if len(param.channelSequence) > 0 {
+			// 重置 retry 计数到 0，从头开始遍历新序列
+			param.SetRetry(0)
+			channel = getChannelFromSequence(param)
 		}
 	}
+	if channel == nil {
+		return nil, selectGroup, nil
+	}
+
+	// auto group: 确定实际分组并更新跨分组重试 context 状态
+	if param.TokenGroup == "auto" {
+		selectGroup = determineSelectGroup(param)
+		if selectGroup != "" {
+			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, selectGroup)
+			// 计算当前所属分组在 groupRanges 中的索引，更新跨分组 context 状态
+			currentGroupIndex := 0
+			for i, r := range param.groupRanges {
+				if r.Group == selectGroup {
+					currentGroupIndex = i
+					break
+				}
+			}
+			crossGroupRetry := common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry)
+			updateAutoGroupContext(param, currentGroupIndex, crossGroupRetry)
+		}
+	}
+
+	logger.LogDebug(param.Ctx, fmt.Sprintf(
+		"channel_select: tokenGroup=%s model=%s retry=%d perChannelAttempts=%d channelIndex=%d channelId=%d selectGroup=%s",
+		param.TokenGroup, param.ModelName, param.GetRetry(), param.perChannelAttempts,
+		func() int {
+			if param.perChannelAttempts <= 0 {
+				param.perChannelAttempts = 1
+			}
+			return param.GetRetry() / param.perChannelAttempts
+		}(),
+		channel.Id, selectGroup,
+	))
+
 	return channel, selectGroup, nil
 }

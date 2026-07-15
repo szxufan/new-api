@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -237,6 +238,49 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		// 429 限流或自动禁用时，优先尝试 Fallback 渠道重试（不消耗常规重试次数）
+		if isFallbackEligibleError(newAPIError) {
+			fallbackRetryCount := c.GetInt("fallback_retry_count")
+			fallbackChannel, fallbackOk := tryFallbackChannel(c, channel.Id, relayInfo, retryParam)
+			if fallbackOk && fallbackRetryCount < maxFallbackRetries {
+				c.Set("fallback_retry_count", fallbackRetryCount+1)
+				// Fallback 渠道可用，不增加重试计数，直接用 Fallback 渠道重试当前循环
+				channel = fallbackChannel
+				addUsedChannel(c, channel.Id)
+				bodyStorage, bodyErr = common.GetBodyStorage(c)
+				if bodyErr != nil {
+					if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+						newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+					} else {
+						newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+					}
+					break
+				}
+				c.Request.Body = io.NopCloser(bodyStorage)
+
+				switch relayFormat {
+				case types.RelayFormatOpenAIRealtime:
+					newAPIError = relay.WssHelper(c, relayInfo)
+				case types.RelayFormatClaude:
+					newAPIError = relay.ClaudeHelper(c, relayInfo)
+				case types.RelayFormatGemini:
+					newAPIError = geminiRelayHandler(c, relayInfo)
+				default:
+					newAPIError = relayHandler(c, relayInfo)
+				}
+
+				if newAPIError == nil {
+					relayInfo.LastError = nil
+					return
+				}
+				newAPIError = service.NormalizeViolationFeeError(newAPIError)
+				relayInfo.LastError = newAPIError
+				processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+				// Fallback 也失败了，继续走常规 shouldRetry 判断
+			}
+			// Fallback 不可用或 Fallback 也失败，回退到常规重试逻辑
+		}
+
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
@@ -266,9 +310,17 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// maxFallbackRetries Fallback 渠道最大尝试次数（不含常规重试），防止无限循环
+const maxFallbackRetries = 3
+
 func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
-	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
+	// 如果使用了后备渠道，标记为 fallback
+	if fallbackFromId := common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId); fallbackFromId > 0 {
+		useChannel = append(useChannel, fmt.Sprintf("%d(fallback_from_%d)", channelId, fallbackFromId))
+	} else {
+		useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
+	}
 	c.Set("use_channel", useChannel)
 	// 每次添加渠道后更新重试信息到 context，供消费日志在 relay handler 内部生成时读取
 	retryCount := len(useChannel) - 1
@@ -280,6 +332,48 @@ func addUsedChannel(c *gin.Context, channelId int) {
 			common.SetContextKey(c, constant.ContextKeyRetryDurationMs, retryDurationMs)
 		}
 	}
+}
+
+// getUsedChannelIDsFromContext 从 gin.Context 的 "use_channel" 键读取已使用的渠道ID字符串切片，
+// 转换为 []int。用于 fallback 渠道列表中排除已用渠道。
+// use_channel 条目格式可能是 "123" 或 "123(fallback_from_456)"，只取数字部分。
+func getUsedChannelIDsFromContext(c *gin.Context) []int {
+	useChannelStr := c.GetStringSlice("use_channel")
+	if len(useChannelStr) == 0 {
+		return nil
+	}
+	result := make([]int, 0, len(useChannelStr))
+	for _, s := range useChannelStr {
+		// use_channel 格式可能是 "123" 或 "123(fallback_from_456)"，只取数字部分
+		idStr := s
+		if idx := strings.Index(s, "("); idx > 0 {
+			idStr = s[:idx]
+		}
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			continue
+		}
+		result = append(result, id)
+	}
+	return result
+}
+
+// filterOutUsedIDs 从 ids 列表中过滤掉已在 usedIDs 中出现的 ID
+func filterOutUsedIDs(ids []int, usedIDs []int) []int {
+	if len(usedIDs) == 0 {
+		return ids
+	}
+	usedSet := make(map[int]bool, len(usedIDs))
+	for _, id := range usedIDs {
+		usedSet[id] = true
+	}
+	result := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if !usedSet[id] {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -325,6 +419,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
+
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
@@ -341,6 +436,128 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+// isFallbackEligibleError 判断错误是否适合走 Fallback 渠道重试
+// 429 限流和自动禁用（由 ShouldDisableChannel 判定）属于临时不可用，应优先走 Fallback
+func isFallbackEligibleError(apiErr *types.NewAPIError) bool {
+	if apiErr == nil {
+		return false
+	}
+	// #region debug-point A:is-fallback-eligible-entry
+	(func() {
+		envBytes, _ := service.ReadDebugEnv()
+		if envBytes != nil {
+			go service.ReportDebugEvent(envBytes, "A", "controller/relay.go:448", fmt.Sprintf("[DEBUG] isFallbackEligibleError: StatusCode=%d, ErrorCode=%v", apiErr.StatusCode, apiErr.GetErrorCode()), map[string]any{"status_code": apiErr.StatusCode, "error_code": fmt.Sprintf("%v", apiErr.GetErrorCode())})
+		}
+	})()
+	// #endregion
+	// 429 限流
+	if apiErr.StatusCode == 429 {
+		// #region debug-point A:is-fallback-eligible-429
+		(func() {
+			envBytes, _ := service.ReadDebugEnv()
+			if envBytes != nil {
+				go service.ReportDebugEvent(envBytes, "A", "controller/relay.go:454", "[DEBUG] isFallbackEligibleError: 429 matched, returning true", map[string]any{"matched": true})
+			}
+		})()
+		// #endregion
+		return true
+	}
+	// 自动禁用类错误（如 401、403 等）
+	if service.ShouldDisableChannel(apiErr) {
+		return true
+	}
+	return false
+}
+
+// tryFallbackChannel 尝试为指定渠道查找可用的 Fallback 渠道
+// 返回 (fallback_channel, true) 表示找到可用 Fallback
+// 返回 (nil, false) 表示无可用 Fallback
+func tryFallbackChannel(c *gin.Context, originalChannelId int, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, bool) {
+	// #region debug-point E:try-fallback-entry
+	(func() {
+		envBytes, _ := service.ReadDebugEnv()
+		if envBytes != nil {
+			go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:478", fmt.Sprintf("[DEBUG] tryFallbackChannel: originalChannelId=%d, modelName=%s", originalChannelId, retryParam.ModelName), map[string]any{"original_channel_id": originalChannelId, "model_name": retryParam.ModelName})
+		}
+	})()
+	// #endregion
+	originalChannel, err := model.CacheGetChannel(originalChannelId)
+	if err != nil || originalChannel == nil {
+		// #region debug-point E:try-fallback-no-original
+		(func() {
+			envBytes, _ := service.ReadDebugEnv()
+			if envBytes != nil {
+				go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:482", fmt.Sprintf("[DEBUG] tryFallbackChannel: CacheGetChannel failed, originalChannelId=%d, err=%v", originalChannelId, err), map[string]any{"original_channel_id": originalChannelId, "err": fmt.Sprintf("%v", err)})
+			}
+		})()
+		// #endregion
+		return nil, false
+	}
+	fallbackIds := originalChannel.GetFallbackChannelIDs()
+	// #region debug-point E:try-fallback-ids
+	(func() {
+		envBytes, _ := service.ReadDebugEnv()
+		if envBytes != nil {
+			go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:490", fmt.Sprintf("[DEBUG] tryFallbackChannel: fallbackIds=%v, originalChannel.Status=%d", fallbackIds, originalChannel.Status), map[string]any{"fallback_ids": fmt.Sprintf("%v", fallbackIds), "original_status": originalChannel.Status})
+		}
+	})()
+	// #endregion
+	if len(fallbackIds) == 0 {
+		return nil, false
+	}
+	// 排除已使用的渠道
+	usedChannelIDs := getUsedChannelIDsFromContext(c)
+	availableFallbackIds := filterOutUsedIDs(fallbackIds, usedChannelIDs)
+	// #region debug-point B:try-fallback-available
+	(func() {
+		envBytes, _ := service.ReadDebugEnv()
+		if envBytes != nil {
+			go service.ReportDebugEvent(envBytes, "B", "controller/relay.go:500", fmt.Sprintf("[DEBUG] tryFallbackChannel: availableFallbackIds=%v (after filtering used=%v)", availableFallbackIds, usedChannelIDs), map[string]any{"available_ids": fmt.Sprintf("%v", availableFallbackIds), "used_ids": fmt.Sprintf("%v", usedChannelIDs)})
+		}
+	})()
+	// #endregion
+	if len(availableFallbackIds) == 0 {
+		return nil, false
+	}
+	fallbackChannel, fallbackErr := model.CacheGetFallbackChannel(availableFallbackIds, retryParam.ModelName)
+	if fallbackErr != nil || fallbackChannel == nil {
+		// #region debug-point B:try-fallback-not-found
+		(func() {
+			envBytes, _ := service.ReadDebugEnv()
+			if envBytes != nil {
+				go service.ReportDebugEvent(envBytes, "B", "controller/relay.go:506", fmt.Sprintf("[DEBUG] tryFallbackChannel: CacheGetFallbackChannel returned nil, modelName=%s, ids=%v, err=%v", retryParam.ModelName, availableFallbackIds, fallbackErr), map[string]any{"model_name": retryParam.ModelName, "ids": fmt.Sprintf("%v", availableFallbackIds), "err": fmt.Sprintf("%v", fallbackErr)})
+			}
+		})()
+		// #endregion
+		return nil, false
+	}
+	// #region debug-point C:fallback-found
+	(func() {
+		envBytes, _ := service.ReadDebugEnv()
+		if envBytes != nil {
+			go service.ReportDebugEvent(envBytes, "C", "controller/relay.go:513", fmt.Sprintf("[DEBUG] tryFallbackChannel: found fallback channel #%d, Status=%d, Groups=%v", fallbackChannel.Id, fallbackChannel.Status, fallbackChannel.GetGroups()), map[string]any{"fallback_channel_id": fallbackChannel.Id, "status": fallbackChannel.Status, "groups": fmt.Sprintf("%v", fallbackChannel.GetGroups())})
+		}
+	})()
+	// #endregion
+	// 设置 Fallback 上下文
+	common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalChannelId)
+	common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fallbackChannel.Id)
+	setupErr := middleware.SetupContextForSelectedChannel(c, fallbackChannel, info.OriginModelName)
+	if setupErr != nil {
+		// #region debug-point C:fallback-setup-error
+		(func() {
+			envBytes, _ := service.ReadDebugEnv()
+			if envBytes != nil {
+				go service.ReportDebugEvent(envBytes, "C", "controller/relay.go:520", fmt.Sprintf("[DEBUG] tryFallbackChannel: SetupContextForSelectedChannel error=%v", setupErr), map[string]any{"setup_err": fmt.Sprintf("%v", setupErr)})
+			}
+		})()
+		// #endregion
+		return nil, false
+	}
+	logger.LogInfo(c, fmt.Sprintf("using fallback channel #%d for original channel #%d", fallbackChannel.Id, originalChannelId))
+	return fallbackChannel, true
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
@@ -434,6 +651,11 @@ func recordFinalErrorLog(c *gin.Context, relayInfo *relaycommon.RelayInfo, err *
 		adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 	}
 	service.AppendChannelAffinityAdminInfo(c, adminInfo)
+	// 后备渠道信息
+	if fallbackFromId := common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId); fallbackFromId > 0 {
+		adminInfo["fallback_from_channel_id"] = fallbackFromId
+		adminInfo["fallback_to_channel_id"] = common.GetContextKeyInt(c, constant.ContextKeyFallbackToChannelId)
+	}
 	other["admin_info"] = adminInfo
 
 	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)

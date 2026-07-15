@@ -8,8 +8,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -86,6 +88,15 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 
+	// #region debug-point D:relay-error-handler-entry
+	(func() {
+		envBytes, _ := readDebugEnv()
+		if envBytes != nil {
+			go reportDebugEvent(envBytes, "D", "service/error.go:88", fmt.Sprintf("[DEBUG] RelayErrorHandler entry: resp.StatusCode=%d, newApiErr.StatusCode=%d", resp.StatusCode, newApiErr.StatusCode), map[string]any{"resp_status": resp.StatusCode, "err_status": newApiErr.StatusCode})
+		}
+	})()
+	// #endregion
+
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
@@ -118,6 +129,14 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 			if showBodyWhenFail {
 				newApiErr.Err = buildErrWithBody(newApiErr.Error())
 			}
+			// #region debug-point D:relay-error-handler-return-withopenai
+			(func() {
+				envBytes, _ := readDebugEnv()
+				if envBytes != nil {
+					go reportDebugEvent(envBytes, "D", "service/error.go:133", fmt.Sprintf("[DEBUG] RelayErrorHandler return(WithOpenAIError): resp.StatusCode=%d, newApiErr.StatusCode=%d", resp.StatusCode, newApiErr.StatusCode), map[string]any{"resp_status": resp.StatusCode, "err_status": newApiErr.StatusCode})
+				}
+			})()
+			// #endregion
 			return
 		}
 	}
@@ -125,6 +144,14 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	if showBodyWhenFail {
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}
+	// #region debug-point D:relay-error-handler-return-newopenai
+	(func() {
+		envBytes, _ := readDebugEnv()
+		if envBytes != nil {
+			go reportDebugEvent(envBytes, "D", "service/error.go:142", fmt.Sprintf("[DEBUG] RelayErrorHandler return(NewOpenAIError): resp.StatusCode=%d, newApiErr.StatusCode=%d", resp.StatusCode, newApiErr.StatusCode), map[string]any{"resp_status": resp.StatusCode, "err_status": newApiErr.StatusCode})
+		}
+	})()
+	// #endregion
 	return
 }
 
@@ -132,6 +159,14 @@ func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) 
 	if newApiErr == nil {
 		return
 	}
+	// #region debug-point A:reset-status-code-entry
+	(func() {
+		envBytes, _ := readDebugEnv()
+		if envBytes != nil {
+			go reportDebugEvent(envBytes, "A", "service/error.go:144", fmt.Sprintf("[DEBUG] ResetStatusCode entry: original StatusCode=%d, mapping=%s", newApiErr.StatusCode, statusCodeMappingStr), map[string]any{"original_status": newApiErr.StatusCode, "mapping": statusCodeMappingStr})
+		}
+	})()
+	// #endregion
 	if statusCodeMappingStr == "" || statusCodeMappingStr == "{}" {
 		return
 	}
@@ -149,6 +184,14 @@ func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) 
 		if !ok {
 			return
 		}
+		// #region debug-point A:reset-status-code-change
+		(func() {
+			envBytes, _ := readDebugEnv()
+			if envBytes != nil {
+				go reportDebugEvent(envBytes, "A", "service/error.go:163", fmt.Sprintf("[DEBUG] ResetStatusCode CHANGED: %d -> %d", newApiErr.StatusCode, intCode), map[string]any{"from": newApiErr.StatusCode, "to": intCode})
+			}
+		})()
+		// #endregion
 		newApiErr.StatusCode = intCode
 	}
 }
@@ -219,3 +262,66 @@ func TaskErrorFromAPIError(apiErr *types.NewAPIError) *dto.TaskError {
 		Error:      apiErr.Err,
 	}
 }
+
+// readDebugEnv reads the debug env file and returns its content as a struct.
+// #region debug-point debug-helpers
+func ReadDebugEnv() (map[string]string, error) {
+	return readDebugEnv()
+}
+
+func ReportDebugEvent(env map[string]string, hypothesisId, location, msg string, dataMap map[string]any) {
+	reportDebugEvent(env, hypothesisId, location, msg, dataMap)
+}
+
+func readDebugEnv() (map[string]string, error) {
+	data, err := os.ReadFile("/home/xufan/trea_project/new-api/.dbg/429-fallback.env")
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			m[parts[0]] = parts[1]
+		}
+	}
+	return m, nil
+}
+
+func reportDebugEvent(env map[string]string, hypothesisId, location, msg string, dataMap map[string]any) {
+	url := env["DEBUG_SERVER_URL"]
+	session := env["DEBUG_SESSION_ID"]
+	if url == "" || session == "" {
+		return
+	}
+	payload := map[string]any{
+		"sessionId":     session,
+		"runId":          "pre-fix",
+		"hypothesisId":   hypothesisId,
+		"location":       location,
+		"msg":            msg,
+		"data":           dataMap,
+		"ts":             jsonTimeNowMs(),
+		"traceId":        "",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(body)))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
+func jsonTimeNowMs() int64 {
+	return time.Now().UnixNano() / 1e6
+}
+
+// #endregion

@@ -40,6 +40,13 @@ const (
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"
 
+	// ContextKeyFallbackFromChannelId 记录触发后备的原始渠道 ID（当请求通过后备渠道转发时）
+	ContextKeyFallbackFromChannelId ContextKey = "fallback_from_channel_id"
+	// ContextKeyFallbackToChannelId 记录实际使用的后备渠道 ID
+	ContextKeyFallbackToChannelId ContextKey = "fallback_to_channel_id"
+	// ContextKeyOriginalChannelId 记录本次请求首次选中的渠道 ID（distributor 设置，重试时保持不变）
+	ContextKeyOriginalChannelId ContextKey = "original_channel_id"
+
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"

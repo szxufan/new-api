@@ -393,10 +393,29 @@ func GetChannel(c *gin.Context) {
 	if channel != nil {
 		clearChannelInfo(channel)
 	}
+
+	// 附带后备渠道信息
+	type FallbackChannelInfo struct {
+		Id   int    `json:"id"`
+		Name string `json:"name"`
+		Type int    `json:"type"`
+	}
+	fallbackInfos := make([]FallbackChannelInfo, 0)
+	for _, fid := range channel.GetFallbackChannelIDs() {
+		if fb, err := model.GetChannelById(fid, false); err == nil {
+			fallbackInfos = append(fallbackInfos, FallbackChannelInfo{
+				Id:   fb.Id,
+				Name: fb.Name,
+				Type: fb.Type,
+			})
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    channel,
+		"success":           true,
+		"message":           "",
+		"data":              channel,
+		"fallback_channels": fallbackInfos,
 	})
 	return
 }
@@ -510,7 +529,89 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
+	// 校验后备渠道
+	if err := validateFallbackChannelIds(channel.Id, channel.GetFallbackChannelIDs()); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// validateFallbackChannelIds 校验后备渠道ID列表的有效性
+// 检查: 存在性、非自身、无传递性循环依赖
+func validateFallbackChannelIds(channelId int, fallbackIds []int) error {
+	for _, id := range fallbackIds {
+		if id == channelId {
+			return fmt.Errorf("渠道不能将自己设为后备渠道")
+		}
+		fallback, err := model.GetChannelById(id, false)
+		if err != nil {
+			return fmt.Errorf("后备渠道 #%d 不存在", id)
+		}
+		// 深度循环依赖检测：使用 DFS 遍历后备链
+		visited := map[int]bool{channelId: true}
+		if hasCircularFallback(fallback.Id, channelId, visited) {
+			return fmt.Errorf("检测到循环依赖：渠道 #%d 的后备渠道链最终指向当前渠道 #%d", id, channelId)
+		}
+	}
+	return nil
+}
+
+// hasCircularFallback 深度优先搜索检查是否存在循环依赖
+func hasCircularFallback(fromChannelId int, targetId int, visited map[int]bool) bool {
+	if fromChannelId == targetId {
+		return true
+	}
+	if visited[fromChannelId] {
+		return false
+	}
+	visited[fromChannelId] = true
+	channel, err := model.GetChannelById(fromChannelId, false)
+	if err != nil {
+		return false // 读取失败视为无循环
+	}
+	for _, fid := range channel.GetFallbackChannelIDs() {
+		if hasCircularFallback(fid, targetId, visited) {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanFallbackReferences 清理所有渠道中指向被删除渠道的后备引用
+func cleanFallbackReferences(deletedIds []int) {
+	idSet := make(map[int]bool, len(deletedIds))
+	for _, id := range deletedIds {
+		idSet[id] = true
+	}
+
+	// 遍历所有渠道，清理后备引用
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("清理后备渠道引用失败: %v", err))
+		return
+	}
+	for _, ch := range channels {
+		fallbackIds := ch.GetFallbackChannelIDs()
+		if len(fallbackIds) == 0 {
+			continue
+		}
+		filtered := make([]int, 0, len(fallbackIds))
+		changed := false
+		for _, fid := range fallbackIds {
+			if idSet[fid] {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, fid)
+		}
+		if changed {
+			ch.SetFallbackChannelIDs(filtered)
+			if err := model.DB.Model(ch).Update("other_info", ch.OtherInfo).Error; err != nil {
+				common.SysLog(fmt.Sprintf("清理渠道 #%d 的后备引用失败: %v", ch.Id, err))
+			}
+		}
+	}
 }
 
 func RefreshCodexChannelCredential(c *gin.Context) {
@@ -692,6 +793,8 @@ func DeleteChannel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 清理其他渠道中指向已删除渠道的后备引用
+	cleanFallbackReferences([]int{id})
 	model.InitChannelCache()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -941,6 +1044,8 @@ func DeleteChannelBatch(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 清理其他渠道中指向已删除渠道的后备引用
+	cleanFallbackReferences(channelBatch.Ids)
 	model.InitChannelCache()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
