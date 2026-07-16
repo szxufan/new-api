@@ -177,7 +177,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
+		if shouldSendLastResp && !info.DetectionHit {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
@@ -294,6 +294,12 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		responseBody = geminiRespStr
+	}
+
+	// 响应内容检测：检测命中关键词时返回错误触发重试
+	fullText := helper.ExtractFullTextFromResponse(info, responseBody)
+	if detectionErr := helper.CheckNonStreamResponse(fullText, info); detectionErr != nil {
+		return nil, detectionErr
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)

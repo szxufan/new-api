@@ -87,6 +87,14 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
+  response_detection?: ResponseDetection
+}
+
+export interface ResponseDetection {
+  enabled?: boolean
+  keywords?: string[]
+  max_retries?: number
+  on_hit?: 'retry' | 'abort'
 }
 
 export interface ChannelOtherSettings {

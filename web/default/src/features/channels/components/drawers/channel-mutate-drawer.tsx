@@ -49,6 +49,7 @@ import {
   Settings,
   SlidersHorizontal,
   Wand2,
+  ShieldCheck,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -3306,6 +3307,129 @@ export function ChannelMutateDrawer({
                         </FormItem>
                       )}
                     />
+
+                    <div className='space-y-3 rounded-lg border p-4'>
+                      <SubHeading
+                        title={t('Response Detection')}
+                        icon={<ShieldCheck className='h-3.5 w-3.5' />}
+                      />
+                      <div className='divide-border space-y-0 divide-y border-y'>
+                        <FormField
+                          control={form.control}
+                          name='response_detection_enabled'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between px-4 py-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>{t('Enable Detection')}</FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    'Detect specific keywords in response and auto-retry when hit'
+                                  )}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        {form.watch('response_detection_enabled') && (
+                          <>
+                            <FormField
+                              control={form.control}
+                              name='response_detection_keywords'
+                              render={({ field }) => (
+                                <FormItem className='px-4 py-3'>
+                                  <FormLabel>{t('Detection Keywords')}</FormLabel>
+                                  <FormControl>
+                                    <Textarea
+                                      placeholder={t(
+                                        'Enter keywords separated by commas, e.g.: I cannot, As an AI, 抱歉我不能'
+                                      )}
+                                      rows={2}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(
+                                      'Keywords to detect in response (case-insensitive, comma-separated)'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='response_detection_max_retries'
+                              render={({ field }) => (
+                                <FormItem className='px-4 py-3'>
+                                  <FormLabel>{t('Max Retries')}</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type='number'
+                                      min={0}
+                                      placeholder={t(
+                                        '0 = use global retry count'
+                                      )}
+                                      {...field}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value)
+                                        field.onChange(isNaN(val) ? 0 : val)
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(
+                                      'Maximum retry count on detection hit (0 = use global setting)'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name='response_detection_on_hit'
+                              render={({ field }) => (
+                                <FormItem className='flex items-center justify-between px-4 py-3'>
+                                  <div className='space-y-0.5'>
+                                    <FormLabel>{t('On Hit Action')}</FormLabel>
+                                    <FormDescription>
+                                      {t(
+                                        'Action when keyword detected: retry with another channel, or abort immediately'
+                                      )}
+                                    </FormDescription>
+                                  </div>
+                                  <Select
+                                    value={field.value}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <SelectTrigger className='w-28'>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value='retry'>
+                                        {t('Retry')}
+                                      </SelectItem>
+                                      <SelectItem value='abort'>
+                                        {t('Abort')}
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </FormItem>
+                              )}
+                            />
+                          </>
+                        )}
+                      </div>
+                    </div>
 
                     {MODEL_FETCHABLE_TYPES.has(currentType) && (
                       <div className='space-y-3 rounded-lg border p-4'>

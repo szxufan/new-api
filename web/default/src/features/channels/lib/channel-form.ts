@@ -61,6 +61,11 @@ export const channelFormSchema = z.object({
   pass_through_body_enabled: z.boolean().optional(),
   system_prompt: z.string().optional(),
   system_prompt_override: z.boolean().optional(),
+  // Response detection settings (stored in setting JSON)
+  response_detection_enabled: z.boolean().optional(),
+  response_detection_keywords: z.string().optional(), // comma-separated
+  response_detection_max_retries: z.number().optional(),
+  response_detection_on_hit: z.enum(['retry', 'abort']).optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
   vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -121,6 +126,11 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
+  // Response detection settings
+  response_detection_enabled: false,
+  response_detection_keywords: '',
+  response_detection_max_retries: 0,
+  response_detection_on_hit: 'retry',
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -158,6 +168,10 @@ export function transformChannelToFormDefaults(
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    response_detection_enabled: false,
+    response_detection_keywords: '',
+    response_detection_max_retries: 0,
+    response_detection_on_hit: 'retry' as 'retry' | 'abort',
   }
 
   if (channel.setting) {
@@ -170,6 +184,12 @@ export function transformChannelToFormDefaults(
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
+        response_detection_enabled: parsed.response_detection?.enabled || false,
+        response_detection_keywords: Array.isArray(parsed.response_detection?.keywords)
+          ? parsed.response_detection.keywords.join(',')
+          : '',
+        response_detection_max_retries: parsed.response_detection?.max_retries || 0,
+        response_detection_on_hit: parsed.response_detection?.on_hit || 'retry',
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -286,7 +306,7 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj = {
+  const settingObj: Record<string, unknown> = {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
@@ -294,6 +314,20 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
   }
+
+  // Only include response_detection if enabled
+  if (formData.response_detection_enabled) {
+    const keywords = formData.response_detection_keywords
+      ? formData.response_detection_keywords.split(',').map(k => k.trim()).filter(k => k.length > 0)
+      : []
+    settingObj.response_detection = {
+      enabled: true,
+      keywords,
+      max_retries: formData.response_detection_max_retries || 0,
+      on_hit: formData.response_detection_on_hit || 'retry',
+    }
+  }
+
   return JSON.stringify(settingObj)
 }
 

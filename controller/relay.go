@@ -84,6 +84,10 @@ func shouldRetryChannel(c *gin.Context, openaiErr *types.NewAPIError) bool {
 	if openaiErr == nil {
 		return false
 	}
+	// 检测命中总是允许重试（skipRetry 已在上游根据次数设置）
+	if openaiErr.GetErrorCode() == types.ErrorCodeResponseDetectionHit {
+		return true
+	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
@@ -171,11 +175,20 @@ func tryChannelOnce(
 
 		lastError = executeRelayHandler(c, relayInfo, relayFormat)
 		if lastError == nil {
+			// HTTP 层面成功，检查是否有响应内容检测命中
+			if relayInfo.DetectionHit {
+				lastError = handleDetectionHit(relayInfo)
+			}
+		}
+		if lastError == nil {
 			return nil
 		}
-		lastError = service.NormalizeViolationFeeError(lastError)
-		relayInfo.LastError = lastError
-		processChannelError(c, makeChannelError(channel, c), lastError)
+		// 检测命中错误不是渠道错误，跳过渠道错误处理（不应触发自动禁用/限流）
+		if !helper.IsDetectionHitError(lastError) {
+			lastError = service.NormalizeViolationFeeError(lastError)
+			relayInfo.LastError = lastError
+			processChannelError(c, makeChannelError(channel, c), lastError)
+		}
 
 		// 429/自动禁用 → 立刻返回，由调用方进 fallback（不消耗剩余 perChannelAttempts）
 		if isFallbackEligibleError(lastError) {
@@ -189,6 +202,47 @@ func tryChannelOnce(
 		}
 	}
 	return lastError
+}
+
+// handleDetectionHit 处理响应内容检测命中，构造检测错误并决定是否允许重试
+func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	detection := relayInfo.ChannelMeta.ChannelSetting.ResponseDetection
+
+	// OnHit == "abort" 时，直接返回错误不重试
+	if detection != nil && detection.OnHit == "abort" {
+		err := types.NewError(
+			fmt.Errorf("response detection hit: keywords=%v", relayInfo.DetectionHitKeywords),
+			types.ErrorCodeResponseDetectionHit,
+			types.ErrOptionWithSkipRetry(),
+		)
+		relayInfo.ClearDetectionHit()
+		return err
+	}
+
+	// 默认 retry 行为
+	err := types.NewError(
+		fmt.Errorf("response detection hit: keywords=%v", relayInfo.DetectionHitKeywords),
+		types.ErrorCodeResponseDetectionHit,
+	)
+
+	// 检查检测重试次数限制
+	maxRetries := common.RetryTimes
+	if detection != nil && detection.MaxRetries > 0 {
+		maxRetries = detection.MaxRetries
+	}
+	relayInfo.DetectionRetryCount++
+	if relayInfo.DetectionRetryCount > maxRetries {
+		// 超过检测重试上限，标记 skipRetry
+		err = types.NewError(
+			fmt.Errorf("response detection hit after %d retries: keywords=%v",
+				relayInfo.DetectionRetryCount, relayInfo.DetectionHitKeywords),
+			types.ErrorCodeResponseDetectionHit,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+
+	relayInfo.ClearDetectionHit()
+	return err
 }
 
 // tryFallbackChannels 遍历 sourceChannel 的 fallback 渠道列表（内层子循环）。

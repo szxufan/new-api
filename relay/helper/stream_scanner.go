@@ -182,6 +182,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	dataChan := make(chan string, 10)
 
+	// 包装 dataHandler 以插入响应内容检测逻辑
+	wrappedHandler := StreamDetectionWrapper(dataHandler, info)
+
 	wg.Add(1)
 	gopool.Go(func() {
 		defer func() {
@@ -196,7 +199,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		for data := range dataChan {
 			sr.reset()
 			writeMutex.Lock()
-			dataHandler(data, sr)
+			wrappedHandler(data, sr)
 			writeMutex.Unlock()
 			if sr.IsStopped() {
 				return

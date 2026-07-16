@@ -154,7 +154,10 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			response.SetSystemFingerprint(systemFingerprint)
 			helper.ObjectData(c, response)
 		}
-		helper.Done(c)
+		// 检测命中时抑制 [DONE]，避免客户端提前关闭连接导致重试内容丢失
+		if !info.DetectionHit {
+			helper.Done(c)
+		}
 
 	case types.RelayFormatClaude:
 		var streamResponse dto.ChatCompletionsStreamResponse

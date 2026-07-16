@@ -182,6 +182,11 @@ type RelayInfo struct {
 
 	StreamStatus *StreamStatus
 
+	// DetectionHit 响应检测是否命中（流式场景下由 dataHandler 设置）
+	DetectionHit         bool
+	DetectionHitKeywords []string // 命中的关键词
+	DetectionRetryCount  int      // 检测命中已重试次数（跨渠道累计）
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo
@@ -668,6 +673,18 @@ func (info *RelayInfo) SetFirstResponseTime() {
 
 func (info *RelayInfo) HasSendResponse() bool {
 	return info.FirstResponseTime.After(info.StartTime)
+}
+
+// SetDetectionHit 标记响应检测命中及命中的关键词
+func (info *RelayInfo) SetDetectionHit(keywords []string) {
+	info.DetectionHit = true
+	info.DetectionHitKeywords = keywords
+}
+
+// ClearDetectionHit 清除检测命中标记，以便重试时重新检测
+func (info *RelayInfo) ClearDetectionHit() {
+	info.DetectionHit = false
+	info.DetectionHitKeywords = nil
 }
 
 type TaskRelayInfo struct {

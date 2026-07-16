@@ -922,7 +922,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 				common.SysLog("send final response failed: " + err.Error())
 			}
 		}
-		helper.Done(c)
+		// 检测命中时抑制 [DONE]，避免客户端提前关闭连接导致重试内容丢失
+		if !info.DetectionHit {
+			helper.Done(c)
+		}
 	} else {
 		logger.LogWarn(c.Request.Context(), fmt.Sprintf("unsupported relay format %s in claude stream final handler", info.RelayFormat))
 	}
@@ -991,6 +994,12 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 
 	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
+	}
+
+	// 响应内容检测：检测命中关键词时返回错误触发重试
+	fullText := helper.ExtractFullTextFromResponse(info, data)
+	if detectionErr := helper.CheckNonStreamResponse(fullText, info); detectionErr != nil {
+		return detectionErr
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)

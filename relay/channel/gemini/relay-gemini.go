@@ -1571,6 +1571,12 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		break
 	}
 
+	// 响应内容检测：检测命中关键词时返回错误触发重试
+	fullText := helper.ExtractFullTextFromResponse(info, responseBody)
+	if detectionErr := helper.CheckNonStreamResponse(fullText, info); detectionErr != nil {
+		return nil, detectionErr
+	}
+
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
