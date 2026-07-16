@@ -173,8 +173,8 @@ func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel 
 // getChannelFromSequence 根据全局 retry 计数从预排序列表中取渠道。
 //
 // channelIndex = retry / perChannelAttempts，每个渠道尝试 perChannelAttempts 次后切换到下一个。
-// 如果当前渠道已被禁用或限流（重试过程中被 processChannelError 异步禁用），
-// 跳过该渠道直接前进到下一个启用渠道。超出列表长度返回 nil。
+// 不检查渠道状态——如果渠道在重试过程中被禁用，relay handler 会失败，
+// processChannelError 处理后 shouldRetry 判断继续，retry 递增自然前进到下一个渠道。
 func getChannelFromSequence(param *RetryParam) *model.Channel {
 	if len(param.channelSequence) == 0 {
 		return nil
@@ -182,18 +182,11 @@ func getChannelFromSequence(param *RetryParam) *model.Channel {
 	if param.perChannelAttempts <= 0 {
 		param.perChannelAttempts = 1
 	}
-	baseIndex := param.GetRetry() / param.perChannelAttempts
-	// 从 baseIndex 开始查找第一个启用的渠道
-	for i := baseIndex; i < len(param.channelSequence); i++ {
-		ch := param.channelSequence[i]
-		if ch.Status == common.ChannelStatusEnabled {
-			return ch
-		}
-		// 渠道已被禁用或限流，跳过
-		logger.LogDebug(param.Ctx, "channel #%d (index=%d) is not enabled (status=%d), skipping to next channel",
-			ch.Id, i, ch.Status)
+	channelIndex := param.GetRetry() / param.perChannelAttempts
+	if channelIndex >= len(param.channelSequence) {
+		return nil
 	}
-	return nil
+	return param.channelSequence[channelIndex]
 }
 
 // determineSelectGroup 根据当前 retry 对应的 channelIndex 从 groupRanges 中找到所属分组。
@@ -256,6 +249,36 @@ func updateAutoGroupContext(param *RetryParam, currentGroupIndex int, crossGroup
 	}
 }
 
+// GetSortedChannelList 返回预排序的渠道列表（首次调用时构建）。
+// 取代旧的 CacheGetRandomSatisfiedChannel 的"选择"逻辑，改为一次性排序后顺序消费。
+// 对 auto group：设置 ContextKeyAutoGroup 为第一个分组。
+func GetSortedChannelList(param *RetryParam) []*model.Channel {
+	if param.channelSequence == nil {
+		userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+		param.channelSequence = buildChannelSequence(param, userGroup)
+		param.perChannelAttempts = calcPerChannelAttempts(common.RetryTimes)
+
+		// auto group：设置首个分组到 context
+		if param.TokenGroup == "auto" && len(param.groupRanges) > 0 {
+			firstGroup := param.groupRanges[0].Group
+			common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, firstGroup)
+		}
+	}
+	return param.channelSequence
+}
+
+// ResetChannelSequence 清空缓存的渠道序列，使下次 GetSortedChannelList 重新构建。
+// 用于轮次循环中后续轮次重新获取渠道列表。
+func (p *RetryParam) ResetChannelSequence() {
+	p.channelSequence = nil
+	p.groupRanges = nil
+}
+
+// CalcPerChannelAttempts 导出 perChannelAttempts 计算逻辑供 controller 使用。
+func CalcPerChannelAttempts(retryTimes int) int {
+	return calcPerChannelAttempts(retryTimes)
+}
+
 // CacheGetRandomSatisfiedChannel 尝试获取一个满足要求的渠道。
 //
 // 预排序+顺序消费模式：
@@ -290,20 +313,6 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	}
 
 	channel := getChannelFromSequence(param)
-	// 渠道序列遍历完毕，但外层重试循环可能还有剩余次数
-	// 重置序列重新构建（期间可能有渠道恢复或新渠道加入）
-	if channel == nil && param.GetRetry() <= common.RetryTimes {
-		logger.LogDebug(param.Ctx, "channel sequence exhausted (retry=%d, RetryTimes=%d), rebuilding sequence",
-			param.GetRetry(), common.RetryTimes)
-		param.channelSequence = nil
-		param.groupRanges = nil
-		param.channelSequence = buildChannelSequence(param, userGroup)
-		if len(param.channelSequence) > 0 {
-			// 重置 retry 计数到 0，从头开始遍历新序列
-			param.SetRetry(0)
-			channel = getChannelFromSequence(param)
-		}
-	}
 	if channel == nil {
 		return nil, selectGroup, nil
 	}

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +63,184 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 		err = relay.GeminiHelper(c, info)
 	}
 	return err
+}
+
+// executeRelayHandler 根据 relayFormat 分发到对应的 relay handler。
+func executeRelayHandler(c *gin.Context, relayInfo *relaycommon.RelayInfo, relayFormat types.RelayFormat) *types.NewAPIError {
+	switch relayFormat {
+	case types.RelayFormatOpenAIRealtime:
+		return relay.WssHelper(c, relayInfo)
+	case types.RelayFormatClaude:
+		return relay.ClaudeHelper(c, relayInfo)
+	case types.RelayFormatGemini:
+		return geminiRelayHandler(c, relayInfo)
+	default:
+		return relayHandler(c, relayInfo)
+	}
+}
+
+// shouldRetryChannel 判断当前错误是否应该重试同一渠道。
+func shouldRetryChannel(c *gin.Context, openaiErr *types.NewAPIError) bool {
+	if openaiErr == nil {
+		return false
+	}
+	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+		return false
+	}
+	if types.IsChannelError(openaiErr) {
+		return true
+	}
+	if types.IsSkipRetryError(openaiErr) {
+		return false
+	}
+	if _, ok := c.Get("specific_channel_id"); ok {
+		return false
+	}
+	code := openaiErr.StatusCode
+	if code >= 200 && code < 300 {
+		return false
+	}
+	if code < 100 || code > 599 {
+		return true
+	}
+	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+		return false
+	}
+	return operation_setting.ShouldRetryByStatusCode(code)
+}
+
+// makeChannelError 从 channel 和 context 构造 ChannelError，供 processChannelError 使用。
+func makeChannelError(channel *model.Channel, c *gin.Context) types.ChannelError {
+	return *types.NewChannelError(
+		channel.Id, channel.Type, channel.Name,
+		channel.ChannelInfo.IsMultiKey,
+		common.GetContextKeyString(c, constant.ContextKeyChannelKey),
+		channel.GetAutoBan(),
+	)
+}
+
+// logRelayResult 封装重试结束后的日志记录：use_channel 日志 + recordFinalErrorLog + perfmetrics。
+func logRelayResult(c *gin.Context, relayInfo *relaycommon.RelayInfo, newAPIError *types.NewAPIError) {
+	useChannel := c.GetStringSlice("use_channel")
+	if len(useChannel) > 1 {
+		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		logger.LogInfo(c, retryLogStr)
+	}
+	if newAPIError != nil {
+		recordFinalErrorLog(c, relayInfo, newAPIError)
+		gopool.Go(func() {
+			perfmetrics.RecordRelaySample(relayInfo, false, 0)
+		})
+	}
+}
+
+// tryChannelOnce 对单个渠道执行内层重试循环（不含 fallback 触发）。
+// 主渠道和 fallback 渠道共用此函数。
+// 429/自动禁用时立刻返回，不消耗剩余 perChannelAttempts，由调用方决定是否进 fallback。
+// 返回 nil 表示成功，返回非 nil 表示失败。
+func tryChannelOnce(
+	c *gin.Context,
+	relayInfo *relaycommon.RelayInfo,
+	relayFormat types.RelayFormat,
+	channel *model.Channel,
+	perChannelAttempts int,
+	totalAttempts *int,
+	maxAttempts int,
+) *types.NewAPIError {
+	if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
+		return setupErr
+	}
+
+	var lastError *types.NewAPIError
+	for attempt := 0; attempt < perChannelAttempts; attempt++ {
+		if *totalAttempts >= maxAttempts {
+			return lastError
+		}
+		*totalAttempts++
+		relayInfo.RetryIndex = *totalAttempts
+
+		addUsedChannel(c, channel.Id)
+		bodyStorage, bodyErr := common.GetBodyStorage(c)
+		if bodyErr != nil {
+			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+				return types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
+			}
+			return types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		c.Request.Body = io.NopCloser(bodyStorage)
+
+		lastError = executeRelayHandler(c, relayInfo, relayFormat)
+		if lastError == nil {
+			return nil
+		}
+		lastError = service.NormalizeViolationFeeError(lastError)
+		relayInfo.LastError = lastError
+		processChannelError(c, makeChannelError(channel, c), lastError)
+
+		// 429/自动禁用 → 立刻返回，由调用方进 fallback（不消耗剩余 perChannelAttempts）
+		if isFallbackEligibleError(lastError) {
+			return lastError
+		}
+		if !shouldRetryChannel(c, lastError) {
+			break
+		}
+		if common.RetryIntervalMs > 0 {
+			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
+		}
+	}
+	return lastError
+}
+
+// tryFallbackChannels 遍历 sourceChannel 的 fallback 渠道列表（内层子循环）。
+// 对每个 fallback 渠道调用 tryChannelOnce（不递归，fallback 渠道 429 只当作普通失败）。
+// triggerError 是触发本次 fallback 的原始错误，没有可用 fallback 时原样返回。
+// 返回 nil 表示某个 fallback 成功，返回非 nil 表示所有 fallback 都失败。
+func tryFallbackChannels(
+	c *gin.Context,
+	relayInfo *relaycommon.RelayInfo,
+	relayFormat types.RelayFormat,
+	sourceChannel *model.Channel,
+	perChannelAttempts int,
+	totalAttempts *int,
+	maxAttempts int,
+	triedIDs map[int]bool,
+	originalChannelId int,
+	triggerError *types.NewAPIError,
+) *types.NewAPIError {
+	fallbackIds := sourceChannel.GetFallbackChannelIDs()
+	if len(fallbackIds) == 0 {
+		return triggerError // 没有 fallback 渠道，原样返回触发错误
+	}
+
+	lastError := triggerError
+	for _, fbId := range fallbackIds {
+		if triedIDs[fbId] {
+			continue
+		}
+		fbChannel, err := model.CacheGetChannel(fbId)
+		if err != nil || fbChannel == nil {
+			continue
+		}
+		if fbChannel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		if !model.IsChannelEnabledForAnyGroupModel(fbChannel.GetGroups(), relayInfo.OriginModelName, fbChannel.Id) {
+			continue
+		}
+		triedIDs[fbChannel.Id] = true
+
+		common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalChannelId)
+		common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fbChannel.Id)
+		logger.LogInfo(c, fmt.Sprintf("using fallback channel #%d for original channel #%d", fbChannel.Id, originalChannelId))
+
+		// fallback 渠道走 tryChannelOnce（不递归，429 也只当作失败）
+		lastError = tryChannelOnce(c, relayInfo, relayFormat, fbChannel, perChannelAttempts, totalAttempts, maxAttempts)
+		if lastError == nil {
+			return nil
+		}
+		// lastError 非 nil：继续试下一个 fallback 渠道
+	}
+	return lastError
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
@@ -192,115 +369,180 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		Retry:                 common.GetPointer(0),
 		PreferredChannelTypes: preferredTypes,
 	}
+	perChannelAttempts := service.CalcPerChannelAttempts(common.RetryTimes)
+	maxAttempts := common.RetryTimes + 1 // 总尝试次数 = 重试次数 + 1 次初始尝试
+
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
-		if channelErr != nil {
-			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
-			break
-		}
+	totalAttempts := 0
+	var lastError *types.NewAPIError
 
-		addUsedChannel(c, channel.Id)
+	// specific_channel_id 短路：token 指定了特定渠道，不走轮次循环，只尝试该渠道一次
+	if _, ok := c.Get("specific_channel_id"); ok {
+		autoBan := c.GetBool("auto_ban")
+		autoBanInt := 1
+		if !autoBan {
+			autoBanInt = 0
+		}
+		// 指定渠道不走 SetupContextForSelectedChannel（context 已由 distributor 设置）
+		addUsedChannel(c, c.GetInt("channel_id"))
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
-			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
 			} else {
 				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
-			break
-		}
-		c.Request.Body = io.NopCloser(bodyStorage)
-
-		switch relayFormat {
-		case types.RelayFormatOpenAIRealtime:
-			newAPIError = relay.WssHelper(c, relayInfo)
-		case types.RelayFormatClaude:
-			newAPIError = relay.ClaudeHelper(c, relayInfo)
-		case types.RelayFormatGemini:
-			newAPIError = geminiRelayHandler(c, relayInfo)
-		default:
-			newAPIError = relayHandler(c, relayInfo)
-		}
-
-		if newAPIError == nil {
-			relayInfo.LastError = nil
+			logRelayResult(c, relayInfo, newAPIError)
 			return
 		}
-
-		newAPIError = service.NormalizeViolationFeeError(newAPIError)
-		relayInfo.LastError = newAPIError
-
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-
-		// 429 限流或自动禁用时，优先尝试 Fallback 渠道重试（不消耗常规重试次数）
-		if isFallbackEligibleError(newAPIError) {
-			fallbackRetryCount := c.GetInt("fallback_retry_count")
-			fallbackChannel, fallbackOk := tryFallbackChannel(c, channel.Id, relayInfo, retryParam)
-			if fallbackOk && fallbackRetryCount < maxFallbackRetries {
-				c.Set("fallback_retry_count", fallbackRetryCount+1)
-				// Fallback 渠道可用，不增加重试计数，直接用 Fallback 渠道重试当前循环
-				channel = fallbackChannel
-				addUsedChannel(c, channel.Id)
-				bodyStorage, bodyErr = common.GetBodyStorage(c)
-				if bodyErr != nil {
-					if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-						newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
-					} else {
-						newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-					}
-					break
-				}
-				c.Request.Body = io.NopCloser(bodyStorage)
-
-				switch relayFormat {
-				case types.RelayFormatOpenAIRealtime:
-					newAPIError = relay.WssHelper(c, relayInfo)
-				case types.RelayFormatClaude:
-					newAPIError = relay.ClaudeHelper(c, relayInfo)
-				case types.RelayFormatGemini:
-					newAPIError = geminiRelayHandler(c, relayInfo)
-				default:
-					newAPIError = relayHandler(c, relayInfo)
-				}
-
-				if newAPIError == nil {
-					relayInfo.LastError = nil
-					return
-				}
-				newAPIError = service.NormalizeViolationFeeError(newAPIError)
-				relayInfo.LastError = newAPIError
-				processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-				// Fallback 也失败了，继续走常规 shouldRetry 判断
-			}
-			// Fallback 不可用或 Fallback 也失败，回退到常规重试逻辑
+		c.Request.Body = io.NopCloser(bodyStorage)
+		relayInfo.RetryIndex = 1
+		lastError := executeRelayHandler(c, relayInfo, relayFormat)
+		if lastError == nil {
+			relayInfo.LastError = nil
+		} else {
+			lastError = service.NormalizeViolationFeeError(lastError)
+			relayInfo.LastError = lastError
+			processChannelError(c, *types.NewChannelError(
+				c.GetInt("channel_id"), c.GetInt("channel_type"), c.GetString("channel_name"),
+				false, common.GetContextKeyString(c, constant.ContextKeyChannelKey),
+				autoBanInt == 1,
+			), lastError)
+			newAPIError = lastError
 		}
+		logRelayResult(c, relayInfo, newAPIError)
+		return
+	}
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+	// 亲和性命中分支：distributor 已选好渠道，只重试该渠道及其 fallback
+	// 渠道被关闭后 fallback 也失败 → 退出亲和性锁定，fall through 到轮次循环
+	affinityChannelId := common.GetContextKeyInt(c, constant.ContextKeyOriginalChannelId)
+	if affinityChannelId > 0 {
+		affinityChannel, affinityErr := model.CacheGetChannel(affinityChannelId)
+		if affinityErr == nil && affinityChannel != nil {
+			// 亲和性锁定：只重试该渠道和它的 fallback，不换其他渠道
+			for totalAttempts < maxAttempts {
+				if affinityChannel.Status == common.ChannelStatusEnabled {
+					// 清除可能残留的 fallback 上下文
+					common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, 0)
+					common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, 0)
+
+					lastError = tryChannelOnce(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts)
+					if lastError == nil {
+						relayInfo.LastError = nil
+						logRelayResult(c, relayInfo, nil)
+						return
+					}
+
+					// 429/自动禁用 → 立刻尝试 fallback，fallback 全失败则退出亲和性锁定
+					if isFallbackEligibleError(lastError) {
+						triedIDs := map[int]bool{affinityChannel.Id: true}
+						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, triedIDs, affinityChannel.Id, lastError)
+						if fbError == nil {
+							relayInfo.LastError = nil
+							logRelayResult(c, relayInfo, nil)
+							return
+						}
+						lastError = fbError
+						break // fallback 也失败，渠道被关闭，退出亲和性锁定
+					}
+
+					// 其他错误：亲和性 SkipRetry=true 时不重试，直接退出
+					if !shouldRetryChannel(c, lastError) {
+						break
+					}
+					// 渠道仍启用，继续重试同一渠道
+				} else {
+					// 渠道被关闭（429/自动禁用/手动禁用），先试 fallback
+					triedIDs := map[int]bool{affinityChannel.Id: true}
+					fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, triedIDs, affinityChannel.Id, lastError)
+					if fbError == nil {
+						relayInfo.LastError = nil
+						logRelayResult(c, relayInfo, nil)
+						return
+					}
+					lastError = fbError
+					break // fallback 也失败，退出亲和性锁定
+				}
+			}
+
+			// 亲和性 SkipRetry=true → 不走轮次循环，直接返回
+			if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+				newAPIError = lastError
+				logRelayResult(c, relayInfo, newAPIError)
+				return
+			}
+			// 否则 fall through 到轮次循环，换其他渠道继续尝试
+		}
+	}
+
+	// 亲和性不命中 / 亲和性锁定失败后 fall through：走轮次循环
+	for round := 0; ; round++ {
+		attemptsBeforeRound := totalAttempts
+		if round > 0 {
+			retryParam.ResetChannelSequence()
+		}
+		channelList := service.GetSortedChannelList(retryParam)
+		if len(channelList) == 0 {
 			break
 		}
-		if common.RetryIntervalMs > 0 {
-			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
+
+		// 本轮 fallback 去重 map，每轮重置
+		triedIDs := make(map[int]bool, len(channelList))
+		for _, ch := range channelList {
+			triedIDs[ch.Id] = true
+		}
+
+		// 中层：遍历主渠道
+		for _, channel := range channelList {
+			if channel.Status != common.ChannelStatusEnabled {
+				continue
+			}
+			// 跳过亲和性渠道已尝试过的（避免重复）
+			if affinityChannelId > 0 && channel.Id == affinityChannelId {
+				continue
+			}
+
+			// 清除可能残留的 fallback 上下文
+			common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, 0)
+			common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, 0)
+
+			// 内层：同渠道重试（429 时立刻返回，不消耗剩余 perChannelAttempts）
+			lastError = tryChannelOnce(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts)
+			if lastError == nil {
+				relayInfo.LastError = nil
+				logRelayResult(c, relayInfo, nil)
+				return
+			}
+
+			// 429/自动禁用 → 立刻进入内层 fallback 子循环
+			if isFallbackEligibleError(lastError) {
+				fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts, triedIDs, channel.Id, lastError)
+				if fbError == nil {
+					relayInfo.LastError = nil
+					logRelayResult(c, relayInfo, nil)
+					return
+				}
+				lastError = fbError
+			}
+
+			if totalAttempts >= maxAttempts {
+				break
+			}
+		}
+
+		if totalAttempts >= maxAttempts {
+			break
+		}
+		if totalAttempts == attemptsBeforeRound {
+			break
 		}
 	}
 
-	useChannel := c.GetStringSlice("use_channel")
-	if len(useChannel) > 1 {
-		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
-		logger.LogInfo(c, retryLogStr)
-	}
-	if newAPIError != nil {
-		// 重试全部失败后，统一记录一条合并的错误日志
-		recordFinalErrorLog(c, relayInfo, newAPIError)
-		gopool.Go(func() {
-			perfmetrics.RecordRelaySample(relayInfo, false, 0)
-		})
-	}
+	newAPIError = lastError
+	logRelayResult(c, relayInfo, newAPIError)
 }
 
 var upgrader = websocket.Upgrader{
@@ -309,9 +551,6 @@ var upgrader = websocket.Upgrader{
 		return true // 允许跨域
 	},
 }
-
-// maxFallbackRetries Fallback 渠道最大尝试次数（不含常规重试），防止无限循环
-const maxFallbackRetries = 3
 
 func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
@@ -332,48 +571,6 @@ func addUsedChannel(c *gin.Context, channelId int) {
 			common.SetContextKey(c, constant.ContextKeyRetryDurationMs, retryDurationMs)
 		}
 	}
-}
-
-// getUsedChannelIDsFromContext 从 gin.Context 的 "use_channel" 键读取已使用的渠道ID字符串切片，
-// 转换为 []int。用于 fallback 渠道列表中排除已用渠道。
-// use_channel 条目格式可能是 "123" 或 "123(fallback_from_456)"，只取数字部分。
-func getUsedChannelIDsFromContext(c *gin.Context) []int {
-	useChannelStr := c.GetStringSlice("use_channel")
-	if len(useChannelStr) == 0 {
-		return nil
-	}
-	result := make([]int, 0, len(useChannelStr))
-	for _, s := range useChannelStr {
-		// use_channel 格式可能是 "123" 或 "123(fallback_from_456)"，只取数字部分
-		idStr := s
-		if idx := strings.Index(s, "("); idx > 0 {
-			idStr = s[:idx]
-		}
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			continue
-		}
-		result = append(result, id)
-	}
-	return result
-}
-
-// filterOutUsedIDs 从 ids 列表中过滤掉已在 usedIDs 中出现的 ID
-func filterOutUsedIDs(ids []int, usedIDs []int) []int {
-	if len(usedIDs) == 0 {
-		return ids
-	}
-	usedSet := make(map[int]bool, len(usedIDs))
-	for _, id := range usedIDs {
-		usedSet[id] = true
-	}
-	result := make([]int, 0, len(ids))
-	for _, id := range ids {
-		if !usedSet[id] {
-			result = append(result, id)
-		}
-	}
-	return result
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -405,63 +602,14 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	return meta
 }
 
-func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	if info.ChannelMeta == nil {
-		autoBan := c.GetBool("auto_ban")
-		autoBanInt := 1
-		if !autoBan {
-			autoBanInt = 0
-		}
-		return &model.Channel{
-			Id:      c.GetInt("channel_id"),
-			Type:    c.GetInt("channel_type"),
-			Name:    c.GetString("channel_name"),
-			AutoBan: &autoBanInt,
-		}, nil
-	}
-
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
-
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
-	if newAPIError != nil {
-		return nil, newAPIError
-	}
-	return channel, nil
-}
-
 // isFallbackEligibleError 判断错误是否适合走 Fallback 渠道重试
 // 429 限流和自动禁用（由 ShouldDisableChannel 判定）属于临时不可用，应优先走 Fallback
 func isFallbackEligibleError(apiErr *types.NewAPIError) bool {
 	if apiErr == nil {
 		return false
 	}
-	// #region debug-point A:is-fallback-eligible-entry
-	(func() {
-		envBytes, _ := service.ReadDebugEnv()
-		if envBytes != nil {
-			go service.ReportDebugEvent(envBytes, "A", "controller/relay.go:448", fmt.Sprintf("[DEBUG] isFallbackEligibleError: StatusCode=%d, ErrorCode=%v", apiErr.StatusCode, apiErr.GetErrorCode()), map[string]any{"status_code": apiErr.StatusCode, "error_code": fmt.Sprintf("%v", apiErr.GetErrorCode())})
-		}
-	})()
-	// #endregion
 	// 429 限流
 	if apiErr.StatusCode == 429 {
-		// #region debug-point A:is-fallback-eligible-429
-		(func() {
-			envBytes, _ := service.ReadDebugEnv()
-			if envBytes != nil {
-				go service.ReportDebugEvent(envBytes, "A", "controller/relay.go:454", "[DEBUG] isFallbackEligibleError: 429 matched, returning true", map[string]any{"matched": true})
-			}
-		})()
-		// #endregion
 		return true
 	}
 	// 自动禁用类错误（如 401、403 等）
@@ -469,127 +617,6 @@ func isFallbackEligibleError(apiErr *types.NewAPIError) bool {
 		return true
 	}
 	return false
-}
-
-// tryFallbackChannel 尝试为指定渠道查找可用的 Fallback 渠道
-// 返回 (fallback_channel, true) 表示找到可用 Fallback
-// 返回 (nil, false) 表示无可用 Fallback
-func tryFallbackChannel(c *gin.Context, originalChannelId int, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, bool) {
-	// #region debug-point E:try-fallback-entry
-	(func() {
-		envBytes, _ := service.ReadDebugEnv()
-		if envBytes != nil {
-			go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:478", fmt.Sprintf("[DEBUG] tryFallbackChannel: originalChannelId=%d, modelName=%s", originalChannelId, retryParam.ModelName), map[string]any{"original_channel_id": originalChannelId, "model_name": retryParam.ModelName})
-		}
-	})()
-	// #endregion
-	originalChannel, err := model.CacheGetChannel(originalChannelId)
-	if err != nil || originalChannel == nil {
-		// #region debug-point E:try-fallback-no-original
-		(func() {
-			envBytes, _ := service.ReadDebugEnv()
-			if envBytes != nil {
-				go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:482", fmt.Sprintf("[DEBUG] tryFallbackChannel: CacheGetChannel failed, originalChannelId=%d, err=%v", originalChannelId, err), map[string]any{"original_channel_id": originalChannelId, "err": fmt.Sprintf("%v", err)})
-			}
-		})()
-		// #endregion
-		return nil, false
-	}
-	fallbackIds := originalChannel.GetFallbackChannelIDs()
-	// #region debug-point E:try-fallback-ids
-	(func() {
-		envBytes, _ := service.ReadDebugEnv()
-		if envBytes != nil {
-			go service.ReportDebugEvent(envBytes, "E", "controller/relay.go:490", fmt.Sprintf("[DEBUG] tryFallbackChannel: fallbackIds=%v, originalChannel.Status=%d", fallbackIds, originalChannel.Status), map[string]any{"fallback_ids": fmt.Sprintf("%v", fallbackIds), "original_status": originalChannel.Status})
-		}
-	})()
-	// #endregion
-	if len(fallbackIds) == 0 {
-		return nil, false
-	}
-	// 排除已使用的渠道
-	usedChannelIDs := getUsedChannelIDsFromContext(c)
-	availableFallbackIds := filterOutUsedIDs(fallbackIds, usedChannelIDs)
-	// #region debug-point B:try-fallback-available
-	(func() {
-		envBytes, _ := service.ReadDebugEnv()
-		if envBytes != nil {
-			go service.ReportDebugEvent(envBytes, "B", "controller/relay.go:500", fmt.Sprintf("[DEBUG] tryFallbackChannel: availableFallbackIds=%v (after filtering used=%v)", availableFallbackIds, usedChannelIDs), map[string]any{"available_ids": fmt.Sprintf("%v", availableFallbackIds), "used_ids": fmt.Sprintf("%v", usedChannelIDs)})
-		}
-	})()
-	// #endregion
-	if len(availableFallbackIds) == 0 {
-		return nil, false
-	}
-	fallbackChannel, fallbackErr := model.CacheGetFallbackChannel(availableFallbackIds, retryParam.ModelName)
-	if fallbackErr != nil || fallbackChannel == nil {
-		// #region debug-point B:try-fallback-not-found
-		(func() {
-			envBytes, _ := service.ReadDebugEnv()
-			if envBytes != nil {
-				go service.ReportDebugEvent(envBytes, "B", "controller/relay.go:506", fmt.Sprintf("[DEBUG] tryFallbackChannel: CacheGetFallbackChannel returned nil, modelName=%s, ids=%v, err=%v", retryParam.ModelName, availableFallbackIds, fallbackErr), map[string]any{"model_name": retryParam.ModelName, "ids": fmt.Sprintf("%v", availableFallbackIds), "err": fmt.Sprintf("%v", fallbackErr)})
-			}
-		})()
-		// #endregion
-		return nil, false
-	}
-	// #region debug-point C:fallback-found
-	(func() {
-		envBytes, _ := service.ReadDebugEnv()
-		if envBytes != nil {
-			go service.ReportDebugEvent(envBytes, "C", "controller/relay.go:513", fmt.Sprintf("[DEBUG] tryFallbackChannel: found fallback channel #%d, Status=%d, Groups=%v", fallbackChannel.Id, fallbackChannel.Status, fallbackChannel.GetGroups()), map[string]any{"fallback_channel_id": fallbackChannel.Id, "status": fallbackChannel.Status, "groups": fmt.Sprintf("%v", fallbackChannel.GetGroups())})
-		}
-	})()
-	// #endregion
-	// 设置 Fallback 上下文
-	common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalChannelId)
-	common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fallbackChannel.Id)
-	setupErr := middleware.SetupContextForSelectedChannel(c, fallbackChannel, info.OriginModelName)
-	if setupErr != nil {
-		// #region debug-point C:fallback-setup-error
-		(func() {
-			envBytes, _ := service.ReadDebugEnv()
-			if envBytes != nil {
-				go service.ReportDebugEvent(envBytes, "C", "controller/relay.go:520", fmt.Sprintf("[DEBUG] tryFallbackChannel: SetupContextForSelectedChannel error=%v", setupErr), map[string]any{"setup_err": fmt.Sprintf("%v", setupErr)})
-			}
-		})()
-		// #endregion
-		return nil, false
-	}
-	logger.LogInfo(c, fmt.Sprintf("using fallback channel #%d for original channel #%d", fallbackChannel.Id, originalChannelId))
-	return fallbackChannel, true
-}
-
-func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
-	if openaiErr == nil {
-		return false
-	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-		return false
-	}
-	if types.IsChannelError(openaiErr) {
-		return true
-	}
-	if types.IsSkipRetryError(openaiErr) {
-		return false
-	}
-	if retryTimes <= 0 {
-		return false
-	}
-	if _, ok := c.Get("specific_channel_id"); ok {
-		return false
-	}
-	code := openaiErr.StatusCode
-	if code >= 200 && code < 300 {
-		return false
-	}
-	if code < 100 || code > 599 {
-		return true
-	}
-	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
-		return false
-	}
-	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
@@ -781,29 +808,19 @@ func RelayTask(c *gin.Context) {
 		ModelName:  relayInfo.OriginModelName,
 		Retry:      common.GetPointer(0),
 	}
+	perChannelAttempts := service.CalcPerChannelAttempts(common.RetryTimes)
+	maxAttempts := common.RetryTimes + 1
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		var channel *model.Channel
+	totalAttempts := 0
 
-		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
-			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
-				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
-					break
-				}
-			}
-		} else {
-			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
-			if channelErr != nil {
-				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
-				break
-			}
+	// LockedChannel 短路：distributor 锁定渠道，只尝试一次，不走轮次循环
+	if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
+		if setupErr := middleware.SetupContextForSelectedChannel(c, lockedCh, relayInfo.OriginModelName); setupErr != nil {
+			taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+			respondTaskError(c, taskErr)
+			return
 		}
-
-		addUsedChannel(c, channel.Id)
+		addUsedChannel(c, lockedCh.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
@@ -811,30 +828,101 @@ func RelayTask(c *gin.Context) {
 			} else {
 				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
 			}
-			break
+			respondTaskError(c, taskErr)
+			return
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
-
+		relayInfo.RetryIndex = 1
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		if taskErr != nil && !taskErr.LocalError {
+			processChannelError(c, makeChannelError(lockedCh, c),
+				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+		}
+		// 跳转到成功/失败处理
+		goto taskResult
+	}
+
+	// 外层：轮次循环
+	for round := 0; ; round++ {
+		attemptsBeforeRound := totalAttempts
+		if round > 0 {
+			retryParam.ResetChannelSequence()
+		}
+		channelList := service.GetSortedChannelList(retryParam)
+		if len(channelList) == 0 {
+			taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("no available channel"), "get_channel_failed", http.StatusInternalServerError)
+			break
+		}
+
+		// 中层：遍历主渠道
+		for _, channel := range channelList {
+			if channel.Status != common.ChannelStatusEnabled {
+				continue
+			}
+
+			// 内层：同渠道重试
+			for attempt := 0; attempt < perChannelAttempts; attempt++ {
+				if totalAttempts >= maxAttempts {
+					break
+				}
+				totalAttempts++
+				relayInfo.RetryIndex = totalAttempts
+
+				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
+					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_channel_failed", http.StatusInternalServerError)
+					break
+				}
+
+				addUsedChannel(c, channel.Id)
+				bodyStorage, bodyErr := common.GetBodyStorage(c)
+				if bodyErr != nil {
+					if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+						taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
+					} else {
+						taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
+					}
+					break
+				}
+				c.Request.Body = io.NopCloser(bodyStorage)
+
+				result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+				if taskErr == nil {
+					break
+				}
+
+				if !taskErr.LocalError {
+					processChannelError(c, makeChannelError(channel, c),
+						types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+				}
+
+				if !shouldRetryTaskRelay(c, channel.Id, taskErr, maxAttempts-totalAttempts) {
+					break
+				}
+				if common.RetryIntervalMs > 0 {
+					retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
+				}
+			}
+
+			if taskErr == nil {
+				break
+			}
+			if totalAttempts >= maxAttempts {
+				break
+			}
+		}
+
 		if taskErr == nil {
 			break
 		}
-
-		if !taskErr.LocalError {
-			processChannelError(c,
-				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
-				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
-		}
-
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		if totalAttempts >= maxAttempts {
 			break
 		}
-		if common.RetryIntervalMs > 0 {
-			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
+		if totalAttempts == attemptsBeforeRound {
+			break
 		}
 	}
 
+taskResult:
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))

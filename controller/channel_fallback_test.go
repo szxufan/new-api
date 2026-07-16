@@ -25,38 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFilterOutUsedIDs_EmptyUsed(t *testing.T) {
-	ids := []int{1, 2, 3}
-	result := filterOutUsedIDs(ids, nil)
-	require.Equal(t, []int{1, 2, 3}, result)
-}
-
-func TestFilterOutUsedIDs_NoOverlap(t *testing.T) {
-	ids := []int{1, 2, 3}
-	used := []int{4, 5}
-	result := filterOutUsedIDs(ids, used)
-	require.Equal(t, []int{1, 2, 3}, result)
-}
-
-func TestFilterOutUsedIDs_PartialOverlap(t *testing.T) {
-	ids := []int{1, 2, 3, 4}
-	used := []int{2, 4}
-	result := filterOutUsedIDs(ids, used)
-	require.Equal(t, []int{1, 3}, result)
-}
-
-func TestFilterOutUsedIDs_FullOverlap(t *testing.T) {
-	ids := []int{1, 2}
-	used := []int{1, 2}
-	result := filterOutUsedIDs(ids, used)
-	require.Equal(t, []int{}, result)
-}
-
-func TestFilterOutUsedIDs_EmptyIDs(t *testing.T) {
-	result := filterOutUsedIDs([]int{}, []int{1, 2})
-	require.Equal(t, []int{}, result)
-}
-
 func TestValidateFallbackChannelIds_SelfReference(t *testing.T) {
 	err := validateFallbackChannelIds(1, []int{1})
 	require.Error(t, err)

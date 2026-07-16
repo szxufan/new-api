@@ -110,16 +110,22 @@ func TestGetChannelFromSequence_PerChannelAttemptsOne(t *testing.T) {
 	}
 }
 
-// TestGetChannelFromSequence_SkipDisabled 验证被禁用的渠道会被跳过
-func TestGetChannelFromSequence_SkipDisabled(t *testing.T) {
+// TestGetChannelFromSequence_ReturnByIndex 验证 getChannelFromSequence 按 index 返回渠道（不检查状态）
+// 状态检查已移至外层循环（Relay 函数的 channel.Status != Enabled 判断）
+func TestGetChannelFromSequence_ReturnByIndex(t *testing.T) {
 	ch1 := &model.Channel{Id: 1, Status: common.ChannelStatusAutoDisabled}
 	ch2 := &model.Channel{Id: 2, Status: common.ChannelStatusEnabled}
 	channels := []*model.Channel{ch1, ch2}
 
 	param := newTestRetryParam(channels, 1, 0)
-	// retry=0: ch1 被禁用，应跳过返回 ch2
+	// retry=0: 返回 index=0 对应的 ch1（不跳过禁用渠道）
+	if ch := getChannelFromSequence(param); ch == nil || ch.Id != 1 {
+		t.Errorf("retry=0: expected #1 (no status check), got %v", ch)
+	}
+	// retry=1: 返回 index=1 对应的 ch2
+	param.SetRetry(1)
 	if ch := getChannelFromSequence(param); ch == nil || ch.Id != 2 {
-		t.Errorf("retry=0: expected #2 (skip disabled #1), got %v", ch)
+		t.Errorf("retry=1: expected #2, got %v", ch)
 	}
 }
 
