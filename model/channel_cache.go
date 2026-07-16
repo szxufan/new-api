@@ -74,8 +74,9 @@ func InitChannelCache() {
 		newGroup2model2channels[group] = make(map[string][]int)
 	}
 	for _, channel := range channels {
-		if channel.Status != common.ChannelStatusEnabled {
-			continue // skip disabled channels
+		// 只跳过手动禁用的渠道，429限流和自动禁用的渠道保留（重试时需要走 fallback）
+		if channel.Status == common.ChannelStatusManuallyDisabled {
+			continue
 		}
 		groups := strings.Split(channel.Group, ",")
 		for _, group := range groups {

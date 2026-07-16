@@ -551,11 +551,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		// 中层：遍历主渠道
 		for _, channel := range channelList {
-			if channel.Status != common.ChannelStatusEnabled {
-				continue
-			}
 			// 跳过亲和性渠道已尝试过的（避免重复）
 			if affinityChannelId > 0 && channel.Id == affinityChannelId {
+				continue
+			}
+
+			// 渠道被禁用/限流时，不尝试请求，直接走 fallback
+			if channel.Status != common.ChannelStatusEnabled {
+				if channel.Status == common.ChannelStatusRateLimited429 || channel.Status == common.ChannelStatusAutoDisabled {
+					// 429 限流或自动禁用：直接触发 fallback
+					channelDisabledErr := types.NewError(
+						fmt.Errorf("channel #%d is disabled (status=%d), skipping", channel.Id, channel.Status),
+						types.ErrorCodeGetChannelFailed,
+					)
+					fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts, triedIDs, channel.Id, channelDisabledErr)
+					if fbError == nil {
+						relayInfo.LastError = nil
+						logRelayResult(c, relayInfo, nil)
+						return
+					}
+					lastError = fbError
+				}
+				// 手动禁用等状态：跳过，不尝试也不走 fallback
 				continue
 			}
 
