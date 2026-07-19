@@ -12,7 +12,10 @@ func TestFormatUserLogsRemovesAdminOnlyFields(t *testing.T) {
 		"model_ratio":        1.0,
 		"group_ratio":        1.0,
 		"model_price":        0.01,
-		"admin_info":         map[string]interface{}{"use_channel": []string{"ch1"}},
+		"admin_info": map[string]interface{}{
+			"use_channel": []string{"ch1"},
+			"user_agent":  "codex-cli/1.0",
+		},
 		"stream_status":      "active",
 		"is_model_mapped":    true,
 		"upstream_model_name": "gpt-4o-upstream",

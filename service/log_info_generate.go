@@ -71,6 +71,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	AppendUserAgentAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
@@ -86,6 +87,17 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		other["retry_duration_ms"] = common.GetContextKeyInt64(ctx, constant.ContextKeyRetryDurationMs)
 	}
 	return other
+}
+
+// AppendUserAgentAdminInfo 将客户端 User-Agent 写入 admin_info，供日志记录使用。
+// 仅当 UA 非空时写入；admin_info 整体仅管理员可见（见 model.formatUserLogs）。
+func AppendUserAgentAdminInfo(ctx *gin.Context, adminInfo map[string]interface{}) {
+	if ctx == nil || ctx.Request == nil || adminInfo == nil {
+		return
+	}
+	if ua := strings.TrimSpace(ctx.Request.UserAgent()); ua != "" {
+		adminInfo["user_agent"] = ua
+	}
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
