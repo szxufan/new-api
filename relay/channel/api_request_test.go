@@ -191,3 +191,18 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
 }
+
+func TestApplyDefaultUserAgent(t *testing.T) {
+	t.Parallel()
+
+	// 未设置 UA 时写入默认值
+	headers := http.Header{}
+	applyDefaultUserAgent(&headers)
+	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+
+	// 适配器已显式设置 UA 时保留原值
+	headers = http.Header{}
+	headers.Set("User-Agent", "kling-sdk/1.0")
+	applyDefaultUserAgent(&headers)
+	require.Equal(t, "kling-sdk/1.0", headers.Get("User-Agent"))
+}
