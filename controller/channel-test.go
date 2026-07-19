@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,9 @@ type testResult struct {
 	context     *gin.Context
 	localErr    error
 	newAPIError *types.NewAPIError
+	// fingerprint 为 embedding 测试结果指纹（MD5 hex），用于人工对比不同 embedding 模型/渠道是否兼容；
+	// 仅当 info.RelayMode == RelayModeEmbeddings 且指纹计算成功时填充，其它情况为空。
+	fingerprint string
 }
 
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
@@ -497,6 +501,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
+	// Embedding 测试：对响应向量计算 MD5 指纹，用于人工对比不同 embedding 模型/渠道的兼容性。
+	// 指纹失败不阻断测试，仅记录日志（含 endpoint_type 与 relay_mode，便于排查自动检测路径）。
+	var fingerprint string
+	if info.RelayMode == relayconstant.RelayModeEmbeddings {
+		fp, fpErr := computeEmbeddingFingerprint(respBody)
+		if fpErr != nil {
+			common.SysError(fmt.Sprintf("channel test embedding fingerprint failed: channel_id=%d model=%s endpoint_type=%s relay_mode=%d err=%v", channel.Id, testModel, endpointType, info.RelayMode, fpErr))
+		} else {
+			fingerprint = fp
+		}
+	}
 	info.SetEstimatePromptTokens(usage.PromptTokens)
 
 	quota, tieredResult := settleTestQuota(info, priceData, usage)
@@ -522,6 +537,7 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		context:     c,
 		localErr:    nil,
 		newAPIError: nil,
+		fingerprint: fingerprint,
 	}
 }
 
@@ -603,6 +619,99 @@ func readTestResponseBody(body io.ReadCloser, isStream bool) ([]byte, error) {
 		return io.ReadAll(io.LimitReader(body, maxStreamLogBytes))
 	}
 	return io.ReadAll(body)
+}
+
+// computeEmbeddingFingerprint 计算渠道测试 embedding 响应的 MD5 指纹。
+//
+// 指纹算法约定（外部按此约定可复算出相同指纹）：
+//   - 固定输入文本：渠道测试 embedding 请求使用 "hello world"（见 buildTestRequest）。
+//   - 向量序列化（[]float64 路径）：按响应 data 数组顺序，对每个 float64 取
+//     math.Float64bits(v) 得到 IEEE 754 原始位模式，以小端序 8 字节写入 buffer，
+//     全部拼接后对 buffer 计算 MD5，输出 32 位 hex 字符串。
+//   - 保持 +0 / -0 的位模式区分，禁止做零值归一化（防止指纹漂移）。
+//   - 上游返回 NaN/±Inf 时，JSON 无对应字面量，encoding/json 解析必然失败 →
+//     本函数返回 error，调用方仅记录日志，不阻断测试。
+//   - base64 字符串路径（上游返回字符串形式 embedding）：按 data 数组顺序拼接各字符串，
+//     每个字符串末尾追加一个 0x00 分隔符（消除 "ab"+"c" 与 "a"+"bc" 的拼接歧义），
+//     对拼接结果计算 MD5，输出 32 位 hex 字符串。
+//
+// 解析优先级：先尝试 dto.EmbeddingResponse（[]float64 向量）；若 json.Unmarshal
+// 失败（常见于上游返回 base64 字符串），再 fallback 按 dto.FlexibleEmbeddingResponse
+// （Embedding any）解析，用 type switch 区分 []interface{}（复用向量路径）与 string
+// （走 base64 路径）。data 为空或均无法解析 → 返回 error。
+func computeEmbeddingFingerprint(respBody []byte) (string, error) {
+	var embeddingResp dto.EmbeddingResponse
+	if err := json.Unmarshal(respBody, &embeddingResp); err == nil {
+		if len(embeddingResp.Data) == 0 {
+			return "", errors.New("embedding response has empty data")
+		}
+		buf := make([]byte, 0, len(embeddingResp.Data)*8)
+		for _, item := range embeddingResp.Data {
+			for _, v := range item.Embedding {
+				var b [8]byte
+				binary.LittleEndian.PutUint64(b[:], math.Float64bits(v))
+				buf = append(buf, b[:]...)
+			}
+		}
+		return common.Md5(buf), nil
+	}
+
+	var flexResp dto.FlexibleEmbeddingResponse
+	if err := json.Unmarshal(respBody, &flexResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal embedding response: %w", err)
+	}
+	if len(flexResp.Data) == 0 {
+		return "", errors.New("embedding response has empty data")
+	}
+
+	// 探测首项类型，决定走向量路径还是字符串路径。
+	// 混合类型（部分数组、部分字符串）视为非法，返回 error。
+	hasFloatArr, hasStr := false, false
+	for _, item := range flexResp.Data {
+		switch item.Embedding.(type) {
+		case []interface{}:
+			hasFloatArr = true
+		case string:
+			hasStr = true
+		default:
+			return "", fmt.Errorf("unsupported embedding type: %T", item.Embedding)
+		}
+	}
+	if hasFloatArr && hasStr {
+		return "", errors.New("mixed embedding types in response data")
+	}
+
+	if hasFloatArr {
+		buf := make([]byte, 0, len(flexResp.Data)*8)
+		for _, item := range flexResp.Data {
+			arr, ok := item.Embedding.([]interface{})
+			if !ok {
+				return "", fmt.Errorf("embedding is not []interface{}: %T", item.Embedding)
+			}
+			for _, e := range arr {
+				v, ok := e.(float64)
+				if !ok {
+					return "", fmt.Errorf("embedding element is not float64: %T", e)
+				}
+				var b [8]byte
+				binary.LittleEndian.PutUint64(b[:], math.Float64bits(v))
+				buf = append(buf, b[:]...)
+			}
+		}
+		return common.Md5(buf), nil
+	}
+
+	// base64 字符串路径：每个字符串后追加 0x00 分隔符。
+	var buf bytes.Buffer
+	for _, item := range flexResp.Data {
+		s, ok := item.Embedding.(string)
+		if !ok {
+			return "", fmt.Errorf("embedding is not string: %T", item.Embedding)
+		}
+		buf.WriteString(s)
+		buf.WriteByte(0x00)
+	}
+	return common.Md5(buf.Bytes()), nil
 }
 
 func detectErrorFromTestResponseBody(respBody []byte) error {
@@ -886,11 +995,15 @@ func TestChannel(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
+	successResp := gin.H{
 		"success": true,
 		"message": "",
 		"time":    consumedTime,
-	})
+	}
+	if result.fingerprint != "" {
+		successResp["fingerprint"] = result.fingerprint
+	}
+	c.JSON(http.StatusOK, successResp)
 }
 
 var testAllChannelsLock sync.Mutex

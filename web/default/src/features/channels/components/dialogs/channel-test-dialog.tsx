@@ -26,7 +26,7 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import { Check, Copy, Info, Loader2, Settings } from 'lucide-react'
+import { Check, Copy, Fingerprint, Info, Loader2, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -94,6 +94,7 @@ type TestResult = {
   responseTime?: number
   error?: string
   errorCode?: string
+  fingerprint?: string
 }
 
 const endpointTypeOptions: Array<{ value: string; label: string }> = [
@@ -316,12 +317,13 @@ export function ChannelTestDialog({
             endpointType: endpointType === 'auto' ? undefined : endpointType,
             stream: isStreamTest || undefined,
           },
-          (success, responseTime, error, errorCode) => {
+          (success, responseTime, error, errorCode, fingerprint) => {
             updateTestResult(model, {
               status: success ? 'success' : 'error',
               responseTime,
               error,
               errorCode,
+              fingerprint,
             })
           }
         )
@@ -712,6 +714,9 @@ function TestStatusCell({
             {formatResponseTime(result.responseTime, t)}
           </span>
         )}
+        {result.fingerprint && (
+          <FingerprintCell fingerprint={result.fingerprint} />
+        )}
       </div>
     )
   }
@@ -722,6 +727,39 @@ function TestStatusCell({
       model={model}
       onOpenDetails={onOpenDetails}
     />
+  )
+}
+
+function FingerprintCell({ fingerprint }: { fingerprint: string }) {
+  const { t } = useTranslation()
+  const { copyToClipboard } = useCopyToClipboard()
+
+  return (
+    <div className='flex min-w-0 items-center gap-1'>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type='button'
+              onClick={() => copyToClipboard(fingerprint)}
+              className='text-muted-foreground hover:text-foreground inline-flex min-w-0 items-center gap-1 transition-colors'
+            />
+          }
+        >
+          <Fingerprint className='h-3 w-3 shrink-0' />
+          <code
+            className='truncate font-mono text-[10px]'
+            title={fingerprint}
+          >
+            {fingerprint}
+          </code>
+          <Copy className='h-3 w-3 shrink-0 opacity-60' />
+        </TooltipTrigger>
+        <TooltipContent>
+          {t('Fingerprint')}: {fingerprint} · {t('Click to copy')}
+        </TooltipContent>
+      </Tooltip>
+    </div>
   )
 }
 

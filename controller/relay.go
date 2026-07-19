@@ -190,10 +190,23 @@ func tryChannelOnce(
 			processChannelError(c, makeChannelError(channel, c), lastError)
 		}
 
-		// 429/自动禁用 → 立刻返回，由调用方进 fallback（不消耗剩余 perChannelAttempts）
+		// 429/自动禁用 → 立刻尝试 fallback 渠道
 		if isFallbackEligibleError(lastError) {
-			return lastError
+			fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, totalAttempts, maxAttempts, channel.Id, lastError)
+			if fbError == nil {
+				return nil
+			}
+			lastError = fbError
+			// fallback 也失败，继续重试当前渠道
+			if !shouldRetryChannel(c, lastError) {
+				return lastError
+			}
+			if common.RetryIntervalMs > 0 {
+				retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
+			}
+			continue
 		}
+
 		if !shouldRetryChannel(c, lastError) {
 			break
 		}
@@ -257,7 +270,6 @@ func tryFallbackChannels(
 	perChannelAttempts int,
 	totalAttempts *int,
 	maxAttempts int,
-	triedIDs map[int]bool,
 	originalChannelId int,
 	triggerError *types.NewAPIError,
 ) *types.NewAPIError {
@@ -268,9 +280,6 @@ func tryFallbackChannels(
 
 	lastError := triggerError
 	for _, fbId := range fallbackIds {
-		if triedIDs[fbId] {
-			continue
-		}
 		fbChannel, err := model.CacheGetChannel(fbId)
 		if err != nil || fbChannel == nil {
 			continue
@@ -281,7 +290,6 @@ func tryFallbackChannels(
 		if !model.IsChannelEnabledForAnyGroupModel(fbChannel.GetGroups(), relayInfo.OriginModelName, fbChannel.Id) {
 			continue
 		}
-		triedIDs[fbChannel.Id] = true
 
 		common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalChannelId)
 		common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fbChannel.Id)
@@ -492,8 +500,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 					// 429/自动禁用 → 立刻尝试 fallback，fallback 全失败则退出亲和性锁定
 					if isFallbackEligibleError(lastError) {
-						triedIDs := map[int]bool{affinityChannel.Id: true}
-						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, triedIDs, affinityChannel.Id, lastError)
+						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, affinityChannel.Id, lastError)
 						if fbError == nil {
 							relayInfo.LastError = nil
 							logRelayResult(c, relayInfo, nil)
@@ -510,8 +517,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					// 渠道仍启用，继续重试同一渠道
 				} else {
 					// 渠道被关闭（429/自动禁用/手动禁用），先试 fallback
-					triedIDs := map[int]bool{affinityChannel.Id: true}
-					fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, triedIDs, affinityChannel.Id, lastError)
+					fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, affinityChannel.Id, lastError)
 					if fbError == nil {
 						relayInfo.LastError = nil
 						logRelayResult(c, relayInfo, nil)
@@ -543,12 +549,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
-		// 本轮 fallback 去重 map，每轮重置
-		triedIDs := make(map[int]bool, len(channelList))
-		for _, ch := range channelList {
-			triedIDs[ch.Id] = true
-		}
-
 		// 中层：遍历主渠道
 		for _, channel := range channelList {
 			// 跳过亲和性渠道已尝试过的（避免重复）
@@ -556,23 +556,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				continue
 			}
 
-			// 渠道被禁用/限流时，不尝试请求，直接走 fallback
-			if channel.Status != common.ChannelStatusEnabled {
-				if channel.Status == common.ChannelStatusRateLimited429 || channel.Status == common.ChannelStatusAutoDisabled {
-					// 429 限流或自动禁用：直接触发 fallback
-					channelDisabledErr := types.NewError(
-						fmt.Errorf("channel #%d is disabled (status=%d), skipping", channel.Id, channel.Status),
-						types.ErrorCodeGetChannelFailed,
-					)
-					fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts, triedIDs, channel.Id, channelDisabledErr)
-					if fbError == nil {
-						relayInfo.LastError = nil
-						logRelayResult(c, relayInfo, nil)
-						return
-					}
-					lastError = fbError
-				}
-				// 手动禁用等状态：跳过，不尝试也不走 fallback
+			// 手动禁用的渠道跳过，其他状态（429限流/自动禁用等）仍尝试
+			if channel.Status == common.ChannelStatusManuallyDisabled {
 				continue
 			}
 
@@ -580,23 +565,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, 0)
 			common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, 0)
 
-			// 内层：同渠道重试（429 时立刻返回，不消耗剩余 perChannelAttempts）
+			// 内层：同渠道重试，429 时内部触发 fallback
 			lastError = tryChannelOnce(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts)
 			if lastError == nil {
 				relayInfo.LastError = nil
 				logRelayResult(c, relayInfo, nil)
 				return
-			}
-
-			// 429/自动禁用 → 立刻进入内层 fallback 子循环
-			if isFallbackEligibleError(lastError) {
-				fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts, triedIDs, channel.Id, lastError)
-				if fbError == nil {
-					relayInfo.LastError = nil
-					logRelayResult(c, relayInfo, nil)
-					return
-				}
-				lastError = fbError
 			}
 
 			if totalAttempts >= maxAttempts {

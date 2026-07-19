@@ -15,19 +15,19 @@
     },
     "ja": {
       "file": "ja.json",
-      "missingCount": 3,
+      "missingCount": 0,
       "extrasCount": 0,
       "untranslatedCount": 171
     },
     "ru": {
       "file": "ru.json",
-      "missingCount": 3,
+      "missingCount": 0,
       "extrasCount": 0,
       "untranslatedCount": 186
     },
     "vi": {
       "file": "vi.json",
-      "missingCount": 3,
+      "missingCount": 0,
       "extrasCount": 0,
       "untranslatedCount": 42
     },

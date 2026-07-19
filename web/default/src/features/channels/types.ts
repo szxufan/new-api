@@ -159,6 +159,11 @@ export interface ChannelTestResponse {
   success: boolean
   message?: string
   error_code?: string
+  // 后端成功响应顶层字段：响应耗时（单位：秒）。
+  time?: number
+  // embedding 端点测试时返回的向量 MD5 指纹，用于人工对比不同 embedding 模型/渠道是否兼容。
+  // 非 embedding 测试不携带该字段。
+  fingerprint?: string
   data?: {
     response_time?: number
     error?: string
