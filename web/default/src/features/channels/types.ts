@@ -53,6 +53,7 @@ export const channelSchema = z.object({
   balance_updated_time: z.number(),
   models: z.string().default(''),
   group: z.string().default('default'),
+  group_blacklist: z.string().nullish(), // 用户分组黑名单，逗号分隔
   used_quota: z.number().default(0),
   model_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
@@ -325,6 +326,7 @@ export interface ChannelFormData {
   openai_organization?: string
   models: string
   group: string
+  group_blacklist?: string
   model_mapping?: string
   priority?: number
   weight?: number

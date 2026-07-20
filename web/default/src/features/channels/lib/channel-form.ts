@@ -32,6 +32,7 @@ export const channelFormSchema = z.object({
   openai_organization: z.string().optional(),
   models: z.string().min(1, 'At least one model is required'),
   group: z.array(z.string()).min(1, 'At least one group is required'),
+  group_blacklist: z.array(z.string()).optional(),
   model_mapping: z.string().optional(),
   priority: z.number().optional(),
   weight: z.number().optional(),
@@ -101,6 +102,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   openai_organization: '',
   models: '',
   group: ['default'],
+  group_blacklist: [],
   model_mapping: '',
   priority: 0,
   weight: 0,
@@ -185,10 +187,13 @@ export function transformChannelToFormDefaults(
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
         response_detection_enabled: parsed.response_detection?.enabled || false,
-        response_detection_keywords: Array.isArray(parsed.response_detection?.keywords)
+        response_detection_keywords: Array.isArray(
+          parsed.response_detection?.keywords
+        )
           ? parsed.response_detection.keywords.join(',')
           : '',
-        response_detection_max_retries: parsed.response_detection?.max_retries || 0,
+        response_detection_max_retries:
+          parsed.response_detection?.max_retries || 0,
         response_detection_on_hit: parsed.response_detection?.on_hit || 'retry',
       }
     } catch (error) {
@@ -250,7 +255,7 @@ export function transformChannelToFormDefaults(
       if (Array.isArray(otherInfo.fallback_channel_ids)) {
         fallbackChannelIds = otherInfo.fallback_channel_ids
       }
-    } catch (error) {
+    } catch {
       // ignore
     }
   }
@@ -263,6 +268,7 @@ export function transformChannelToFormDefaults(
     openai_organization: channel.openai_organization || '',
     models: channel.models || '',
     group: parseGroups(channel.group || 'default'),
+    group_blacklist: parseGroups(channel.group_blacklist || ''),
     model_mapping: channel.model_mapping || '',
     priority: channel.priority || 0,
     weight: channel.weight || 0,
@@ -318,7 +324,10 @@ function buildSettingJSON(formData: ChannelFormValues): string {
   // Only include response_detection if enabled
   if (formData.response_detection_enabled) {
     const keywords = formData.response_detection_keywords
-      ? formData.response_detection_keywords.split(',').map(k => k.trim()).filter(k => k.length > 0)
+      ? formData.response_detection_keywords
+          .split(',')
+          .map((k) => k.trim())
+          .filter((k) => k.length > 0)
       : []
     settingObj.response_detection = {
       enabled: true,
@@ -459,6 +468,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     openai_organization: formData.openai_organization || null,
     models: formData.models,
     group: formatGroups(formData.group),
+    group_blacklist: formatGroups(formData.group_blacklist || []),
     model_mapping: formData.model_mapping || null,
     priority: formData.priority || null,
     weight: formData.weight || null,
@@ -476,8 +486,13 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
   }
 
   // Write fallback_channel_ids into other_info
-  if (formData.fallback_channel_ids && formData.fallback_channel_ids.length > 0) {
-    channel.other_info = JSON.stringify({ fallback_channel_ids: formData.fallback_channel_ids })
+  if (
+    formData.fallback_channel_ids &&
+    formData.fallback_channel_ids.length > 0
+  ) {
+    channel.other_info = JSON.stringify({
+      fallback_channel_ids: formData.fallback_channel_ids,
+    })
   }
 
   // Clean up empty strings to null for optional fields
@@ -512,6 +527,7 @@ export function transformFormDataToUpdatePayload(
     openai_organization: formData.openai_organization || null,
     models: formData.models,
     group: formatGroups(formData.group),
+    group_blacklist: formatGroups(formData.group_blacklist || []),
     model_mapping: formData.model_mapping || null,
     priority: formData.priority ?? 0,
     weight: formData.weight ?? 0,
@@ -542,6 +558,7 @@ export function transformFormDataToUpdatePayload(
 
   // Send explicit empty strings for nullable fields so GORM updates can clear them.
   payload.base_url = formData.base_url || ''
+  payload.group_blacklist = formatGroups(formData.group_blacklist || [])
   payload.openai_organization = formData.openai_organization || ''
   payload.test_model = formData.test_model || ''
   payload.tag = formData.tag || ''
@@ -552,8 +569,13 @@ export function transformFormDataToUpdatePayload(
   payload.header_override = formData.header_override || ''
 
   // Write fallback_channel_ids into other_info
-  if (formData.fallback_channel_ids && formData.fallback_channel_ids.length > 0) {
-    payload.other_info = JSON.stringify({ fallback_channel_ids: formData.fallback_channel_ids })
+  if (
+    formData.fallback_channel_ids &&
+    formData.fallback_channel_ids.length > 0
+  ) {
+    payload.other_info = JSON.stringify({
+      fallback_channel_ids: formData.fallback_channel_ids,
+    })
   } else {
     payload.other_info = '{}'
   }

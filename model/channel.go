@@ -39,8 +39,12 @@ type Channel struct {
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
 	Models             string  `json:"models"`
 	Group              string  `json:"group" gorm:"type:varchar(64);default:'default'"`
-	UsedQuota          int64   `json:"used_quota" gorm:"bigint;default:0"`
-	ModelMapping       *string `json:"model_mapping" gorm:"type:text"`
+	// GroupBlacklist 用户分组黑名单，逗号分隔。命中黑名单的用户分组在调度时无法选择本渠道。
+	// 与 Group 字段（渠道归属分组）完全独立，匹配的是用户账号自身的分组。
+	// 使用指针类型以便编辑渠道时能将黑名单清空为空字符串（gorm struct Updates 跳过零值字段）。
+	GroupBlacklist *string `json:"group_blacklist" gorm:"type:varchar(255);default:''"`
+	UsedQuota      int64   `json:"used_quota" gorm:"bigint;default:0"`
+	ModelMapping   *string `json:"model_mapping" gorm:"type:text"`
 	//MaxInputTokens     *int    `json:"max_input_tokens" gorm:"default:0"`
 	StatusCodeMapping *string `json:"status_code_mapping" gorm:"type:varchar(1024);default:''"`
 	Priority          *int64  `json:"priority" gorm:"bigint;default:0"`
@@ -61,15 +65,15 @@ type Channel struct {
 }
 
 type ChannelInfo struct {
-	IsMultiKey               bool                  `json:"is_multi_key"`                         // 是否多Key模式
-	MultiKeySize             int                   `json:"multi_key_size"`                       // 多Key模式下的Key数量
-	MultiKeyStatusList       map[int]int           `json:"multi_key_status_list"`                // key状态列表，key index -> status
-	MultiKeyDisabledReason   map[int]string        `json:"multi_key_disabled_reason,omitempty"`  // key禁用原因列表，key index -> reason
-	MultiKeyDisabledTime     map[int]int64         `json:"multi_key_disabled_time,omitempty"`    // key禁用时间列表，key index -> time
+	IsMultiKey               bool                  `json:"is_multi_key"`                           // 是否多Key模式
+	MultiKeySize             int                   `json:"multi_key_size"`                         // 多Key模式下的Key数量
+	MultiKeyStatusList       map[int]int           `json:"multi_key_status_list"`                  // key状态列表，key index -> status
+	MultiKeyDisabledReason   map[int]string        `json:"multi_key_disabled_reason,omitempty"`    // key禁用原因列表，key index -> reason
+	MultiKeyDisabledTime     map[int]int64         `json:"multi_key_disabled_time,omitempty"`      // key禁用时间列表，key index -> time
 	MultiKeyRateLimitedUntil map[int]int64         `json:"multi_key_rate_limited_until,omitempty"` // key限流结束时间列表，key index -> unix timestamp
-	MultiKeyPollingIndex     int                   `json:"multi_key_polling_index"`              // 多Key模式下轮询的key索引
+	MultiKeyPollingIndex     int                   `json:"multi_key_polling_index"`                // 多Key模式下轮询的key索引
 	MultiKeyMode             constant.MultiKeyMode `json:"multi_key_mode"`
-	BalanceEverNonZero       bool                  `json:"balance_ever_non_zero,omitempty"`       // 是否曾经有过非0余额（用于余额为0自动禁用判定）
+	BalanceEverNonZero       bool                  `json:"balance_ever_non_zero,omitempty"` // 是否曾经有过非0余额（用于余额为0自动禁用判定）
 }
 
 type ChannelSortOptions struct {
@@ -320,6 +324,36 @@ func (channel *Channel) GetGroups() []string {
 		groups[i] = strings.TrimSpace(group)
 	}
 	return groups
+}
+
+// GetGroupBlacklist 解析用户分组黑名单（逗号分隔），逐项 trim 并去掉空项。
+func (channel *Channel) GetGroupBlacklist() []string {
+	if channel.GroupBlacklist == nil || *channel.GroupBlacklist == "" {
+		return []string{}
+	}
+	blacklist := strings.Split(strings.Trim(*channel.GroupBlacklist, ","), ",")
+	result := make([]string, 0, len(blacklist))
+	for _, group := range blacklist {
+		group = strings.TrimSpace(group)
+		if group != "" {
+			result = append(result, group)
+		}
+	}
+	return result
+}
+
+// IsUserGroupBlacklisted 判断指定用户分组是否命中本渠道的分组黑名单。
+// userGroup 为空或黑名单为空时返回 false（不阻断）。
+func (channel *Channel) IsUserGroupBlacklisted(userGroup string) bool {
+	if userGroup == "" {
+		return false
+	}
+	for _, group := range channel.GetGroupBlacklist() {
+		if group == userGroup {
+			return true
+		}
+	}
+	return false
 }
 
 func (channel *Channel) GetOtherInfo() map[string]interface{} {

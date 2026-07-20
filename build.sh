@@ -23,13 +23,33 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+install_bun() {
+    info "未检测到 bun，尝试自动安装 ..."
+    if ! command -v curl >/dev/null 2>&1; then
+        err "缺少 curl，无法自动安装 bun，请手动安装: https://bun.sh"
+        exit 1
+    fi
+    curl -fsSL https://bun.sh/install | bash
+    # 将 bun 默认安装目录加入当前 PATH
+    export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+    export PATH="$BUN_INSTALL/bin:$PATH"
+    if command -v bun >/dev/null 2>&1; then
+        ok "bun 安装成功: $(bun --version)"
+    else
+        err "bun 安装失败，请手动安装: https://bun.sh"
+        exit 1
+    fi
+}
+
 check_deps() {
     local missing=()
     if [ "$SKIP_BACKEND" = "false" ]; then
         command -v go >/dev/null 2>&1 || missing+=("go")
     fi
     if [ "$SKIP_FRONTEND" = "false" ]; then
-        command -v bun >/dev/null 2>&1 || missing+=("bun")
+        if ! command -v bun >/dev/null 2>&1; then
+            install_bun
+        fi
     fi
     if [ ${#missing[@]} -ne 0 ]; then
         err "缺少必要依赖: ${missing[*]}"

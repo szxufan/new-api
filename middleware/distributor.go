@@ -70,6 +70,12 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
+			// 渠道分组黑名单：命中用户自身分组时禁止使用（含 token 指定渠道）
+			userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+			if channel.IsUserGroupBlacklisted(userGroup) {
+				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupBlacklisted))
+				return
+			}
 		} else {
 			// Select a channel for the user
 			// check token model mapping
@@ -118,15 +124,18 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
-					if err == nil && preferred != nil {
+					// 渠道分组黑名单：亲和性命中的渠道若拉黑用户自身分组，视为未命中，走正常选择
+					if err == nil && preferred != nil && !preferred.IsUserGroupBlacklisted(userGroup) {
 						if preferred.Status != common.ChannelStatusEnabled {
 							// 亲和性渠道不可用，区分原因处理
 							if preferred.Status == common.ChannelStatusRateLimited429 || preferred.Status == common.ChannelStatusAutoDisabled {
 								// 429 限流或自动禁用：尝试后备渠道
 								fallbackChannel, fallbackErr := model.CacheGetFallbackChannel(preferred.GetFallbackChannelIDs(), modelRequest.Model)
-								if fallbackErr == nil && fallbackChannel != nil {
+								// 渠道分组黑名单：命中用户自身分组的后备渠道不采用，走原有逻辑
+								if fallbackErr == nil && fallbackChannel != nil && !fallbackChannel.IsUserGroupBlacklisted(userGroup) {
 									// 使用后备渠道，但亲和性仍记录为原渠道
 									channel = fallbackChannel
 									selectGroup = usingGroup
@@ -149,7 +158,6 @@ func Distribute() func(c *gin.Context) {
 								}
 							}
 						} else if usingGroup == "auto" {
-							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
@@ -188,11 +196,11 @@ func Distribute() func(c *gin.Context) {
 						// 常规渠道选择找不到可用渠道，尝试从被限流/禁用的渠道中寻找后备渠道
 						if usingGroup == "auto" {
 							// auto 模式下，遍历所有 auto 分组
-							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
 								fallbackCh, originalId, fallbackErr := model.CacheGetDisabledChannelsWithFallback(g, modelRequest.Model)
-								if fallbackErr == nil && fallbackCh != nil {
+								// 渠道分组黑名单：命中用户自身分组的后备渠道跳过，继续尝试下一分组
+								if fallbackErr == nil && fallbackCh != nil && !fallbackCh.IsUserGroupBlacklisted(userGroup) {
 									channel = fallbackCh
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
@@ -204,7 +212,8 @@ func Distribute() func(c *gin.Context) {
 							}
 						} else {
 							fallbackCh, originalId, fallbackErr := model.CacheGetDisabledChannelsWithFallback(usingGroup, modelRequest.Model)
-							if fallbackErr == nil && fallbackCh != nil {
+							// 渠道分组黑名单：命中用户自身分组的后备渠道不采用
+							if fallbackErr == nil && fallbackCh != nil && !fallbackCh.IsUserGroupBlacklisted(userGroup) {
 								channel = fallbackCh
 								selectGroup = usingGroup
 								common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalId)

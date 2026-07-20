@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { transformChannelToFormDefaults } from './channel-form'
+import {
+  transformChannelToFormDefaults,
+  transformFormDataToCreatePayload,
+  transformFormDataToUpdatePayload,
+  CHANNEL_FORM_DEFAULT_VALUES,
+} from './channel-form'
 import type { Channel } from '../types'
 
 describe('transformChannelToFormDefaults', () => {
@@ -63,7 +68,7 @@ describe('transformChannelToFormDefaults', () => {
       group: null,
       priority: null,
       weight: null,
-    })
+    } as unknown as Partial<Channel>)
 
     const result = transformChannelToFormDefaults(channel)
 
@@ -215,10 +220,62 @@ describe('transformChannelToFormDefaults', () => {
     // loadedChannelIdRef tracking in the component
     const channel = createMockChannel({ id: 42 })
 
-    const result = transformChannelToFormDefaults(channel)
+    transformChannelToFormDefaults(channel)
 
     // The transform function doesn't return id, but the channel data has it
     // This documents that channel.id should be used for tracking
     expect(channel.id).toBe(42)
+  })
+
+  it('should parse group_blacklist string to array', () => {
+    const channel = createMockChannel({
+      group_blacklist: 'vip,internal',
+    })
+
+    const result = transformChannelToFormDefaults(channel)
+
+    expect(result.group_blacklist).toEqual(['vip', 'internal'])
+  })
+
+  it('should handle nullish group_blacklist with empty array', () => {
+    const channelNull = createMockChannel({ group_blacklist: null })
+    const channelUndefined = createMockChannel({
+      group_blacklist: undefined,
+    })
+
+    expect(transformChannelToFormDefaults(channelNull).group_blacklist).toEqual(
+      []
+    )
+    expect(
+      transformChannelToFormDefaults(channelUndefined).group_blacklist
+    ).toEqual([])
+  })
+})
+
+describe('group_blacklist payloads', () => {
+  it('should format group_blacklist array to comma-separated string on create', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      group_blacklist: ['vip', 'internal'],
+    })
+
+    expect(payload.channel.group_blacklist).toBe('vip,internal')
+  })
+
+  it('should send empty group_blacklist string on update so backend can clear it', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        group_blacklist: [],
+      },
+      1
+    )
+
+    expect(payload.group_blacklist).toBe('')
   })
 })

@@ -406,6 +406,7 @@ export function ChannelMutateDrawer({
   const multiKeyType = form.watch('multi_key_type')
   const keyMode = form.watch('key_mode')
   const currentGroups = form.watch('group')
+  const currentGroupBlacklist = form.watch('group_blacklist')
   const currentType = form.watch('type')
   const currentBaseUrl = form.watch('base_url')
   const currentModels = form.watch('models')
@@ -472,6 +473,19 @@ export function ChannelMutateDrawer({
     }))
   }, [groupsData, currentGroups])
 
+  // Transform groups to multi-select options for group blacklist
+  const groupBlacklistOptions = useMemo(() => {
+    if (!groupsData?.data) return []
+    const allGroups = new Set([
+      ...groupsData.data,
+      ...(currentGroupBlacklist || []),
+    ])
+    return Array.from(allGroups).map((group) => ({
+      value: group,
+      label: group,
+    }))
+  }, [groupsData, currentGroupBlacklist])
+
   // Parse current models as array
   const currentModelsArray = useMemo(
     () => parseModelsString(currentModels),
@@ -529,8 +543,7 @@ export function ChannelMutateDrawer({
       .filter((ch) => ch.id !== channelId)
       .map((ch) => {
         const typeLabel =
-          CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] ||
-          `#${ch.type}`
+          CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] || `#${ch.type}`
         return {
           value: String(ch.id),
           label: `${ch.name} (${t(typeLabel)})`,
@@ -541,10 +554,7 @@ export function ChannelMutateDrawer({
   // Handle fallback channel selection change
   const handleFallbackChannelsChange = useCallback(
     (selected: string[]) => {
-      form.setValue(
-        'fallback_channel_ids',
-        selected.map(Number)
-      )
+      form.setValue('fallback_channel_ids', selected.map(Number))
     },
     [form]
   )
@@ -651,12 +661,16 @@ export function ChannelMutateDrawer({
     if (isEditing && channelData?.data) {
       const dataChannelId = channelData.data.id
       // Only load if this channel's data hasn't been loaded yet
-      if (dataChannelId !== null && loadedChannelIdRef.current !== dataChannelId) {
+      if (
+        dataChannelId !== null &&
+        loadedChannelIdRef.current !== dataChannelId
+      ) {
         loadedChannelIdRef.current = dataChannelId
         const defaults = transformChannelToFormDefaults(channelData.data)
         form.reset(defaults)
         setAdvancedSettingsOpen(
-          readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
+          readAdvancedSettingsPreference() ||
+            hasAdvancedSettingsValues(defaults)
         )
         initialModelsRef.current = parseModelsString(
           channelData.data.models || ''
@@ -2474,6 +2488,32 @@ export function ChannelMutateDrawer({
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name='group_blacklist'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Group Blacklist')}</FormLabel>
+                      <FormControl>
+                        {isLoadingGroups ? (
+                          <Skeleton className='h-10 w-full' />
+                        ) : (
+                          <MultiSelect
+                            options={groupBlacklistOptions}
+                            selected={field.value || []}
+                            onChange={field.onChange}
+                            placeholder={t(FIELD_PLACEHOLDERS.GROUP_BLACKLIST)}
+                          />
+                        )}
+                      </FormControl>
+                      <FormDescription>
+                        {t(FIELD_DESCRIPTIONS.GROUP_BLACKLIST)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <Collapsible
@@ -3344,7 +3384,9 @@ export function ChannelMutateDrawer({
                               name='response_detection_keywords'
                               render={({ field }) => (
                                 <FormItem className='px-4 py-3'>
-                                  <FormLabel>{t('Detection Keywords')}</FormLabel>
+                                  <FormLabel>
+                                    {t('Detection Keywords')}
+                                  </FormLabel>
                                   <FormControl>
                                     <Textarea
                                       placeholder={t(
@@ -3594,7 +3636,9 @@ export function ChannelMutateDrawer({
         redirectSourceModels={redirectModelKeyList}
         customFetcher={!isEditing ? createModeFetcher : undefined}
         existingModelsOverride={
-          !isEditing ? parseModelsString(form.getValues('models') || '') : undefined
+          !isEditing
+            ? parseModelsString(form.getValues('models') || '')
+            : undefined
         }
       />
 

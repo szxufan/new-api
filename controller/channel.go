@@ -534,7 +534,31 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		return err
 	}
 
+	// 规范化分组黑名单：逐项 trim、去空、去重（不校验分组是否存在，与 Group 字段行为一致）
+	if channel.GroupBlacklist != nil {
+		normalized := normalizeGroupBlacklist(*channel.GroupBlacklist)
+		channel.GroupBlacklist = &normalized
+	}
+
 	return nil
+}
+
+// normalizeGroupBlacklist 规范化逗号分隔的分组黑名单字符串：逐项 trim、去空、去重。
+func normalizeGroupBlacklist(blacklist string) string {
+	if blacklist == "" {
+		return ""
+	}
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+	for _, group := range strings.Split(blacklist, ",") {
+		group = strings.TrimSpace(group)
+		if group == "" || seen[group] {
+			continue
+		}
+		seen[group] = true
+		result = append(result, group)
+	}
+	return strings.Join(result, ",")
 }
 
 // validateFallbackChannelIds 校验后备渠道ID列表的有效性
@@ -806,7 +830,7 @@ func DeleteChannel(c *gin.Context) {
 // RateLimitChannelRequest 手动限流请求
 type RateLimitChannelRequest struct {
 	DurationHours float64 `json:"duration_hours"` // 限流时长（小时）
-	Reason        string  `json:"reason"`        // 限流原因
+	Reason        string  `json:"reason"`         // 限流原因
 }
 
 // RateLimitChannel 手动设置渠道限流

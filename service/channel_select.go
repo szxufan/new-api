@@ -121,6 +121,25 @@ func getAffinityCountsForGroups(ctx *gin.Context, groups []string, modelName str
 	return GetChannelAffinityCounts(channelIDs)
 }
 
+// filterGroupBlacklistedChannels 过滤掉分组黑名单命中 userGroup 的渠道。
+// userGroup 为用户账号自身分组（ContextKeyUserGroup），不受 token 分组覆盖影响。
+// userGroup 为空时不过滤，原样返回。
+func filterGroupBlacklistedChannels(ctx *gin.Context, channels []*model.Channel, userGroup string) []*model.Channel {
+	if userGroup == "" || len(channels) == 0 {
+		return channels
+	}
+	filtered := make([]*model.Channel, 0, len(channels))
+	for _, ch := range channels {
+		if ch.IsUserGroupBlacklisted(userGroup) {
+			logger.LogDebug(ctx, fmt.Sprintf(
+				"channel_select: channel %d skipped by group blacklist (userGroup=%s)", ch.Id, userGroup))
+			continue
+		}
+		filtered = append(filtered, ch)
+	}
+	return filtered
+}
+
 // buildChannelSequence 一次性获取并排序所有可用渠道，返回预排序的渠道切片。
 //
 // 排序规则（由 model.GetSortedChannelsByPriorityAndAffinity 完成）：
@@ -132,6 +151,8 @@ func getAffinityCountsForGroups(ctx *gin.Context, groups []string, modelName str
 // 对 auto group：遍历 autoGroups，逐组获取渠道并排序，按分组顺序合并到同一切片，
 // 并通过 groupRanges 记录每个分组在合并切片中的 [start, end) 范围，供跨分组重试使用。
 //
+// 两种分支都会按 userGroup（用户账号自身分组）过滤掉分组黑名单命中的渠道。
+//
 // 内存缓存关闭时，model.GetSortedChannelsByPriorityAndAffinity 内部会回退到 DB 路径
 // model.GetSortedChannelsDB。
 func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel {
@@ -139,7 +160,8 @@ func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel 
 
 	if param.TokenGroup != "auto" {
 		affinityCounts := getAffinityCountsForGroups(param.Ctx, []string{param.TokenGroup}, param.ModelName)
-		return model.GetSortedChannelsByPriorityAndAffinity(param.TokenGroup, param.ModelName, preferredTypes, affinityCounts)
+		channels := model.GetSortedChannelsByPriorityAndAffinity(param.TokenGroup, param.ModelName, preferredTypes, affinityCounts)
+		return filterGroupBlacklistedChannels(param.Ctx, channels, userGroup)
 	}
 
 	// auto group：遍历各分组，逐组获取并排序，按分组顺序合并
@@ -151,6 +173,8 @@ func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel 
 		// 每个分组分别获取亲和性计数（不同分组下的渠道 ID 不同）
 		affinityCounts := getAffinityCountsForGroups(param.Ctx, []string{g}, param.ModelName)
 		channels := model.GetSortedChannelsByPriorityAndAffinity(g, param.ModelName, preferredTypes, affinityCounts)
+		// 先按用户分组黑名单过滤，再并入序列，保证 groupRanges 范围正确
+		channels = filterGroupBlacklistedChannels(param.Ctx, channels, userGroup)
 		if len(channels) == 0 {
 			continue
 		}
@@ -170,6 +194,7 @@ func buildChannelSequence(param *RetryParam, userGroup string) []*model.Channel 
 // 映射：channelIndex = retry / perChannelAttempts
 //   - 每个 channelIndex 对应一个渠道，每个渠道尝试 perChannelAttempts 次后才前进到下一个渠道
 //   - 当 channelIndex 超出 channelSequence 长度时返回 nil（渠道已耗尽）
+//
 // getChannelFromSequence 根据全局 retry 计数从预排序列表中取渠道。
 //
 // channelIndex = retry / perChannelAttempts，每个渠道尝试 perChannelAttempts 次后切换到下一个。

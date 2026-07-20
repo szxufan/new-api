@@ -27,15 +27,15 @@ func TestCalcPerChannelAttempts(t *testing.T) {
 		retryTimes int
 		expected   int
 	}{
-		{-1, 1},  // 负数视为不重试
-		{0, 1},   // 不重试，只尝试一次
-		{1, 1},   // ceil(1/10)=1
-		{9, 1},   // ceil(9/10)=1
-		{10, 1},  // ceil(10/10)=1
-		{11, 2},  // ceil(11/10)=2
-		{15, 2},  // ceil(15/10)=2
-		{20, 2},  // ceil(20/10)=2
-		{50, 5},  // ceil(50/10)=5
+		{-1, 1}, // 负数视为不重试
+		{0, 1},  // 不重试，只尝试一次
+		{1, 1},  // ceil(1/10)=1
+		{9, 1},  // ceil(9/10)=1
+		{10, 1}, // ceil(10/10)=1
+		{11, 2}, // ceil(11/10)=2
+		{15, 2}, // ceil(15/10)=2
+		{20, 2}, // ceil(20/10)=2
+		{50, 5}, // ceil(50/10)=5
 		{100, 10},
 	}
 	for _, c := range cases {
@@ -268,5 +268,47 @@ func TestRetryParamIncreaseResetNextTry(t *testing.T) {
 	param.IncreaseRetry()
 	if param.GetRetry() != 7 {
 		t.Errorf("expected retry=7 after normal IncreaseRetry, got %d", param.GetRetry())
+	}
+}
+
+// TestFilterGroupBlacklistedChannels 验证按用户自身分组过滤黑名单渠道。
+func TestFilterGroupBlacklistedChannels(t *testing.T) {
+	blacklist := "vip,internal"
+	ch1 := &model.Channel{Id: 1}                              // 无黑名单
+	ch2 := &model.Channel{Id: 2, GroupBlacklist: &blacklist}  // 拉黑 vip/internal
+	ch3 := &model.Channel{Id: 3, GroupBlacklist: new(string)} // 空黑名单
+	channels := []*model.Channel{ch1, ch2, ch3}
+
+	// vip 用户：ch2 被过滤
+	got := filterGroupBlacklistedChannels(nil, channels, "vip")
+	if len(got) != 2 || got[0].Id != 1 || got[1].Id != 3 {
+		ids := make([]int, 0, len(got))
+		for _, ch := range got {
+			ids = append(ids, ch.Id)
+		}
+		t.Errorf("userGroup=vip: got channel ids %v, expected [1 3]", ids)
+	}
+
+	// internal 用户：ch2 被过滤
+	got = filterGroupBlacklistedChannels(nil, channels, "internal")
+	if len(got) != 2 {
+		t.Errorf("userGroup=internal: got %d channels, expected 2", len(got))
+	}
+
+	// default 用户：不过滤
+	got = filterGroupBlacklistedChannels(nil, channels, "default")
+	if len(got) != 3 {
+		t.Errorf("userGroup=default: got %d channels, expected 3", len(got))
+	}
+
+	// 空 userGroup：不过滤，原样返回
+	got = filterGroupBlacklistedChannels(nil, channels, "")
+	if len(got) != 3 {
+		t.Errorf("userGroup empty: got %d channels, expected 3", len(got))
+	}
+
+	// 空渠道列表：原样返回
+	if got := filterGroupBlacklistedChannels(nil, nil, "vip"); len(got) != 0 {
+		t.Errorf("nil channels: got %d channels, expected 0", len(got))
 	}
 }
