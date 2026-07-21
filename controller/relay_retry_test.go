@@ -27,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -36,27 +37,33 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// TestIsFallbackEligibleError_429 验证 429 错误触发 fallback
+// TestIsFallbackEligibleError_429 验证 429 错误触发 fallback（disable429Ban=false 时维持现状）
 func TestIsFallbackEligibleError_429(t *testing.T) {
 	err := types.NewErrorWithStatusCode(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
-	require.True(t, isFallbackEligibleError(err))
+	require.True(t, isFallbackEligibleError(err, false))
+}
+
+// TestIsFallbackEligibleError_429_Disable429BanTrue 验证 disable429Ban=true 时 429 不触发 fallback（走正常重试）
+func TestIsFallbackEligibleError_429_Disable429BanTrue(t *testing.T) {
+	err := types.NewErrorWithStatusCode(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
+	require.False(t, isFallbackEligibleError(err, true))
 }
 
 // TestIsFallbackEligibleError_NilError 验证 nil 错误不触发 fallback
 func TestIsFallbackEligibleError_NilError(t *testing.T) {
-	require.False(t, isFallbackEligibleError(nil))
+	require.False(t, isFallbackEligibleError(nil, false))
 }
 
 // TestIsFallbackEligibleError_500 验证普通 500 错误不触发 fallback
 func TestIsFallbackEligibleError_500(t *testing.T) {
 	err := types.NewErrorWithStatusCode(errors.New("server error"), types.ErrorCodeBadResponseStatusCode, http.StatusInternalServerError)
-	require.False(t, isFallbackEligibleError(err))
+	require.False(t, isFallbackEligibleError(err, false))
 }
 
 // TestIsFallbackEligibleError_400 验证 400 错误不触发 fallback
 func TestIsFallbackEligibleError_400(t *testing.T) {
 	err := types.NewErrorWithStatusCode(errors.New("bad request"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest)
-	require.False(t, isFallbackEligibleError(err))
+	require.False(t, isFallbackEligibleError(err, false))
 }
 
 // TestShouldRetryChannel_NilError 验证 nil 错误不重试
@@ -95,7 +102,7 @@ func TestShouldRetryChannel_2xx(t *testing.T) {
 	require.False(t, shouldRetryChannel(c, err))
 }
 
-// TestMakeChannelError 验证 makeChannelError 正确构造 ChannelError
+// TestMakeChannelError 验证 makeChannelError 正确构造 ChannelError（含 Disable429Ban 透传）
 func TestMakeChannelError(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	common.SetContextKey(c, constant.ContextKeyChannelKey, "test-key")
@@ -106,6 +113,9 @@ func TestMakeChannelError(t *testing.T) {
 		Type:    1,
 		Name:    "test-channel",
 		AutoBan: &autoBan,
+		ChannelInfo: model.ChannelInfo{
+			Disable429Ban: true,
+		},
 	}
 
 	ce := makeChannelError(channel, c)
@@ -115,6 +125,24 @@ func TestMakeChannelError(t *testing.T) {
 	require.Equal(t, "test-key", ce.UsingKey)
 	require.True(t, ce.AutoBan)
 	require.False(t, ce.IsMultiKey)
+	require.True(t, ce.Disable429Ban) // 验证 Disable429Ban 透传
+}
+
+// TestMakeChannelError_Disable429BanDefaultFalse 验证未设置时 Disable429Ban 默认为 false
+func TestMakeChannelError_Disable429BanDefaultFalse(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "test-key")
+
+	autoBan := 1
+	channel := &model.Channel{
+		Id:      43,
+		Type:    1,
+		Name:    "test-channel-no-429-ban",
+		AutoBan: &autoBan,
+	}
+
+	ce := makeChannelError(channel, c)
+	require.False(t, ce.Disable429Ban) // 默认 false = 维持现状（限流+fallback）
 }
 
 // TestAddUsedChannel_Normal 验证普通渠道记录
@@ -142,4 +170,25 @@ func TestAddUsedChannel_RetryCount(t *testing.T) {
 	addUsedChannel(c, 20) // 第二次，retryCount=1
 	retryCount := common.GetContextKeyInt(c, constant.ContextKeyRetryCount)
 	require.Equal(t, 1, retryCount)
+}
+
+// TestShouldRetryChannel_429_NotInRetryRanges 验证全局重试状态码不含 429 时 429 不重试（覆盖行为矩阵情况 ③④）
+// 此用例临时移除 429 所在的 409-499 重试范围，测试后还原
+func TestShouldRetryChannel_429_NotInRetryRanges(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	err := types.NewErrorWithStatusCode(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
+
+	// 备份原范围并临时替换为不含 429 的范围
+	originalRanges := operation_setting.AutomaticRetryStatusCodeRanges
+	operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{
+		{Start: 100, End: 199},
+		{Start: 300, End: 399},
+		{Start: 401, End: 407}, // 409-499 被移除，429 不在重试范围
+		{Start: 500, End: 503},
+	}
+	defer func() {
+		operation_setting.AutomaticRetryStatusCodeRanges = originalRanges
+	}()
+
+	require.False(t, shouldRetryChannel(c, err)) // 429 不在重试范围 → 不重试
 }

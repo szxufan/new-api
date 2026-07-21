@@ -7,10 +7,10 @@ const (
 	ContextKeyPromptTokens    ContextKey = "prompt_tokens"
 	ContextKeyEstimatedTokens ContextKey = "estimated_tokens"
 
-	ContextKeyOriginalModel                  ContextKey = "original_model"
-	ContextKeyOriginalModelBeforeFallback    ContextKey = "original_model_before_fallback"
-	ContextKeyFallbackModel                  ContextKey = "fallback_model"
-	ContextKeyRequestStartTime               ContextKey = "request_start_time"
+	ContextKeyOriginalModel               ContextKey = "original_model"
+	ContextKeyOriginalModelBeforeFallback ContextKey = "original_model_before_fallback"
+	ContextKeyFallbackModel               ContextKey = "fallback_model"
+	ContextKeyRequestStartTime            ContextKey = "request_start_time"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
@@ -34,6 +34,7 @@ const (
 	ContextKeyChannelHeaderOverride    ContextKey = "header_override"
 	ContextKeyChannelOrganization      ContextKey = "channel_organization"
 	ContextKeyChannelAutoBan           ContextKey = "auto_ban"
+	ContextKeyChannelDisable429Ban     ContextKey = "disable_429_ban"
 	ContextKeyChannelModelMapping      ContextKey = "model_mapping"
 	ContextKeyChannelStatusCodeMapping ContextKey = "status_code_mapping"
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"

@@ -382,6 +382,8 @@ export const FIELD_DESCRIPTIONS = {
   WEIGHT: 'Used for load balancing. Higher weight = more requests',
   TEST_MODEL: 'Model to use when testing channel connectivity',
   AUTO_BAN: 'Automatically disable channel on repeated failures',
+  DISABLE_429_BAN:
+    'When enabled, 429 responses skip auto rate-limiting and fallback, and follow normal retry logic (requires 429 to be included in the global retry status codes).',
   STATUS_CODE_MAPPING: 'Map response status codes (JSON format)',
   TAG: 'Group channels by tag for batch operations',
   REMARK: 'Internal notes (not shown to users)',

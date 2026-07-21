@@ -1,17 +1,15 @@
 import { describe, it, expect } from 'vitest'
+import type { Channel } from '../types'
 import {
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
   transformFormDataToUpdatePayload,
   CHANNEL_FORM_DEFAULT_VALUES,
 } from './channel-form'
-import type { Channel } from '../types'
 
 describe('transformChannelToFormDefaults', () => {
   // Create a minimal valid channel for testing
-  const createMockChannel = (
-    overrides: Partial<Channel> = {}
-  ): Channel =>
+  const createMockChannel = (overrides: Partial<Channel> = {}): Channel =>
     ({
       id: 1,
       type: 1,
@@ -172,7 +170,9 @@ describe('transformChannelToFormDefaults', () => {
 
     const result = transformChannelToFormDefaults(channel)
 
-    expect(result.model_mapping).toBe(JSON.stringify({ 'gpt-4': 'gpt-4-turbo' }))
+    expect(result.model_mapping).toBe(
+      JSON.stringify({ 'gpt-4': 'gpt-4-turbo' })
+    )
     expect(result.status_code_mapping).toBe(JSON.stringify({ '401': '403' }))
   })
 
@@ -183,6 +183,7 @@ describe('transformChannelToFormDefaults', () => {
         multi_key_size: 5,
         multi_key_polling_index: 2,
         multi_key_mode: 'polling',
+        disable_429_ban: false,
       },
     })
 
@@ -199,6 +200,7 @@ describe('transformChannelToFormDefaults', () => {
         multi_key_size: 0,
         multi_key_polling_index: 0,
         multi_key_mode: 'random',
+        disable_429_ban: false,
       },
     })
 
@@ -212,7 +214,9 @@ describe('transformChannelToFormDefaults', () => {
     const channelWithoutAutoBan = createMockChannel({ auto_ban: undefined })
 
     expect(transformChannelToFormDefaults(channelWithAutoBan).auto_ban).toBe(0)
-    expect(transformChannelToFormDefaults(channelWithoutAutoBan).auto_ban).toBe(1)
+    expect(transformChannelToFormDefaults(channelWithoutAutoBan).auto_ban).toBe(
+      1
+    )
   })
 
   it('should return correct id from channel data for tracking loaded state', () => {

@@ -74,6 +74,7 @@ type ChannelInfo struct {
 	MultiKeyPollingIndex     int                   `json:"multi_key_polling_index"`                // 多Key模式下轮询的key索引
 	MultiKeyMode             constant.MultiKeyMode `json:"multi_key_mode"`
 	BalanceEverNonZero       bool                  `json:"balance_ever_non_zero,omitempty"` // 是否曾经有过非0余额（用于余额为0自动禁用判定）
+	Disable429Ban            bool                  `json:"disable_429_ban,omitempty"`       // 是否禁用429自动限流；false=维持现状(限流+fallback)，true=跳过限流走正常重试
 }
 
 type ChannelSortOptions struct {
@@ -423,6 +424,12 @@ func (channel *Channel) GetAutoBan() bool {
 		return false
 	}
 	return *channel.AutoBan == 1
+}
+
+// GetDisable429Ban 返回是否禁用 429 自动限流。
+// true=跳过 429 自动限流与 fallback，走正常重试；false=维持现状（限流+fallback）。
+func (channel *Channel) GetDisable429Ban() bool {
+	return channel.ChannelInfo.Disable429Ban
 }
 
 func (channel *Channel) Save() error {

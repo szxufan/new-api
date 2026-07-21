@@ -31,6 +31,7 @@ export const channelInfoSchema = z.object({
   multi_key_rate_limited_until: z.record(z.string(), z.number()).optional(),
   multi_key_polling_index: z.number().default(0),
   multi_key_mode: z.enum(['random', 'polling']).default('random'),
+  disable_429_ban: z.boolean().default(false), // 是否禁用429自动限流；true=跳过限流走正常重试
 })
 
 export type ChannelInfo = z.infer<typeof channelInfoSchema>
@@ -71,6 +72,7 @@ export const channelSchema = z.object({
     multi_key_size: 0,
     multi_key_polling_index: 0,
     multi_key_mode: 'random',
+    disable_429_ban: false,
   }),
   settings: z.string().default('{}'), // other_settings JSON
 })

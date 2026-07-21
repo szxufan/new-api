@@ -675,6 +675,7 @@ type AddChannelRequest struct {
 	MultiKeyMode              constant.MultiKeyMode `json:"multi_key_mode"`
 	BatchAddSetKeyPrefix2Name bool                  `json:"batch_add_set_key_prefix_2_name"`
 	Channel                   *model.Channel        `json:"channel"`
+	Disable429Ban             *bool                 `json:"disable_429_ban"` // 是否禁用429自动限流；nil=不设置(默认false)，true/false=显式设置
 }
 
 func getVertexArrayKeys(keys string) ([]string, error) {
@@ -727,6 +728,10 @@ func AddChannel(c *gin.Context) {
 	}
 
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
+	// 应用请求体中显式提供的 disable_429_ban 设置
+	if addChannelRequest.Disable429Ban != nil {
+		addChannelRequest.Channel.ChannelInfo.Disable429Ban = *addChannelRequest.Disable429Ban
+	}
 	keys := make([]string, 0)
 	switch addChannelRequest.Mode {
 	case "multi_to_single":
@@ -1081,8 +1086,9 @@ func DeleteChannelBatch(c *gin.Context) {
 
 type PatchChannel struct {
 	model.Channel
-	MultiKeyMode *string `json:"multi_key_mode"`
-	KeyMode      *string `json:"key_mode"` // 多key模式下密钥覆盖或者追加
+	MultiKeyMode  *string `json:"multi_key_mode"`
+	KeyMode       *string `json:"key_mode"`        // 多key模式下密钥覆盖或者追加
+	Disable429Ban *bool   `json:"disable_429_ban"` // 是否禁用429自动限流；nil=不修改，true/false=显式设置
 }
 
 func UpdateChannel(c *gin.Context) {
@@ -1113,6 +1119,10 @@ func UpdateChannel(c *gin.Context) {
 
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
 	channel.ChannelInfo = originChannel.ChannelInfo
+	// 应用请求体中显式提供的 disable_429_ban 设置（nil 表示不修改，保留原值）
+	if channel.Disable429Ban != nil {
+		channel.ChannelInfo.Disable429Ban = *channel.Disable429Ban
+	}
 
 	// 手动设置非0余额时标记为"曾经有过非0余额"，用于余额为0自动禁用判定
 	if channel.Balance > 0 {

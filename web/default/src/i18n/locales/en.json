@@ -456,6 +456,8 @@
     "Auto-fill when one field exists and another is missing": "Auto-fill when one field exists and another is missing",
     "Auto-retry status codes": "Auto-retry status codes",
     "Automatically disable channel on repeated failures": "Automatically disable channel on repeated failures",
+    "Disable 429 Auto Ban": "Disable 429 Auto Ban",
+    "When enabled, 429 responses skip auto rate-limiting and fallback, and follow normal retry logic (requires 429 to be included in the global retry status codes).": "When enabled, 429 responses skip auto rate-limiting and fallback, and follow normal retry logic (requires 429 to be included in the global retry status codes).",
     "Automatically disable channels exceeding this response time": "Automatically disable channels exceeding this response time",
     "Automatically disable channels when tests fail": "Automatically disable channels when tests fail",
     "Automatically probe all channels in the background": "Automatically probe all channels in the background",

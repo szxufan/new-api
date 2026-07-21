@@ -2650,6 +2650,29 @@ export function ChannelMutateDrawer({
                           </FormItem>
                         )}
                       />
+
+                      <FormField
+                        control={form.control}
+                        name='disable_429_ban'
+                        render={({ field }) => (
+                          <FormItem className='flex items-center justify-between'>
+                            <div className='space-y-0.5'>
+                              <FormLabel>{t('Disable 429 Auto Ban')}</FormLabel>
+                              <FormDescription>
+                                {t(FIELD_DESCRIPTIONS.DISABLE_429_BAN)}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value === true}
+                                onCheckedChange={(checked) =>
+                                  field.onChange(checked)
+                                }
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
                     <div className='space-y-4 border-t pt-4'>

@@ -38,6 +38,7 @@ export const channelFormSchema = z.object({
   weight: z.number().optional(),
   test_model: z.string().optional(),
   auto_ban: z.number().optional(),
+  disable_429_ban: z.boolean().optional(), // 是否禁用429自动限流；true=跳过限流走正常重试
   status: z.number(),
   status_code_mapping: z.string().optional(),
   tag: z.string().optional(),
@@ -108,6 +109,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   weight: 0,
   test_model: '',
   auto_ban: 1,
+  disable_429_ban: false, // 默认关闭：维持现状（429限流+fallback）
   status: CHANNEL_STATUS.ENABLED,
   status_code_mapping: '',
   tag: '',
@@ -274,6 +276,7 @@ export function transformChannelToFormDefaults(
     weight: channel.weight || 0,
     test_model: channel.test_model || '',
     auto_ban: channel.auto_ban ?? 1,
+    disable_429_ban: channel.channel_info?.disable_429_ban ?? false,
     status: channel.status,
     status_code_mapping: channel.status_code_mapping || '',
     tag: channel.tag || '',
@@ -457,6 +460,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
   multi_key_mode?: 'random' | 'polling'
   batch_add_set_key_prefix_2_name?: boolean
   channel: Partial<Channel>
+  disable_429_ban?: boolean
 } {
   const mode = formData.multi_key_mode || 'single'
 
@@ -509,6 +513,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     batch_add_set_key_prefix_2_name:
       mode === 'batch' ? formData.batch_add_set_key_prefix_2_name : undefined,
     channel,
+    disable_429_ban: formData.disable_429_ban ?? false,
   }
 }
 
@@ -518,8 +523,8 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
 export function transformFormDataToUpdatePayload(
   formData: ChannelFormValues,
   channelId: number
-): Partial<Channel> {
-  const payload: Partial<Channel> = {
+): Partial<Channel> & { disable_429_ban?: boolean } {
+  const payload: Partial<Channel> & { disable_429_ban?: boolean } = {
     id: channelId,
     name: formData.name,
     type: formData.type,
@@ -579,6 +584,9 @@ export function transformFormDataToUpdatePayload(
   } else {
     payload.other_info = '{}'
   }
+
+  // 顶层 disable_429_ban 字段（与 channel 平级，由后端 PatchChannel 接收）
+  payload.disable_429_ban = formData.disable_429_ban ?? false
 
   return payload
 }

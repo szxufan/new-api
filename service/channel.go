@@ -116,6 +116,7 @@ func DisableChannelIfBalanceDepleted(channel *model.Channel, reason string) bool
 	DisableChannel(*types.NewChannelError(
 		channel.Id, channel.Type, channel.Name,
 		channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan(),
+		channel.GetDisable429Ban(),
 	), reason)
 	return true
 }

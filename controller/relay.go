@@ -120,6 +120,7 @@ func makeChannelError(channel *model.Channel, c *gin.Context) types.ChannelError
 		channel.ChannelInfo.IsMultiKey,
 		common.GetContextKeyString(c, constant.ContextKeyChannelKey),
 		channel.GetAutoBan(),
+		channel.GetDisable429Ban(),
 	)
 }
 
@@ -191,7 +192,7 @@ func tryChannelOnce(
 		}
 
 		// 429/自动禁用 → 立刻尝试 fallback 渠道
-		if isFallbackEligibleError(lastError) {
+		if isFallbackEligibleError(lastError, channel.GetDisable429Ban()) {
 			fbError := tryFallbackChannels(c, relayInfo, relayFormat, channel, perChannelAttempts, totalAttempts, maxAttempts, channel.Id, lastError)
 			if fbError == nil {
 				return nil
@@ -471,6 +472,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				c.GetInt("channel_id"), c.GetInt("channel_type"), c.GetString("channel_name"),
 				false, common.GetContextKeyString(c, constant.ContextKeyChannelKey),
 				autoBanInt == 1,
+				c.GetBool(string(constant.ContextKeyChannelDisable429Ban)),
 			), lastError)
 			newAPIError = lastError
 		}
@@ -499,7 +501,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					}
 
 					// 429/自动禁用 → 立刻尝试 fallback，fallback 全失败则退出亲和性锁定
-					if isFallbackEligibleError(lastError) {
+					if isFallbackEligibleError(lastError, affinityChannel.GetDisable429Ban()) {
 						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, affinityChannel.Id, lastError)
 						if fbError == nil {
 							relayInfo.LastError = nil
@@ -649,12 +651,13 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 // isFallbackEligibleError 判断错误是否适合走 Fallback 渠道重试
 // 429 限流和自动禁用（由 ShouldDisableChannel 判定）属于临时不可用，应优先走 Fallback
-func isFallbackEligibleError(apiErr *types.NewAPIError) bool {
+// disable429Ban=true 时，429 不触发 fallback，改为走正常重试
+func isFallbackEligibleError(apiErr *types.NewAPIError, disable429Ban bool) bool {
 	if apiErr == nil {
 		return false
 	}
 	// 429 限流
-	if apiErr.StatusCode == 429 {
+	if apiErr.StatusCode == 429 && !disable429Ban {
 		return true
 	}
 	// 自动禁用类错误（如 401、403 等）
@@ -670,7 +673,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 
 	// 429限流处理：优先于自动禁用
-	if err.StatusCode == 429 && operation_setting.RateLimit429Enabled && channelError.AutoBan {
+	// disable_429_ban=true 时跳过 429 自动限流，改为走正常重试
+	if err.StatusCode == 429 && operation_setting.RateLimit429Enabled && channelError.AutoBan && !channelError.Disable429Ban {
 		gopool.Go(func() {
 			service.RateLimitChannelKey429(channelError)
 		})
