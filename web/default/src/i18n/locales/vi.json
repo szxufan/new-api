@@ -2871,6 +2871,8 @@
     "Pass request body directly to upstream": "Truyền phần thân yêu cầu trực tiếp lên upstream",
     "Pass specified request headers to upstream": "Chuyển tiếp header yêu cầu chỉ định lên upstream",
     "Pass Through Body": "Xuyên qua cơ thể",
+    "Anti Cache Test": "Kiểm tra chống bộ nhớ đệm",
+    "Append current timestamp to test prompt to bypass upstream cache (test only, does not affect production requests)": "Thêm thời gian hiện tại vào prompt kiểm tra để tránh bộ nhớ đệm upstream (chỉ dùng cho kiểm tra, không ảnh hưởng yêu cầu sản xuất)",
     "Pass Through Headers": "Truyền header qua",
     "Pass through the anthropic-beta header for beta features": "Chuyển tiếp header anthropic-beta cho tính năng beta",
     "Pass through the include field for usage obfuscation": "Chuyển tiếp trường include cho che giấu sử dụng",

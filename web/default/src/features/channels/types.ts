@@ -91,6 +91,7 @@ export interface ChannelSettings {
   system_prompt?: string
   system_prompt_override?: boolean
   response_detection?: ResponseDetection
+  anti_cache_test?: boolean
 }
 
 export interface ResponseDetection {

@@ -2871,6 +2871,8 @@
     "Pass request body directly to upstream": "リクエストボディを直接アップストリームに渡す",
     "Pass specified request headers to upstream": "指定のリクエストヘッダーを上流に透過",
     "Pass Through Body": "ボディをパススルー",
+    "Anti Cache Test": "テストアンチキャッシュ",
+    "Append current timestamp to test prompt to bypass upstream cache (test only, does not affect production requests)": "上流キャッシュを回避するためテストプロンプトに現在のタイムスタンプを付加（テストのみ、本番リクエストには影響しません）",
     "Pass Through Headers": "ヘッダー透過",
     "Pass through the anthropic-beta header for beta features": "ベータ機能用に anthropic-beta ヘッダーをパススルー",
     "Pass through the include field for usage obfuscation": "使用量難読化用に include フィールドをパススルー",

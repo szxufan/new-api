@@ -63,6 +63,7 @@ export const channelFormSchema = z.object({
   pass_through_body_enabled: z.boolean().optional(),
   system_prompt: z.string().optional(),
   system_prompt_override: z.boolean().optional(),
+  anti_cache_test: z.boolean().optional(),
   // Response detection settings (stored in setting JSON)
   response_detection_enabled: z.boolean().optional(),
   response_detection_keywords: z.string().optional(), // comma-separated
@@ -131,6 +132,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
+  anti_cache_test: false,
   // Response detection settings
   response_detection_enabled: false,
   response_detection_keywords: '',
@@ -174,6 +176,7 @@ export function transformChannelToFormDefaults(
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    anti_cache_test: false,
     response_detection_enabled: false,
     response_detection_keywords: '',
     response_detection_max_retries: 0,
@@ -191,6 +194,7 @@ export function transformChannelToFormDefaults(
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
+        anti_cache_test: parsed.anti_cache_test || false,
         response_detection_enabled: parsed.response_detection?.enabled || false,
         response_detection_keywords: Array.isArray(
           parsed.response_detection?.keywords
@@ -327,6 +331,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+    anti_cache_test: formData.anti_cache_test || false,
   }
 
   // Only include response_detection if enabled

@@ -2873,6 +2873,8 @@
     "Pass request body directly to upstream": "Pass request body directly to upstream",
     "Pass specified request headers to upstream": "Pass specified request headers to upstream",
     "Pass Through Body": "Pass Through Body",
+    "Anti Cache Test": "Anti Cache Test",
+    "Append current timestamp to test prompt to bypass upstream cache (test only, does not affect production requests)": "Append current timestamp to test prompt to bypass upstream cache (test only, does not affect production requests)",
     "Pass Through Headers": "Pass Through Headers",
     "Pass through the anthropic-beta header for beta features": "Pass through the anthropic-beta header for beta features",
     "Pass through the include field for usage obfuscation": "Pass through the include field for usage obfuscation",

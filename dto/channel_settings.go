@@ -1,13 +1,14 @@
 package dto
 
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat            bool               `json:"force_format,omitempty"`
+	ThinkingToContent      bool               `json:"thinking_to_content,omitempty"`
+	Proxy                  string             `json:"proxy"`
+	PassThroughBodyEnabled bool               `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string             `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool               `json:"system_prompt_override,omitempty"`
 	ResponseDetection      *ResponseDetection `json:"response_detection,omitempty"`
+	AntiCacheTest          bool               `json:"anti_cache_test,omitempty"` // 渠道测试时在提示词附加当前时间，防止上游缓存命中
 }
 
 // ResponseDetection 响应内容检测配置，检测到关键词后可自动重试

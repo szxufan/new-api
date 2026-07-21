@@ -241,6 +241,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 	}
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	// 渠道测试防缓存：开启后在文本类提示词追加当前时间，绕过上游缓存
+	request = applyAntiCache(request, channel.GetSetting().AntiCacheTest)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -806,6 +808,62 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 		return "upstream returned error payload"
 	}
 	return message
+}
+
+// antiCacheSuffix 返回用于防止缓存命中的当前时间后缀。
+// 格式： "[2026-07-21 14:30:05.123 +08:00]"（本地时区，毫秒精度）。
+func antiCacheSuffix() string {
+	return "[" + time.Now().Format("2006-01-02 15:04:05.000 -07:00") + "]"
+}
+
+// applyAntiCache 为文本类测试请求注入时间后缀，防止上游缓存命中导致无法诊断可用性。
+// 仅处理 chat / responses 类请求；embedding/rerank/image/compaction 返回原请求不变。
+// 该函数仅在渠道测试路径调用，不影响正式业务请求。
+func applyAntiCache(req dto.Request, enabled bool) dto.Request {
+	if !enabled {
+		return req
+	}
+	suffix := antiCacheSuffix()
+
+	switch r := req.(type) {
+	case *dto.GeneralOpenAIRequest:
+		// chat / openai / anthropic / gemini
+		if len(r.Messages) > 0 {
+			// 只改写最后一条 user 消息，避免改动 system 消息
+			for i := len(r.Messages) - 1; i >= 0; i-- {
+				if r.Messages[i].Role != "user" {
+					continue
+				}
+				// 仅处理字符串型 content；数组型 content 不注入（避免破坏多模态结构）
+				if content, ok := r.Messages[i].Content.(string); ok {
+					r.Messages[i].Content = content + " " + suffix
+				}
+				break
+			}
+		}
+		return r
+	case *dto.OpenAIResponsesRequest:
+		// OpenAI Responses (/v1/responses)，Input 是 json.RawMessage
+		// 解析后改写最后一条 user content，再序列化回去
+		if len(r.Input) > 0 {
+			var msgs []map[string]interface{}
+			if err := json.Unmarshal(r.Input, &msgs); err == nil {
+				for i := len(msgs) - 1; i >= 0; i-- {
+					if role, _ := msgs[i]["role"].(string); role == "user" {
+						if content, _ := msgs[i]["content"].(string); content != "" {
+							msgs[i]["content"] = content + " " + suffix
+							break
+						}
+					}
+				}
+				if b, err := json.Marshal(msgs); err == nil {
+					r.Input = json.RawMessage(b)
+				}
+			}
+		}
+		return r
+	}
+	return req
 }
 
 func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {

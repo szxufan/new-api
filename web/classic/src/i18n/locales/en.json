@@ -3414,6 +3414,8 @@
     "选择预设...": "Select preset...",
     "选择预设模板（可选）": "Select Preset Template (optional)",
     "透传请求体": "Pass through body",
+    "测试防缓存": "Anti-cache test",
+    "渠道测试时在提示词追加当前时间，绕过上游缓存（仅影响测试，不影响正式请求）": "Append current timestamp to test prompt to bypass upstream cache (test only, does not affect production requests)",
     "透传请求头": "",
     "递归": "Recursive",
     "递归策略": "Recursion Strategy",
