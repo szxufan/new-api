@@ -47,6 +47,9 @@ check_deps() {
         command -v go >/dev/null 2>&1 || missing+=("go")
     fi
     if [ "$SKIP_FRONTEND" = "false" ]; then
+        # 先将 bun 默认安装目录加入 PATH，避免已安装但未配置 PATH 时误判
+        export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+        export PATH="$BUN_INSTALL/bin:$PATH"
         if ! command -v bun >/dev/null 2>&1; then
             install_bun
         fi
