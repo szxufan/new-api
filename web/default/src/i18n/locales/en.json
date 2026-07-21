@@ -2753,7 +2753,7 @@
     "Ollama": "Ollama",
     "Ollama Models": "Ollama Models",
     "On Hit Action": "On Hit Action",
-    "Allow Empty Response": "Allow Empty Response",
+    "Treat Empty as Hit": "Treat Empty as Hit",
     "Treat empty response (no content and no tool calls) as detection hit": "Treat empty response (no content and no tool calls) as detection hit",
     "One API": "One API",
     "One domain per line": "One domain per line",

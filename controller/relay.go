@@ -260,7 +260,7 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 }
 
 // detectionHitMessage 根据命中关键词生成检测命中的描述片段
-// keywords 为 nil 表示空回复命中（AllowEmpty 场景）
+// keywords 为 nil 表示空回复命中（TreatEmptyAsHit 场景）
 func detectionHitMessage(keywords []string) string {
 	if keywords == nil {
 		return "empty response"

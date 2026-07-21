@@ -68,15 +68,15 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:         "AllowEmpty + empty text + no tool calls → hit",
+			name:         "TreatEmptyAsHit + empty text + no tool calls → hit",
 			text:         "",
 			hasToolCalls: false,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{
 						ResponseDetection: &dto.ResponseDetection{
-							Enabled:    true,
-							AllowEmpty: true,
+							Enabled:         true,
+							TreatEmptyAsHit: true,
 						},
 					},
 				},
@@ -84,15 +84,15 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:         "AllowEmpty + empty text + has tool calls → no hit",
+			name:         "TreatEmptyAsHit + empty text + has tool calls → no hit",
 			text:         "",
 			hasToolCalls: true,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{
 						ResponseDetection: &dto.ResponseDetection{
-							Enabled:    true,
-							AllowEmpty: true,
+							Enabled:         true,
+							TreatEmptyAsHit: true,
 						},
 					},
 				},
@@ -100,15 +100,15 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:         "AllowEmpty=false + empty text → no hit (backward compatibility)",
+			name:         "TreatEmptyAsHit=false + empty text → no hit (backward compatibility)",
 			text:         "",
 			hasToolCalls: false,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{
 						ResponseDetection: &dto.ResponseDetection{
-							Enabled:    true,
-							AllowEmpty: false,
+							Enabled:         true,
+							TreatEmptyAsHit: false,
 						},
 					},
 				},
@@ -331,7 +331,7 @@ func TestStreamDetectionWrapper_HitDoesNotStop(t *testing.T) {
 		t.Errorf("expected 3 calls, got %d - detection hit should not stop forwarding", callCount)
 	}
 
-	// finalizer 应存在（AllowEmpty=false 但有 keywords）
+	// finalizer 应存在（TreatEmptyAsHit=false 但有 keywords）
 	if finalizer == nil {
 		t.Error("finalizer should not be nil when detection enabled with keywords")
 	}
@@ -420,14 +420,14 @@ func TestExtractFullTextFromResponse(t *testing.T) {
 }
 
 // TestStreamDetectionWrapper_EmptyResponseHit 验证流式空回复命中：
-// AllowEmpty=true 且无内容 chunk 且无工具调用 → finalizer 调用后 DetectionHit=true
+// TreatEmptyAsHit=true 且无内容 chunk 且无工具调用 → finalizer 调用后 DetectionHit=true
 func TestStreamDetectionWrapper_EmptyResponseHit(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelSetting: dto.ChannelSettings{
 				ResponseDetection: &dto.ResponseDetection{
-					Enabled:    true,
-					AllowEmpty: true,
+					Enabled:         true,
+					TreatEmptyAsHit: true,
 				},
 			},
 		},
@@ -438,7 +438,7 @@ func TestStreamDetectionWrapper_EmptyResponseHit(t *testing.T) {
 	}
 	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	if finalizer == nil {
-		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+		t.Fatal("finalizer should not be nil when TreatEmptyAsHit=true")
 	}
 	sr := newStreamResult(nil)
 
@@ -454,7 +454,7 @@ func TestStreamDetectionWrapper_EmptyResponseHit(t *testing.T) {
 	// 流结束：调用 finalizer，应触发空回复命中
 	finalizer()
 	if !info.DetectionHit {
-		t.Error("DetectionHit should be true after finalizer for empty response with AllowEmpty")
+		t.Error("DetectionHit should be true after finalizer for empty response with TreatEmptyAsHit")
 	}
 	if info.DetectionHitKeywords != nil {
 		t.Errorf("DetectionHitKeywords should be nil for empty response hit, got %v", info.DetectionHitKeywords)
@@ -467,8 +467,8 @@ func TestStreamDetectionWrapper_EmptyResponseWithToolCallsNoHit(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelSetting: dto.ChannelSettings{
 				ResponseDetection: &dto.ResponseDetection{
-					Enabled:    true,
-					AllowEmpty: true,
+					Enabled:         true,
+					TreatEmptyAsHit: true,
 				},
 			},
 		},
@@ -476,7 +476,7 @@ func TestStreamDetectionWrapper_EmptyResponseWithToolCallsNoHit(t *testing.T) {
 	original := func(data string, sr *StreamResult) {}
 	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	if finalizer == nil {
-		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+		t.Fatal("finalizer should not be nil when TreatEmptyAsHit=true")
 	}
 	sr := newStreamResult(nil)
 
@@ -496,8 +496,8 @@ func TestStreamDetectionWrapper_NonEmptyResponseNoHit(t *testing.T) {
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelSetting: dto.ChannelSettings{
 				ResponseDetection: &dto.ResponseDetection{
-					Enabled:    true,
-					AllowEmpty: true,
+					Enabled:         true,
+					TreatEmptyAsHit: true,
 				},
 			},
 		},
@@ -505,7 +505,7 @@ func TestStreamDetectionWrapper_NonEmptyResponseNoHit(t *testing.T) {
 	original := func(data string, sr *StreamResult) {}
 	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	if finalizer == nil {
-		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+		t.Fatal("finalizer should not be nil when TreatEmptyAsHit=true")
 	}
 	sr := newStreamResult(nil)
 
@@ -519,15 +519,15 @@ func TestStreamDetectionWrapper_NonEmptyResponseNoHit(t *testing.T) {
 	}
 }
 
-// TestStreamDetectionWrapper_AllowEmptyFalseNoFinalizer 验证未开启 AllowEmpty 时
+// TestStreamDetectionWrapper_TreatEmptyAsHitFalseNoFinalizer 验证未开启 TreatEmptyAsHit 时
 // 若无关键词，finalizer 为 nil（无需包装）
-func TestStreamDetectionWrapper_AllowEmptyFalseNoFinalizer(t *testing.T) {
+func TestStreamDetectionWrapper_TreatEmptyAsHitFalseNoFinalizer(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelSetting: dto.ChannelSettings{
 				ResponseDetection: &dto.ResponseDetection{
-					Enabled:    true,
-					AllowEmpty: false,
+					Enabled:         true,
+					TreatEmptyAsHit: false,
 				},
 			},
 		},
@@ -535,23 +535,23 @@ func TestStreamDetectionWrapper_AllowEmptyFalseNoFinalizer(t *testing.T) {
 	original := func(data string, sr *StreamResult) {}
 	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	if finalizer != nil {
-		t.Error("finalizer should be nil when AllowEmpty=false and no keywords")
+		t.Error("finalizer should be nil when TreatEmptyAsHit=false and no keywords")
 	}
 	if wrapped == nil {
 		t.Error("wrapped handler should not be nil")
 	}
 }
 
-// TestStreamDetectionWrapper_AllowEmptyWithKeywordsEmptyHit 验证 AllowEmpty + 关键词场景下
+// TestStreamDetectionWrapper_TreatEmptyAsHitWithKeywordsEmptyHit 验证 TreatEmptyAsHit + 关键词场景下
 // 空文本先于关键词命中（finalizer 触发空回复命中）
-func TestStreamDetectionWrapper_AllowEmptyWithKeywordsEmptyHit(t *testing.T) {
+func TestStreamDetectionWrapper_TreatEmptyAsHitWithKeywordsEmptyHit(t *testing.T) {
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelSetting: dto.ChannelSettings{
 				ResponseDetection: &dto.ResponseDetection{
-					Enabled:    true,
-					Keywords:   []string{"cannot"},
-					AllowEmpty: true,
+					Enabled:         true,
+					Keywords:        []string{"cannot"},
+					TreatEmptyAsHit: true,
 				},
 			},
 		},
@@ -559,7 +559,7 @@ func TestStreamDetectionWrapper_AllowEmptyWithKeywordsEmptyHit(t *testing.T) {
 	original := func(data string, sr *StreamResult) {}
 	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	if finalizer == nil {
-		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+		t.Fatal("finalizer should not be nil when TreatEmptyAsHit=true")
 	}
 	sr := newStreamResult(nil)
 

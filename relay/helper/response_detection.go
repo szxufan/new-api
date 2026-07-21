@@ -50,9 +50,9 @@ func IsDetectionHitError(err *types.NewAPIError) bool {
 //
 // 返回值：
 //   - handler: 包装后的 dataHandler，需在流式 data 循环中调用
-//   - finalizer: 流结束（dataChan 关闭）后调用，用于判定空回复命中（AllowEmpty 场景）
+//   - finalizer: 流结束（dataChan 关闭）后调用，用于判定空回复命中（TreatEmptyAsHit 场景）
 //
-// 当检测配置不存在、未启用、且未开启 AllowEmpty 时，finalizer 为 nil 调用方应跳过。
+// 当检测配置不存在、未启用、且未开启 TreatEmptyAsHit 时，finalizer 为 nil 调用方应跳过。
 func StreamDetectionWrapper(
 	originalHandler func(data string, sr *StreamResult),
 	info *common.RelayInfo,
@@ -61,12 +61,12 @@ func StreamDetectionWrapper(
 		return originalHandler, nil
 	}
 	detection := info.ChannelMeta.ChannelSetting.ResponseDetection
-	// 仅当检测启用时才需要包装；AllowEmpty 场景下即使无关键词也需要包装以追踪工具调用与累积文本
+	// 仅当检测启用时才需要包装；TreatEmptyAsHit 场景下即使无关键词也需要包装以追踪工具调用与累积文本
 	if detection == nil || !detection.Enabled {
 		return originalHandler, nil
 	}
-	// 无关键词且未开启 AllowEmpty，无需检测
-	if len(detection.Keywords) == 0 && !detection.AllowEmpty {
+	// 无关键词且未开启 TreatEmptyAsHit，无需检测
+	if len(detection.Keywords) == 0 && !detection.TreatEmptyAsHit {
 		return originalHandler, nil
 	}
 
@@ -104,11 +104,11 @@ func StreamDetectionWrapper(
 	}
 
 	finalizer := func() {
-		// 流结束时空回复命中判定：仅当 AllowEmpty 且尚未命中且累积文本 trim 后为空且无工具调用
+		// 流结束时空回复命中判定：仅当 TreatEmptyAsHit 且尚未命中且累积文本 trim 后为空且无工具调用
 		if info.DetectionHit {
 			return
 		}
-		if !detection.AllowEmpty {
+		if !detection.TreatEmptyAsHit {
 			return
 		}
 		if toolCallSeen {

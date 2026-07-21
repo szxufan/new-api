@@ -2751,7 +2751,7 @@
     "Ollama": "Ollama",
     "Ollama Models": "Mô hình Ollama",
     "On Hit Action": "Hành động khi phát hiện",
-    "Allow Empty Response": "Cho phép phản hồi trống",
+    "Treat Empty as Hit": "Phản hồi trống tính như trúng",
     "Treat empty response (no content and no tool calls) as detection hit": "Xem phản hồi trống (không có nội dung và không có lệnh gọi công cụ) là trúng quy tắc phát hiện",
     "One API": "Một API",
     "One domain per line": "Một tên miền mỗi dòng",

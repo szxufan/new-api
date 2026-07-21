@@ -8,11 +8,11 @@ import (
 
 func TestCheckResponseDetection(t *testing.T) {
 	tests := []struct {
-		name       string
-		text       string
-		detection  *dto.ResponseDetection
-		wantHit    bool
-		wantWords  []string
+		name      string
+		text      string
+		detection *dto.ResponseDetection
+		wantHit   bool
+		wantWords []string
 	}{
 		{
 			name:      "nil detection",
@@ -157,114 +157,114 @@ func TestCheckResponseDetection(t *testing.T) {
 	}
 }
 
-// TestCheckResponseDetectionWithEmpty 覆盖空回复命中（AllowEmpty）场景
+// TestCheckResponseDetectionWithEmpty 覆盖空回复命中（TreatEmptyAsHit）场景
 func TestCheckResponseDetectionWithEmpty(t *testing.T) {
 	tests := []struct {
-		name        string
-		text        string
+		name         string
+		text         string
 		hasToolCalls bool
-		detection   *dto.ResponseDetection
-		wantHit     bool
-		wantWords   []string
+		detection    *dto.ResponseDetection
+		wantHit      bool
+		wantWords    []string
 	}{
 		{
-			name:         "AllowEmpty + empty text + no tool calls → hit (nil keywords)",
+			name:         "TreatEmptyAsHit + empty text + no tool calls → hit (nil keywords)",
 			text:         "",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: true,
+				Enabled:         true,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   true,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty + whitespace-only text + no tool calls → hit",
+			name:         "TreatEmptyAsHit + whitespace-only text + no tool calls → hit",
 			text:         "   \n\t  ",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: true,
+				Enabled:         true,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   true,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty + empty text + has tool calls → no hit (tool calls is valid response)",
+			name:         "TreatEmptyAsHit + empty text + has tool calls → no hit (tool calls is valid response)",
 			text:         "",
 			hasToolCalls: true,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: true,
+				Enabled:         true,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   false,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty + non-empty text + no keywords → no hit (keyword detection unchanged)",
+			name:         "TreatEmptyAsHit + non-empty text + no keywords → no hit (keyword detection unchanged)",
 			text:         "The answer is 42",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: true,
+				Enabled:         true,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   false,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty=false (default) + empty text → no hit (backward compatibility)",
+			name:         "TreatEmptyAsHit=false (default) + empty text → no hit (backward compatibility)",
 			text:         "",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: false,
+				Enabled:         true,
+				TreatEmptyAsHit: false,
 			},
 			wantHit:   false,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty + non-empty text + keyword hit → hit keywords (non-nil)",
+			name:         "TreatEmptyAsHit + non-empty text + keyword hit → hit keywords (non-nil)",
 			text:         "I cannot help",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				Keywords:   []string{"cannot"},
-				AllowEmpty: true,
+				Enabled:         true,
+				Keywords:        []string{"cannot"},
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   true,
 			wantWords: []string{"cannot"},
 		},
 		{
-			name:         "AllowEmpty + empty text + keyword present → hit empty (nil) takes precedence",
+			name:         "TreatEmptyAsHit + empty text + keyword present → hit empty (nil) takes precedence",
 			text:         "",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				Keywords:   []string{"cannot"},
-				AllowEmpty: true,
+				Enabled:         true,
+				Keywords:        []string{"cannot"},
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   true,
 			wantWords: nil,
 		},
 		{
-			name:         "AllowEmpty + non-empty text + keyword present + has tool calls → keyword detection still runs",
+			name:         "TreatEmptyAsHit + non-empty text + keyword present + has tool calls → keyword detection still runs",
 			text:         "I cannot help",
 			hasToolCalls: true,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				Keywords:   []string{"cannot"},
-				AllowEmpty: true,
+				Enabled:         true,
+				Keywords:        []string{"cannot"},
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   true,
 			wantWords: []string{"cannot"},
 		},
 		{
-			name:         "disabled + AllowEmpty + empty text → no hit (Enabled=false short-circuits)",
+			name:         "disabled + TreatEmptyAsHit + empty text → no hit (Enabled=false short-circuits)",
 			text:         "",
 			hasToolCalls: false,
 			detection: &dto.ResponseDetection{
-				Enabled:    false,
-				AllowEmpty: true,
+				Enabled:         false,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   false,
 			wantWords: nil,
@@ -273,17 +273,17 @@ func TestCheckResponseDetectionWithEmpty(t *testing.T) {
 			name:         "nil detection → no hit",
 			text:         "",
 			hasToolCalls: false,
-			detection:   nil,
-			wantHit:     false,
-			wantWords:   nil,
+			detection:    nil,
+			wantHit:      false,
+			wantWords:    nil,
 		},
 		{
-			name:         "AllowEmpty + whitespace text + has tool calls → no hit",
+			name:         "TreatEmptyAsHit + whitespace text + has tool calls → no hit",
 			text:         "   ",
 			hasToolCalls: true,
 			detection: &dto.ResponseDetection{
-				Enabled:    true,
-				AllowEmpty: true,
+				Enabled:         true,
+				TreatEmptyAsHit: true,
 			},
 			wantHit:   false,
 			wantWords: nil,

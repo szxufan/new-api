@@ -185,7 +185,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// 包装 dataHandler 以插入响应内容检测逻辑
 	// StreamDetectionWrapper 返回 wrappedHandler 与 finalizer：
 	//   - wrappedHandler: 每个 chunk 调用，做关键词检测与工具调用/文本累积
-	//   - finalizer: 流正常结束后调用，判定空回复命中（AllowEmpty 场景）；可能为 nil
+	//   - finalizer: 流正常结束后调用，判定空回复命中（TreatEmptyAsHit 场景）；可能为 nil
 	wrappedHandler, detectionFinalizer := StreamDetectionWrapper(dataHandler, info)
 
 	wg.Add(1)

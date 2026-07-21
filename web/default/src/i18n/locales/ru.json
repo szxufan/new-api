@@ -2751,7 +2751,7 @@
     "Ollama": "Ollama",
     "Ollama Models": "Ollama Модели",
     "On Hit Action": "Действие при обнаружении",
-    "Allow Empty Response": "Разрешить пустой ответ",
+    "Treat Empty as Hit": "Считать пустой ответ попаданием",
     "Treat empty response (no content and no tool calls) as detection hit": "Считать пустой ответ (без содержимого и без вызова инструментов) попаданием detection",
     "One API": "Один API",
     "One domain per line": "Один домен на строку",

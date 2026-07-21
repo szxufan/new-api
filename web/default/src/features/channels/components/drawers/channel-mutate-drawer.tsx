@@ -3494,12 +3494,12 @@ export function ChannelMutateDrawer({
 
                             <FormField
                               control={form.control}
-                              name='response_detection_allow_empty'
+                              name='response_detection_treat_empty_as_hit'
                               render={({ field }) => (
                                 <FormItem className='flex items-center justify-between px-4 py-3'>
                                   <div className='space-y-0.5'>
                                     <FormLabel>
-                                      {t('Allow Empty Response')}
+                                      {t('Treat Empty as Hit')}
                                     </FormLabel>
                                     <FormDescription>
                                       {t(

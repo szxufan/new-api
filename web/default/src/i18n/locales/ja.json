@@ -2751,7 +2751,7 @@
     "Ollama": "Ollama",
     "Ollama Models": "Ollamaモデル",
     "On Hit Action": "ヒット時のアクション",
-    "Allow Empty Response": "空の返信を許可",
+    "Treat Empty as Hit": "空の返信をヒット扱い",
     "Treat empty response (no content and no tool calls) as detection hit": "空の返信（コンテンツなし・ツール呼び出しなし）を検出ヒットと見なす",
     "One API": "1つのAPI",
     "One domain per line": "1行に1つのドメイン",
