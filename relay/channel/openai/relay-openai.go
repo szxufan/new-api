@@ -298,7 +298,15 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	// 响应内容检测：检测命中关键词时返回错误触发重试
 	fullText := helper.ExtractFullTextFromResponse(info, responseBody)
-	if detectionErr := helper.CheckNonStreamResponse(fullText, info); detectionErr != nil {
+	// 检测响应中是否包含工具调用（有工具调用时不视为空回复）
+	hasToolCalls := false
+	for _, choice := range simpleResponse.Choices {
+		if len(choice.Message.ToolCalls) > 0 {
+			hasToolCalls = true
+			break
+		}
+	}
+	if detectionErr := helper.CheckNonStreamResponse(fullText, hasToolCalls, info); detectionErr != nil {
 		return nil, detectionErr
 	}
 

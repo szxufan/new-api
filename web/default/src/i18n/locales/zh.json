@@ -2753,6 +2753,8 @@
     "Ollama": "Ollama",
     "Ollama Models": "Ollama 模型",
     "On Hit Action": "命中后行为",
+    "Allow Empty Response": "允许空回复",
+    "Treat empty response (no content and no tool calls) as detection hit": "将空回复（无内容且无工具调用）视为检测命中",
     "One API": "One API",
     "One domain per line": "每行一个域名",
     "One domain per line (only used when domain restriction is enabled)": "每行一个域名 (仅在启用域名限制时使用)",

@@ -2751,6 +2751,8 @@
     "Ollama": "Ollama",
     "Ollama Models": "Modèles Ollama",
     "On Hit Action": "Action en cas de détection",
+    "Allow Empty Response": "Autoriser les réponses vides",
+    "Treat empty response (no content and no tool calls) as detection hit": "Considérer une réponse vide (sans contenu et sans appel d'outil) comme une détection",
     "One API": "One API",
     "One domain per line": "Un domaine par ligne",
     "One domain per line (only used when domain restriction is enabled)": "Un domaine par ligne (utilisé uniquement lorsque la restriction de domaine est activée)",

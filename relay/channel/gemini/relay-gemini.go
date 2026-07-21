@@ -1573,7 +1573,20 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 	// 响应内容检测：检测命中关键词时返回错误触发重试
 	fullText := helper.ExtractFullTextFromResponse(info, responseBody)
-	if detectionErr := helper.CheckNonStreamResponse(fullText, info); detectionErr != nil {
+	// 检测响应中是否包含工具调用（Gemini 的 functionCall，有工具调用时不视为空回复）
+	hasToolCalls := false
+	for _, candidate := range geminiResponse.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.FunctionCall != nil {
+				hasToolCalls = true
+				break
+			}
+		}
+		if hasToolCalls {
+			break
+		}
+	}
+	if detectionErr := helper.CheckNonStreamResponse(fullText, hasToolCalls, info); detectionErr != nil {
 		return nil, detectionErr
 	}
 

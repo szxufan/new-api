@@ -98,6 +98,7 @@ export interface ResponseDetection {
   keywords?: string[]
   max_retries?: number
   on_hit?: 'retry' | 'abort'
+  allow_empty?: boolean
 }
 
 export interface ChannelOtherSettings {

@@ -12,10 +12,11 @@ type ChannelSettings struct {
 
 // ResponseDetection 响应内容检测配置，检测到关键词后可自动重试
 type ResponseDetection struct {
-	Enabled    bool     `json:"enabled,omitempty"`      // 是否启用响应内容检测
-	Keywords   []string `json:"keywords,omitempty"`     // 检测关键词列表（不区分大小写）
-	MaxRetries int      `json:"max_retries,omitempty"`  // 检测命中后最大重试次数（0=使用全局重试次数）
-	OnHit      string   `json:"on_hit,omitempty"`       // 命中后行为: "retry"(默认) | "abort"
+	Enabled     bool     `json:"enabled,omitempty"`      // 是否启用响应内容检测
+	Keywords    []string `json:"keywords,omitempty"`     // 检测关键词列表（不区分大小写）
+	MaxRetries  int      `json:"max_retries,omitempty"`  // 检测命中后最大重试次数（0=使用全局重试次数）
+	OnHit       string   `json:"on_hit,omitempty"`       // 命中后行为: "retry"(默认) | "abort"
+	AllowEmpty  bool     `json:"allow_empty,omitempty"`  // 是否允许空回复（trim 后内容为空且无工具调用）命中检测规则
 }
 
 type VertexKeyType string

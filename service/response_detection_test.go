@@ -135,6 +135,7 @@ func TestCheckResponseDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// CheckResponseDetection 是兼容包装（hasToolCalls=false），不感知空回复命中
 			hit, words := CheckResponseDetection(tt.text, tt.detection)
 			if hit != tt.wantHit {
 				t.Errorf("CheckResponseDetection() hit = %v, want %v", hit, tt.wantHit)
@@ -151,6 +152,169 @@ func TestCheckResponseDetection(t *testing.T) {
 				}
 			} else if words != nil {
 				t.Errorf("CheckResponseDetection() words = %v, want nil", words)
+			}
+		})
+	}
+}
+
+// TestCheckResponseDetectionWithEmpty 覆盖空回复命中（AllowEmpty）场景
+func TestCheckResponseDetectionWithEmpty(t *testing.T) {
+	tests := []struct {
+		name        string
+		text        string
+		hasToolCalls bool
+		detection   *dto.ResponseDetection
+		wantHit     bool
+		wantWords   []string
+	}{
+		{
+			name:         "AllowEmpty + empty text + no tool calls → hit (nil keywords)",
+			text:         "",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: true,
+			},
+			wantHit:   true,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty + whitespace-only text + no tool calls → hit",
+			text:         "   \n\t  ",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: true,
+			},
+			wantHit:   true,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty + empty text + has tool calls → no hit (tool calls is valid response)",
+			text:         "",
+			hasToolCalls: true,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: true,
+			},
+			wantHit:   false,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty + non-empty text + no keywords → no hit (keyword detection unchanged)",
+			text:         "The answer is 42",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: true,
+			},
+			wantHit:   false,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty=false (default) + empty text → no hit (backward compatibility)",
+			text:         "",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: false,
+			},
+			wantHit:   false,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty + non-empty text + keyword hit → hit keywords (non-nil)",
+			text:         "I cannot help",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				Keywords:   []string{"cannot"},
+				AllowEmpty: true,
+			},
+			wantHit:   true,
+			wantWords: []string{"cannot"},
+		},
+		{
+			name:         "AllowEmpty + empty text + keyword present → hit empty (nil) takes precedence",
+			text:         "",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				Keywords:   []string{"cannot"},
+				AllowEmpty: true,
+			},
+			wantHit:   true,
+			wantWords: nil,
+		},
+		{
+			name:         "AllowEmpty + non-empty text + keyword present + has tool calls → keyword detection still runs",
+			text:         "I cannot help",
+			hasToolCalls: true,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				Keywords:   []string{"cannot"},
+				AllowEmpty: true,
+			},
+			wantHit:   true,
+			wantWords: []string{"cannot"},
+		},
+		{
+			name:         "disabled + AllowEmpty + empty text → no hit (Enabled=false short-circuits)",
+			text:         "",
+			hasToolCalls: false,
+			detection: &dto.ResponseDetection{
+				Enabled:    false,
+				AllowEmpty: true,
+			},
+			wantHit:   false,
+			wantWords: nil,
+		},
+		{
+			name:         "nil detection → no hit",
+			text:         "",
+			hasToolCalls: false,
+			detection:   nil,
+			wantHit:     false,
+			wantWords:   nil,
+		},
+		{
+			name:         "AllowEmpty + whitespace text + has tool calls → no hit",
+			text:         "   ",
+			hasToolCalls: true,
+			detection: &dto.ResponseDetection{
+				Enabled:    true,
+				AllowEmpty: true,
+			},
+			wantHit:   false,
+			wantWords: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hit, words := CheckResponseDetectionWithEmpty(tt.text, tt.hasToolCalls, tt.detection)
+			if hit != tt.wantHit {
+				t.Errorf("CheckResponseDetectionWithEmpty() hit = %v, want %v", hit, tt.wantHit)
+			}
+			if tt.wantHit {
+				if tt.wantWords == nil {
+					// 空回复命中场景：keywords 应为 nil
+					if words != nil {
+						t.Errorf("CheckResponseDetectionWithEmpty() words = %v, want nil", words)
+					}
+				} else {
+					if len(words) != len(tt.wantWords) {
+						t.Errorf("CheckResponseDetectionWithEmpty() words = %v, want %v", words, tt.wantWords)
+						return
+					}
+					for i, w := range words {
+						if w != tt.wantWords[i] {
+							t.Errorf("CheckResponseDetectionWithEmpty() words[%d] = %v, want %v", i, w, tt.wantWords[i])
+						}
+					}
+				}
+			} else if words != nil {
+				t.Errorf("CheckResponseDetectionWithEmpty() words = %v, want nil", words)
 			}
 		})
 	}

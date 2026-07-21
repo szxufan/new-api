@@ -11,14 +11,16 @@ import (
 
 func TestCheckNonStreamResponse(t *testing.T) {
 	tests := []struct {
-		name      string
-		text      string
-		info      *relaycommon.RelayInfo
-		wantErr   bool
+		name         string
+		text         string
+		hasToolCalls bool
+		info         *relaycommon.RelayInfo
+		wantErr      bool
 	}{
 		{
-			name: "no detection config",
-			text: "I cannot help",
+			name:         "no detection config",
+			text:         "I cannot help",
+			hasToolCalls: false,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{},
@@ -27,14 +29,16 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "nil channel meta",
-			text: "I cannot help",
-			info: &relaycommon.RelayInfo{},
-			wantErr: false,
+			name:         "nil channel meta",
+			text:         "I cannot help",
+			hasToolCalls: false,
+			info:         &relaycommon.RelayInfo{},
+			wantErr:      false,
 		},
 		{
-			name: "detection hit",
-			text: "I cannot help with that",
+			name:         "detection hit",
+			text:         "I cannot help with that",
+			hasToolCalls: false,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{
@@ -48,8 +52,9 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "detection no hit",
-			text: "The answer is 42",
+			name:         "detection no hit",
+			text:         "The answer is 42",
+			hasToolCalls: false,
 			info: &relaycommon.RelayInfo{
 				ChannelMeta: &relaycommon.ChannelMeta{
 					ChannelSetting: dto.ChannelSettings{
@@ -62,11 +67,59 @@ func TestCheckNonStreamResponse(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:         "AllowEmpty + empty text + no tool calls → hit",
+			text:         "",
+			hasToolCalls: false,
+			info: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelSetting: dto.ChannelSettings{
+						ResponseDetection: &dto.ResponseDetection{
+							Enabled:    true,
+							AllowEmpty: true,
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name:         "AllowEmpty + empty text + has tool calls → no hit",
+			text:         "",
+			hasToolCalls: true,
+			info: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelSetting: dto.ChannelSettings{
+						ResponseDetection: &dto.ResponseDetection{
+							Enabled:    true,
+							AllowEmpty: true,
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:         "AllowEmpty=false + empty text → no hit (backward compatibility)",
+			text:         "",
+			hasToolCalls: false,
+			info: &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelSetting: dto.ChannelSettings{
+						ResponseDetection: &dto.ResponseDetection{
+							Enabled:    true,
+							AllowEmpty: false,
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := CheckNonStreamResponse(tt.text, tt.info)
+			err := CheckNonStreamResponse(tt.text, tt.hasToolCalls, tt.info)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CheckNonStreamResponse() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -216,7 +269,7 @@ func TestStreamDetectionWrapper_NoConfig(t *testing.T) {
 	original := func(data string, sr *StreamResult) {
 		called = true
 	}
-	wrapped := StreamDetectionWrapper(original, info)
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	sr := &StreamResult{}
 	wrapped("test", sr)
 	if !called {
@@ -224,6 +277,9 @@ func TestStreamDetectionWrapper_NoConfig(t *testing.T) {
 	}
 	if info.DetectionHit {
 		t.Error("DetectionHit should be false when no detection config")
+	}
+	if finalizer != nil {
+		t.Error("finalizer should be nil when no detection config")
 	}
 }
 
@@ -242,7 +298,7 @@ func TestStreamDetectionWrapper_HitDoesNotStop(t *testing.T) {
 	original := func(data string, sr *StreamResult) {
 		callCount++
 	}
-	wrapped := StreamDetectionWrapper(original, info)
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
 	sr := newStreamResult(nil)
 
 	// First chunk - no hit
@@ -274,6 +330,16 @@ func TestStreamDetectionWrapper_HitDoesNotStop(t *testing.T) {
 	if callCount != 3 {
 		t.Errorf("expected 3 calls, got %d - detection hit should not stop forwarding", callCount)
 	}
+
+	// finalizer 应存在（AllowEmpty=false 但有 keywords）
+	if finalizer == nil {
+		t.Error("finalizer should not be nil when detection enabled with keywords")
+	}
+	// 调用 finalizer 不应改变已命中状态
+	finalizer()
+	if !info.DetectionHit {
+		t.Error("DetectionHit should remain true after finalizer")
+	}
 }
 
 func TestStreamDetectionWrapper_AlreadyHitSkipsDetection(t *testing.T) {
@@ -294,7 +360,7 @@ func TestStreamDetectionWrapper_AlreadyHitSkipsDetection(t *testing.T) {
 	original := func(data string, sr *StreamResult) {
 		callCount++
 	}
-	wrapped := StreamDetectionWrapper(original, info)
+	wrapped, _ := StreamDetectionWrapper(original, info)
 	sr := newStreamResult(nil)
 
 	// Should still forward but skip detection
@@ -348,6 +414,227 @@ func TestExtractFullTextFromResponse(t *testing.T) {
 			got := ExtractFullTextFromResponse(info, tt.responseBody)
 			if got != tt.want {
 				t.Errorf("ExtractFullTextFromResponse() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStreamDetectionWrapper_EmptyResponseHit 验证流式空回复命中：
+// AllowEmpty=true 且无内容 chunk 且无工具调用 → finalizer 调用后 DetectionHit=true
+func TestStreamDetectionWrapper_EmptyResponseHit(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				ResponseDetection: &dto.ResponseDetection{
+					Enabled:    true,
+					AllowEmpty: true,
+				},
+			},
+		},
+	}
+	callCount := 0
+	original := func(data string, sr *StreamResult) {
+		callCount++
+	}
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
+	if finalizer == nil {
+		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+	}
+	sr := newStreamResult(nil)
+
+	// 模拟一个空回复流：只有 role chunk，无 content
+	wrapped(`{"choices":[{"delta":{"role":"assistant"}}]}`, sr)
+	if callCount != 1 {
+		t.Errorf("expected 1 call, got %d", callCount)
+	}
+	if info.DetectionHit {
+		t.Error("DetectionHit should be false before finalizer (empty response judged at stream end)")
+	}
+
+	// 流结束：调用 finalizer，应触发空回复命中
+	finalizer()
+	if !info.DetectionHit {
+		t.Error("DetectionHit should be true after finalizer for empty response with AllowEmpty")
+	}
+	if info.DetectionHitKeywords != nil {
+		t.Errorf("DetectionHitKeywords should be nil for empty response hit, got %v", info.DetectionHitKeywords)
+	}
+}
+
+// TestStreamDetectionWrapper_EmptyResponseWithToolCallsNoHit 验证流式有工具调用时不触发空回复命中
+func TestStreamDetectionWrapper_EmptyResponseWithToolCallsNoHit(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				ResponseDetection: &dto.ResponseDetection{
+					Enabled:    true,
+					AllowEmpty: true,
+				},
+			},
+		},
+	}
+	original := func(data string, sr *StreamResult) {}
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
+	if finalizer == nil {
+		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+	}
+	sr := newStreamResult(nil)
+
+	// 模拟仅工具调用、无文本的流
+	wrapped(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"SF\"}"}}]}}]}`, sr)
+
+	// 流结束：调用 finalizer，不应触发命中（有工具调用）
+	finalizer()
+	if info.DetectionHit {
+		t.Error("DetectionHit should be false when response has tool calls (not empty)")
+	}
+}
+
+// TestStreamDetectionWrapper_NonEmptyResponseNoHit 验证非空文本不触发空回复命中
+func TestStreamDetectionWrapper_NonEmptyResponseNoHit(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				ResponseDetection: &dto.ResponseDetection{
+					Enabled:    true,
+					AllowEmpty: true,
+				},
+			},
+		},
+	}
+	original := func(data string, sr *StreamResult) {}
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
+	if finalizer == nil {
+		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+	}
+	sr := newStreamResult(nil)
+
+	// 模拟非空文本流
+	wrapped(`{"choices":[{"delta":{"content":"Hello world"}}]}`, sr)
+
+	// 流结束：调用 finalizer，不应触发空回复命中（有内容）
+	finalizer()
+	if info.DetectionHit {
+		t.Error("DetectionHit should be false when response has content")
+	}
+}
+
+// TestStreamDetectionWrapper_AllowEmptyFalseNoFinalizer 验证未开启 AllowEmpty 时
+// 若无关键词，finalizer 为 nil（无需包装）
+func TestStreamDetectionWrapper_AllowEmptyFalseNoFinalizer(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				ResponseDetection: &dto.ResponseDetection{
+					Enabled:    true,
+					AllowEmpty: false,
+				},
+			},
+		},
+	}
+	original := func(data string, sr *StreamResult) {}
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
+	if finalizer != nil {
+		t.Error("finalizer should be nil when AllowEmpty=false and no keywords")
+	}
+	if wrapped == nil {
+		t.Error("wrapped handler should not be nil")
+	}
+}
+
+// TestStreamDetectionWrapper_AllowEmptyWithKeywordsEmptyHit 验证 AllowEmpty + 关键词场景下
+// 空文本先于关键词命中（finalizer 触发空回复命中）
+func TestStreamDetectionWrapper_AllowEmptyWithKeywordsEmptyHit(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{
+				ResponseDetection: &dto.ResponseDetection{
+					Enabled:    true,
+					Keywords:   []string{"cannot"},
+					AllowEmpty: true,
+				},
+			},
+		},
+	}
+	original := func(data string, sr *StreamResult) {}
+	wrapped, finalizer := StreamDetectionWrapper(original, info)
+	if finalizer == nil {
+		t.Fatal("finalizer should not be nil when AllowEmpty=true")
+	}
+	sr := newStreamResult(nil)
+
+	// 空文本流（无 content chunk）
+	wrapped(`{"choices":[{"delta":{"role":"assistant"}}]}`, sr)
+	if info.DetectionHit {
+		t.Error("DetectionHit should be false before finalizer")
+	}
+
+	finalizer()
+	if !info.DetectionHit {
+		t.Error("DetectionHit should be true after finalizer for empty response")
+	}
+	if info.DetectionHitKeywords != nil {
+		t.Errorf("DetectionHitKeywords should be nil for empty response hit, got %v", info.DetectionHitKeywords)
+	}
+}
+
+// TestExtractStreamHasToolCalls 验证各格式流式工具调用检测
+func TestExtractStreamHasToolCalls(t *testing.T) {
+	tests := []struct {
+		name        string
+		data        string
+		relayFormat types.RelayFormat
+		want        bool
+	}{
+		{
+			name:        "openai with tool_calls",
+			data:        `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function"}]}}]}`,
+			relayFormat: types.RelayFormatOpenAI,
+			want:        true,
+		},
+		{
+			name:        "openai without tool_calls",
+			data:        `{"choices":[{"delta":{"content":"Hello"}}]}`,
+			relayFormat: types.RelayFormatOpenAI,
+			want:        false,
+		},
+		{
+			name:        "claude tool_use content_block_start",
+			data:        `{"type":"content_block_start","content_block":{"type":"tool_use","id":"tool_1","name":"get_weather"}}`,
+			relayFormat: types.RelayFormatClaude,
+			want:        true,
+		},
+		{
+			name:        "claude input_json_delta",
+			data:        `{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\"a\":"}}`,
+			relayFormat: types.RelayFormatClaude,
+			want:        true,
+		},
+		{
+			name:        "claude text_delta",
+			data:        `{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}`,
+			relayFormat: types.RelayFormatClaude,
+			want:        false,
+		},
+		{
+			name:        "gemini functionCall",
+			data:        `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"location":"SF"}}}]}}]}`,
+			relayFormat: types.RelayFormatGemini,
+			want:        true,
+		},
+		{
+			name:        "gemini text only",
+			data:        `{"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}`,
+			relayFormat: types.RelayFormatGemini,
+			want:        false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{RelayFormat: tt.relayFormat}
+			got := extractStreamHasToolCalls(tt.data, info)
+			if got != tt.want {
+				t.Errorf("extractStreamHasToolCalls() = %v, want %v", got, tt.want)
 			}
 		})
 	}

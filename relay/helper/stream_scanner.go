@@ -183,7 +183,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	dataChan := make(chan string, 10)
 
 	// 包装 dataHandler 以插入响应内容检测逻辑
-	wrappedHandler := StreamDetectionWrapper(dataHandler, info)
+	// StreamDetectionWrapper 返回 wrappedHandler 与 finalizer：
+	//   - wrappedHandler: 每个 chunk 调用，做关键词检测与工具调用/文本累积
+	//   - finalizer: 流正常结束后调用，判定空回复命中（AllowEmpty 场景）；可能为 nil
+	wrappedHandler, detectionFinalizer := StreamDetectionWrapper(dataHandler, info)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -204,6 +207,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if sr.IsStopped() {
 				return
 			}
+		}
+		// 流正常结束（未因 stop 提前返回）：执行检测 finalizer，判定空回复命中
+		if detectionFinalizer != nil {
+			detectionFinalizer()
 		}
 	})
 

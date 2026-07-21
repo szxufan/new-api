@@ -68,6 +68,7 @@ export const channelFormSchema = z.object({
   response_detection_keywords: z.string().optional(), // comma-separated
   response_detection_max_retries: z.number().optional(),
   response_detection_on_hit: z.enum(['retry', 'abort']).optional(),
+  response_detection_allow_empty: z.boolean().optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
   vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -135,6 +136,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   response_detection_keywords: '',
   response_detection_max_retries: 0,
   response_detection_on_hit: 'retry',
+  response_detection_allow_empty: false,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -176,6 +178,7 @@ export function transformChannelToFormDefaults(
     response_detection_keywords: '',
     response_detection_max_retries: 0,
     response_detection_on_hit: 'retry' as 'retry' | 'abort',
+    response_detection_allow_empty: false,
   }
 
   if (channel.setting) {
@@ -197,6 +200,8 @@ export function transformChannelToFormDefaults(
         response_detection_max_retries:
           parsed.response_detection?.max_retries || 0,
         response_detection_on_hit: parsed.response_detection?.on_hit || 'retry',
+        response_detection_allow_empty:
+          parsed.response_detection?.allow_empty || false,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -337,6 +342,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
       keywords,
       max_retries: formData.response_detection_max_retries || 0,
       on_hit: formData.response_detection_on_hit || 'retry',
+      allow_empty: formData.response_detection_allow_empty || false,
     }
   }
 

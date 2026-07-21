@@ -225,7 +225,7 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	// OnHit == "abort" 时，直接返回错误不重试
 	if detection != nil && detection.OnHit == "abort" {
 		err := types.NewError(
-			fmt.Errorf("response detection hit: keywords=%v", relayInfo.DetectionHitKeywords),
+			fmt.Errorf("response detection hit: %s", detectionHitMessage(relayInfo.DetectionHitKeywords)),
 			types.ErrorCodeResponseDetectionHit,
 			types.ErrOptionWithSkipRetry(),
 		)
@@ -235,7 +235,7 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 
 	// 默认 retry 行为
 	err := types.NewError(
-		fmt.Errorf("response detection hit: keywords=%v", relayInfo.DetectionHitKeywords),
+		fmt.Errorf("response detection hit: %s", detectionHitMessage(relayInfo.DetectionHitKeywords)),
 		types.ErrorCodeResponseDetectionHit,
 	)
 
@@ -248,8 +248,8 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	if relayInfo.DetectionRetryCount > maxRetries {
 		// 超过检测重试上限，标记 skipRetry
 		err = types.NewError(
-			fmt.Errorf("response detection hit after %d retries: keywords=%v",
-				relayInfo.DetectionRetryCount, relayInfo.DetectionHitKeywords),
+			fmt.Errorf("response detection hit after %d retries: %s",
+				relayInfo.DetectionRetryCount, detectionHitMessage(relayInfo.DetectionHitKeywords)),
 			types.ErrorCodeResponseDetectionHit,
 			types.ErrOptionWithSkipRetry(),
 		)
@@ -257,6 +257,15 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 
 	relayInfo.ClearDetectionHit()
 	return err
+}
+
+// detectionHitMessage 根据命中关键词生成检测命中的描述片段
+// keywords 为 nil 表示空回复命中（AllowEmpty 场景）
+func detectionHitMessage(keywords []string) string {
+	if keywords == nil {
+		return "empty response"
+	}
+	return fmt.Sprintf("keywords=%v", keywords)
 }
 
 // tryFallbackChannels 遍历 sourceChannel 的 fallback 渠道列表（内层子循环）。
