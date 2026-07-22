@@ -396,7 +396,7 @@ func virtualSpeedMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.Vir
 					winnerOutcome = out
 				}
 			}
-			settleVirtualBilling(c, info, winnerOutcome, winnerOutcome.info.VirtualBranchUsage)
+			settleVirtualBilling(c, info, winnerOutcome, winnerOutcome.info.VirtualBranchUsage, nil)
 			return winnerOutcome.err
 		case out := <-doneCh:
 			remaining--
@@ -524,7 +524,13 @@ func virtualQualityMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.V
 		usages = append(usages, aggOutcome.info.VirtualBranchUsage)
 	}
 
-	settleVirtualBilling(c, info, aggOutcome, sumUsages(usages))
+	// 日志记录参与聚合的子模型，便于追溯最终答案的参考来源
+	candNames := make([]string, 0, len(candidates))
+	for _, cand := range candidates {
+		candNames = append(candNames, cand.modelName)
+	}
+	extraContent := []string{fmt.Sprintf("虚拟模型聚合：%s → 聚合模型 %s", strings.Join(candNames, ", "), agg.Model)}
+	settleVirtualBilling(c, info, aggOutcome, sumUsages(usages), extraContent)
 	return nil
 }
 
@@ -552,9 +558,24 @@ func sumUsages(usages []*dto.Usage) *dto.Usage {
 }
 
 // settleVirtualBilling 以主 RelayInfo 统一结算一次（渠道额度归属记到最后使用的分支渠道）
-func settleVirtualBilling(c *gin.Context, mainInfo *relaycommon.RelayInfo, lastOutcome *virtualBranchOutcome, usage *dto.Usage) {
-	if lastOutcome != nil && lastOutcome.info != nil && lastOutcome.info.ChannelMeta != nil {
-		mainInfo.ChannelMeta = lastOutcome.info.ChannelMeta
+func settleVirtualBilling(c *gin.Context, mainInfo *relaycommon.RelayInfo, lastOutcome *virtualBranchOutcome, usage *dto.Usage, extraContent []string) {
+	if lastOutcome != nil && lastOutcome.info != nil {
+		inheritBranchModelInfo(mainInfo, lastOutcome.info)
 	}
-	service.PostTextConsumeQuota(c, mainInfo, usage, nil)
+	service.PostTextConsumeQuota(c, mainInfo, usage, extraContent)
+}
+
+// inheritBranchModelInfo 参照模型映射机制，把分支实际采用的模型记录到主 RelayInfo：
+// 日志模型名仍为虚拟模型名，other 中的 is_model_mapped/upstream_model_name 展示真实上游模型。
+// 若分支渠道自身配置了模型映射，分支 ChannelMeta 已带最终 UpstreamModelName，直接继承。
+func inheritBranchModelInfo(mainInfo *relaycommon.RelayInfo, branchInfo *relaycommon.RelayInfo) {
+	if branchInfo.ChannelMeta == nil {
+		return
+	}
+	mainInfo.ChannelMeta = branchInfo.ChannelMeta
+	if mainInfo.UpstreamModelName == "" {
+		// 分支渠道未做模型映射时，用分支的目标模型名
+		mainInfo.UpstreamModelName = branchInfo.OriginModelName
+	}
+	mainInfo.IsModelMapped = true
 }

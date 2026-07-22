@@ -186,3 +186,37 @@ func TestPrepareBranchRequest(t *testing.T) {
 func TestDefaultAggregatorPromptTemplate(t *testing.T) {
 	assert.Contains(t, defaultAggregatorPromptTemplate, "{{answers}}")
 }
+
+// inheritBranchModelInfo：参照模型映射机制记录实际采用的模型
+func TestInheritBranchModelInfo(t *testing.T) {
+	mainInfo := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
+
+	// 分支渠道无模型映射：UpstreamModelName 回退为分支目标模型名
+	branchInfo := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 42},
+	}
+	inheritBranchModelInfo(mainInfo, branchInfo)
+	assert.True(t, mainInfo.IsModelMapped)
+	assert.Equal(t, "gpt-4o", mainInfo.UpstreamModelName)
+	assert.Equal(t, 42, mainInfo.ChannelId, "渠道额度归属应记到分支渠道")
+
+	// 分支渠道有模型映射：继承最终上游模型名
+	mainInfo2 := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
+	branchInfo2 := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:         43,
+			UpstreamModelName: "gpt-4o-2024-08-06",
+			IsModelMapped:     true,
+		},
+	}
+	inheritBranchModelInfo(mainInfo2, branchInfo2)
+	assert.True(t, mainInfo2.IsModelMapped)
+	assert.Equal(t, "gpt-4o-2024-08-06", mainInfo2.UpstreamModelName)
+
+	// 分支无 ChannelMeta（未执行到渠道）：不影响主 RelayInfo
+	mainInfo3 := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
+	inheritBranchModelInfo(mainInfo3, &relaycommon.RelayInfo{})
+	assert.Nil(t, mainInfo3.ChannelMeta)
+}
