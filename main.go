@@ -105,6 +105,9 @@ func main() {
 		model.StartRateLimitRecoveryTask()
 	}
 
+	// 虚拟模型缓存不依赖 MemoryCacheEnabled，始终初始化
+	model.InitVirtualModelCache()
+
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
 

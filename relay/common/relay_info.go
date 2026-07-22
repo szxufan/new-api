@@ -187,6 +187,9 @@ type RelayInfo struct {
 	DetectionHitKeywords []string // 命中的关键词
 	DetectionRetryCount  int      // 检测命中已重试次数（跨渠道累计）
 
+	// VirtualBranchUsage 虚拟模型分支请求的 usage（分支内不独立计费，由协调器统一结算）
+	VirtualBranchUsage *dto.Usage
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo

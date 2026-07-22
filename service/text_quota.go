@@ -320,6 +320,12 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	// 虚拟模型分支：整体跳过独立计费（含 SettleBilling 预扣对账与 quota 更新），
+	// 仅把 usage 记回分支 RelayInfo，由虚拟模型协调器对主 RelayInfo 统一结算一次。
+	if common.GetContextKeyBool(ctx, constant.ContextKeyVirtualBranch) {
+		relayInfo.VirtualBranchUsage = usage
+		return
+	}
 	originUsage := usage
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")

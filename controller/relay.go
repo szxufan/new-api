@@ -376,6 +376,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// 虚拟模型：加载配置，预扣费与执行均按虚拟模型逻辑处理
+	var virtualModel *model.VirtualModel
+	if vmId := common.GetContextKeyInt(c, constant.ContextKeyVirtualModelId); vmId > 0 {
+		vm, vmErr := model.GetVirtualModelById(vmId)
+		if vmErr != nil {
+			newAPIError = types.NewError(fmt.Errorf("virtual model unavailable: %w", vmErr), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+			return
+		}
+		virtualModel = vm
+	}
+
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
@@ -414,6 +425,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if priceData.FreeModel {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
 	} else {
+		if virtualModel != nil {
+			// 虚拟模型按最坏情况预扣：N 个并发分支（质量模式再加 1 次聚合请求），结算时多退少补
+			priceData.QuotaToPreConsume *= virtualModel.BranchFactor()
+		}
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
 			return
@@ -433,6 +448,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	// 根据请求路径（RelayFormat）推断优先渠道类型
 	preferredTypes := types.GetPreferredChannelTypesByRelayFormat(relayFormat)
+
+	// 虚拟模型：并发调度多个真实模型（竞速/聚合），不走普通单渠道重试循环
+	if virtualModel != nil {
+		newAPIError = relay.VirtualModelHandler(c, relayInfo, virtualModel)
+		if newAPIError != nil {
+			relayInfo.LastError = newAPIError
+		}
+		return
+	}
 
 	retryParam := &service.RetryParam{
 		Ctx:                   c,

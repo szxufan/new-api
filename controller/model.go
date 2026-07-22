@@ -268,6 +268,27 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 
+	// 追加启用的虚拟模型（不写 abilities 表，遵循与真实模型一致的过滤规则）
+	for _, vmName := range model.GetEnabledVirtualModelNames() {
+		if common.StringsContains(userModelNames, vmName) {
+			continue
+		}
+		if modelLimitEnable {
+			s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+			var tokenModelLimit map[string]bool
+			if ok {
+				tokenModelLimit, _ = s.(map[string]bool)
+			}
+			if _, allowed := tokenModelLimit[vmName]; !allowed {
+				continue
+			}
+		}
+		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(vmName) {
+			continue
+		}
+		userModelNames = append(userModelNames, vmName)
+	}
+
 	ownerByModel := map[string]string{}
 	if len(ownerGroups) > 0 {
 		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
@@ -323,16 +344,33 @@ func ChannelListModels(c *gin.Context) {
 }
 
 func DashboardListModels(c *gin.Context) {
+	data := channelId2Models
+	if vmNames := model.GetEnabledVirtualModelNames(); len(vmNames) > 0 {
+		// 虚拟模型不归属任何渠道类型，以保留 key 0 追加（避免修改 init() 静态 map）
+		data = make(map[int][]string, len(channelId2Models)+1)
+		for k, v := range channelId2Models {
+			data[k] = v
+		}
+		data[0] = vmNames
+	}
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    channelId2Models,
+		"data":    data,
 	})
 }
 
 func EnabledListModels(c *gin.Context) {
+	enabled := model.GetEnabledModels()
+	if vmNames := model.GetEnabledVirtualModelNames(); len(vmNames) > 0 {
+		// 拷贝后再追加，避免修改缓存切片的底层数组
+		merged := make([]string, 0, len(enabled)+len(vmNames))
+		merged = append(merged, enabled...)
+		merged = append(merged, vmNames...)
+		enabled = merged
+	}
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    model.GetEnabledModels(),
+		"data":    enabled,
 	})
 }
 

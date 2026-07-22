@@ -278,6 +278,12 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
 
+	// 虚拟模型分支：跳过独立计费，仅记录 usage，由协调器统一结算
+	if common.GetContextKeyBool(ctx, constant.ContextKeyVirtualBranch) {
+		relayInfo.VirtualBranchUsage = usage
+		return
+	}
+
 	var tieredUsedVars map[string]bool
 	if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 		tieredUsedVars = billingexpr.UsedVars(snap.ExprString)

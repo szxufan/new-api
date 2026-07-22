@@ -376,6 +376,17 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.DELETE("/:id", controller.DeleteModelMeta)
 		}
 
+		// Virtual Models (虚拟模型：竞速/聚合调度多个真实模型)
+		virtualModelsRoute := apiRouter.Group("/virtual_models")
+		virtualModelsRoute.Use(middleware.AdminAuth())
+		{
+			virtualModelsRoute.GET("/", controller.GetAllVirtualModels)
+			virtualModelsRoute.GET("/:id", controller.GetVirtualModel)
+			virtualModelsRoute.POST("/", controller.CreateVirtualModel)
+			virtualModelsRoute.PUT("/", controller.UpdateVirtualModel)
+			virtualModelsRoute.DELETE("/:id", controller.DeleteVirtualModel)
+		}
+
 		// Deployments (model deployment management)
 		deploymentsRoute := apiRouter.Group("/deployments")
 		deploymentsRoute.Use(middleware.AdminAuth())

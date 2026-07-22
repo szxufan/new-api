@@ -81,4 +81,9 @@ const (
 	ContextKeyRetryCount ContextKey = "retry_count"
 	// ContextKeyRetryDurationMs 记录从首次请求开始到最终结束的总耗时（毫秒）
 	ContextKeyRetryDurationMs ContextKey = "retry_duration_ms"
+
+	// ContextKeyVirtualModelId 记录请求命中的虚拟模型 ID（distributor 设置）
+	ContextKeyVirtualModelId ContextKey = "virtual_model_id"
+	// ContextKeyVirtualBranch 标记当前为虚拟模型分支请求，分支内跳过独立计费
+	ContextKeyVirtualBranch ContextKey = "virtual_branch"
 )

@@ -99,6 +99,17 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 
+			// 虚拟模型：命中则跳过单渠道选择，由执行层并发调度多个真实模型
+			if shouldSelectChannel && modelRequest.Model != "" {
+				if vm := model.GetVirtualModel(modelRequest.Model); vm != nil {
+					common.SetContextKey(c, constant.ContextKeyVirtualModelId, vm.Id)
+					common.SetContextKey(c, constant.ContextKeyOriginalModel, modelRequest.Model)
+					common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+					c.Next()
+					return
+				}
+			}
+
 			if shouldSelectChannel {
 				if modelRequest.Model == "" {
 					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorModelNameRequired))
