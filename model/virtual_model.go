@@ -34,14 +34,16 @@ type VirtualModelAggregator struct {
 
 // VirtualModel 虚拟模型：一个虚拟模型名映射到多个真实模型+渠道
 type VirtualModel struct {
-	Id          int    `json:"id" gorm:"primaryKey"`
-	Name        string `json:"name" gorm:"uniqueIndex;size:128;not null"` // 用户请求时使用的虚拟模型名
-	Mode        string `json:"mode" gorm:"size:16;not null"`              // speed | quality
-	Targets     string `json:"targets" gorm:"type:text"`                  // JSON: []VirtualModelTarget
-	Aggregator  string `json:"aggregator" gorm:"type:text"`               // JSON: VirtualModelAggregator
-	Status      int    `json:"status" gorm:"default:1"`                   // 1=启用 2=禁用
-	CreatedTime int64  `json:"created_time" gorm:"bigint"`
-	UpdatedTime int64  `json:"updated_time" gorm:"bigint"`
+	Id                   int    `json:"id" gorm:"primaryKey"`
+	Name                 string `json:"name" gorm:"uniqueIndex;size:128;not null"` // 用户请求时使用的虚拟模型名
+	Mode                 string `json:"mode" gorm:"size:16;not null"`              // speed | quality
+	Targets              string `json:"targets" gorm:"type:text"`                  // JSON: []VirtualModelTarget
+	Aggregator           string `json:"aggregator" gorm:"type:text"`               // JSON: VirtualModelAggregator
+	HeadStartStreamMs    int    `json:"head_start_stream_ms" gorm:"default:0"`     // 速度模式-流式请求抢跑时间（毫秒），0=关闭
+	HeadStartNonStreamMs int    `json:"head_start_non_stream_ms" gorm:"default:0"` // 速度模式-非流式请求抢跑时间（毫秒），0=关闭
+	Status               int    `json:"status" gorm:"default:1"`                   // 1=启用 2=禁用
+	CreatedTime          int64  `json:"created_time" gorm:"bigint"`
+	UpdatedTime          int64  `json:"updated_time" gorm:"bigint"`
 }
 
 func (vm *VirtualModel) GetTargets() ([]VirtualModelTarget, error) {
@@ -129,6 +131,9 @@ func (vm *VirtualModel) Validate() error {
 				return fmt.Errorf("聚合模型指定的渠道 #%d 不存在", agg.ChannelId)
 			}
 		}
+	}
+	if vm.HeadStartStreamMs < 0 || vm.HeadStartNonStreamMs < 0 {
+		return errors.New("抢跑时间不能为负数")
 	}
 	return nil
 }
@@ -257,12 +262,14 @@ func (vm *VirtualModel) Update() error {
 	}
 	vm.UpdatedTime = common.GetTimestamp()
 	if err := DB.Model(&VirtualModel{}).Where("id = ?", vm.Id).Updates(map[string]interface{}{
-		"name":         vm.Name,
-		"mode":         vm.Mode,
-		"targets":      vm.Targets,
-		"aggregator":   vm.Aggregator,
-		"status":       vm.Status,
-		"updated_time": vm.UpdatedTime,
+		"name":                     vm.Name,
+		"mode":                     vm.Mode,
+		"targets":                  vm.Targets,
+		"aggregator":               vm.Aggregator,
+		"head_start_stream_ms":     vm.HeadStartStreamMs,
+		"head_start_non_stream_ms": vm.HeadStartNonStreamMs,
+		"status":                   vm.Status,
+		"updated_time":             vm.UpdatedTime,
 	}).Error; err != nil {
 		return err
 	}

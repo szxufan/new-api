@@ -49,6 +49,12 @@ export function getVirtualModelFormSchema(t: TFunction) {
       aggregator_channel_id: z.number(),
       aggregator_group: z.string(),
       aggregator_prompt_template: z.string(),
+      head_start_stream_ms: z
+        .number()
+        .min(0, t('Head start time cannot be negative')),
+      head_start_non_stream_ms: z
+        .number()
+        .min(0, t('Head start time cannot be negative')),
     })
     .superRefine((data, ctx) => {
       const modeConfig = VIRTUAL_MODEL_MODE_CONFIG[data.mode]
@@ -84,6 +90,8 @@ export type VirtualModelFormValues = {
   aggregator_channel_id: number
   aggregator_group: string
   aggregator_prompt_template: string
+  head_start_stream_ms: number
+  head_start_non_stream_ms: number
 }
 
 // ============================================================================
@@ -101,6 +109,8 @@ export const VIRTUAL_MODEL_FORM_DEFAULT_VALUES: VirtualModelFormValues = {
   aggregator_channel_id: 0,
   aggregator_group: '',
   aggregator_prompt_template: '',
+  head_start_stream_ms: 0,
+  head_start_non_stream_ms: 0,
 }
 
 // ============================================================================
@@ -132,6 +142,8 @@ export function transformFormDataToPayload(
     mode: data.mode,
     targets: JSON.stringify(targets),
     aggregator: JSON.stringify(aggregator),
+    head_start_stream_ms: data.head_start_stream_ms || 0,
+    head_start_non_stream_ms: data.head_start_non_stream_ms || 0,
     status,
   }
 }
@@ -157,5 +169,7 @@ export function transformVirtualModelToFormDefaults(
     aggregator_channel_id: aggregator.channel_id || 0,
     aggregator_group: aggregator.group || '',
     aggregator_prompt_template: aggregator.prompt_template || '',
+    head_start_stream_ms: virtualModel.head_start_stream_ms || 0,
+    head_start_non_stream_ms: virtualModel.head_start_non_stream_ms || 0,
   }
 }

@@ -52,6 +52,8 @@ export const virtualModelSchema = z.object({
   mode: z.enum(VIRTUAL_MODEL_MODES),
   targets: z.string(),
   aggregator: z.string(),
+  head_start_stream_ms: z.number(), // speed mode: head start (ms) for streaming requests, 0 = disabled
+  head_start_non_stream_ms: z.number(), // speed mode: head start (ms) for non-streaming requests, 0 = disabled
   status: z.number(), // 1: enabled, 2: disabled
   created_time: z.number(),
   updated_time: z.number(),
@@ -75,6 +77,8 @@ export interface VirtualModelPayload {
   mode: VirtualModelMode
   targets: string
   aggregator: string
+  head_start_stream_ms: number
+  head_start_non_stream_ms: number
   status: number
 }
 

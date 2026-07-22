@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -22,6 +23,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/bytedance/gopkg/util/gopool"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -189,10 +191,15 @@ func (w *captureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 // ---------------- 分支执行器 ----------------
 
-// selectVirtualBranchChannel 为分支选择渠道：优先指定渠道，否则按分组自动选择
-func selectVirtualBranchChannel(c *gin.Context, mainInfo *relaycommon.RelayInfo, target model.VirtualModelTarget) (*model.Channel, error) {
-	if target.ChannelId > 0 {
-		channel, err := model.CacheGetChannel(target.ChannelId)
+// selectVirtualBranchChannel 为分支选择渠道：
+// forcedChannelId > 0（速度模式抢跑锁定渠道）> target.ChannelId > 0（指定渠道）> 按分组自动选择
+func selectVirtualBranchChannel(c *gin.Context, mainInfo *relaycommon.RelayInfo, target model.VirtualModelTarget, forcedChannelId int) (*model.Channel, error) {
+	fixedChannelId := target.ChannelId
+	if forcedChannelId > 0 {
+		fixedChannelId = forcedChannelId
+	}
+	if fixedChannelId > 0 {
+		channel, err := model.CacheGetChannel(fixedChannelId)
 		if err != nil {
 			return nil, err
 		}
@@ -278,6 +285,7 @@ func prepareBranchRequest(mainInfo *relaycommon.RelayInfo, modelName string, for
 
 // runVirtualBranch 执行单个分支：选渠道 → 构造独立上下文 → TextHelper
 // branchReq 由调用方预先准备好（已改写模型名/messages）
+// forcedChannelId 仅速度模式抢跑分支传入非 0 值（锁定上次胜者渠道），其余调用传 0
 func runVirtualBranch(
 	c *gin.Context,
 	mainInfo *relaycommon.RelayInfo,
@@ -285,10 +293,11 @@ func runVirtualBranch(
 	branchReq *dto.GeneralOpenAIRequest,
 	writer gin.ResponseWriter,
 	cancelCtx context.Context,
+	forcedChannelId int,
 ) *virtualBranchOutcome {
 	outcome := &virtualBranchOutcome{}
 
-	channel, err := selectVirtualBranchChannel(c, mainInfo, target)
+	channel, err := selectVirtualBranchChannel(c, mainInfo, target, forcedChannelId)
 	if err != nil {
 		outcome.err = types.NewError(err, types.ErrorCodeGetChannelFailed)
 		return outcome
@@ -344,6 +353,58 @@ func VirtualModelHandler(c *gin.Context, info *relaycommon.RelayInfo, vm *model.
 
 // ---------------- 速度模式：竞速 ----------------
 
+// resolveHeadStartTarget 根据胜者记录解析抢跑分支，返回 target 索引与锁定渠道（0=不锁定）。
+// 规则：target.Model 与记录模型匹配；target.ChannelId>0 时必须与记录渠道一致（配置已变更则视为失效）；
+// target.ChannelId==0 时命中并锁定记录的渠道。无匹配返回 -1。
+func resolveHeadStartTarget(targets []model.VirtualModelTarget, rec *service.VirtualWinnerRecord) (idx int, forcedChannelId int) {
+	if rec == nil {
+		return -1, 0
+	}
+	for i, t := range targets {
+		if t.Model != rec.Model {
+			continue
+		}
+		if t.ChannelId > 0 {
+			if t.ChannelId == rec.ChannelId {
+				return i, 0 // target 已固定该渠道，无需额外锁定
+			}
+			continue
+		}
+		return i, rec.ChannelId // 自动选择渠道：锁定上次胜者渠道
+	}
+	return -1, 0
+}
+
+// resolveHeadStart 决定本次请求是否启用抢跑：返回抢跑分支索引与锁定渠道，-1 表示全量并发
+func resolveHeadStart(c *gin.Context, info *relaycommon.RelayInfo, vm *model.VirtualModel, targets []model.VirtualModelTarget) (int, int) {
+	headStartMs := vm.HeadStartNonStreamMs
+	if info.IsStream {
+		headStartMs = vm.HeadStartStreamMs
+	}
+	if headStartMs <= 0 {
+		return -1, 0
+	}
+	rec, ok := service.GetVirtualModelWinner(info.TokenId, vm.Name)
+	if !ok {
+		return -1, 0
+	}
+	idx, forcedChannelId := resolveHeadStartTarget(targets, rec)
+	if idx < 0 {
+		return -1, 0
+	}
+	if forcedChannelId > 0 {
+		// 锁定渠道需仍启用，失效则清理记录并回退全量并发
+		ch, err := model.CacheGetChannel(forcedChannelId)
+		if err != nil || ch == nil || ch.Status != common.ChannelStatusEnabled {
+			service.DeleteVirtualModelWinner(info.TokenId, vm.Name)
+			return -1, 0
+		}
+	}
+	logger.LogInfo(c, fmt.Sprintf("virtual model %s head start: branch #%d (%s) first, %d ms",
+		vm.Name, idx, targets[idx].Model, headStartMs))
+	return idx, forcedChannelId
+}
+
 func virtualSpeedMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.VirtualModel, targets []model.VirtualModelTarget) *types.NewAPIError {
 	n := len(targets)
 	firstCh := make(chan int, n)
@@ -351,38 +412,69 @@ func virtualSpeedMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.Vir
 	decisions := make([]chan bool, n)
 	cancels := make([]context.CancelFunc, n)
 	writers := make([]*raceWriter, n)
+	launched := make([]bool, n)
 
-	for i, target := range targets {
-		decisions[i] = make(chan bool, 1)
-		writers[i] = newRaceWriter(i, firstCh, decisions[i])
+	// 懒启动分支：首次调用时创建 raceWriter/裁决通道并启动 goroutine
+	launch := func(idx int, forcedChannelId int) {
+		if launched[idx] {
+			return
+		}
+		launched[idx] = true
+		decisions[idx] = make(chan bool, 1)
+		writers[idx] = newRaceWriter(idx, firstCh, decisions[idx])
 		cancelCtx, cancel := context.WithCancel(c.Request.Context())
-		cancels[i] = cancel
-		go func(idx int, t model.VirtualModelTarget, w *raceWriter, ctx context.Context) {
+		cancels[idx] = cancel
+		go func() {
 			outcome := &virtualBranchOutcome{idx: idx}
-			branchReq, reqErr := prepareBranchRequest(info, t.Model, false)
+			branchReq, reqErr := prepareBranchRequest(info, targets[idx].Model, false)
 			if reqErr != nil {
 				outcome.err = reqErr
 			} else {
-				outcome = runVirtualBranch(c, info, t, branchReq, w, ctx)
+				outcome = runVirtualBranch(c, info, targets[idx], branchReq, writers[idx], cancelCtx, forcedChannelId)
 				outcome.idx = idx
 			}
 			doneCh <- outcome
-		}(i, target, writers[i], cancelCtx)
+		}()
+	}
+	launchAllRemaining := func() {
+		for i := range targets {
+			if !launched[i] {
+				launch(i, 0)
+			}
+		}
 	}
 
-	remaining := n
+	// 抢跑判定：有记录时只启动上次胜者分支 + 定时器，超时/失败后再启动其余分支
+	headStartIdx, forcedChannelId := resolveHeadStart(c, info, vm, targets)
+	var timer *time.Timer
+	var timerCh <-chan time.Time
+	if headStartIdx >= 0 {
+		headStartMs := vm.HeadStartNonStreamMs
+		if info.IsStream {
+			headStartMs = vm.HeadStartStreamMs
+		}
+		launch(headStartIdx, forcedChannelId)
+		timer = time.NewTimer(time.Duration(headStartMs) * time.Millisecond)
+		timerCh = timer.C
+	} else {
+		launchAllRemaining()
+	}
+
+	remaining := n // 按目标总数计：分支或早或晚都会启动，doneCh 缓冲 n 无泄漏
 	var lastErr *types.NewAPIError
 	for remaining > 0 {
 		select {
 		case winnerIdx := <-firstCh:
-			// 首个产出有效数据的分支胜出
+			// 首个产出有效数据的分支胜出（抢跑分支与后启动分支一视同仁）
 			// 先设置胜者下游目标，再发送裁决，避免胜者 Write 竞态读到空 target
 			writers[winnerIdx].commit(c.Writer)
 			for j := range decisions {
-				decisions[j] <- (j == winnerIdx)
+				if launched[j] {
+					decisions[j] <- (j == winnerIdx)
+				}
 			}
 			for j, cancel := range cancels {
-				if j != winnerIdx {
+				if launched[j] && j != winnerIdx {
 					cancel()
 				}
 			}
@@ -396,14 +488,33 @@ func virtualSpeedMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.Vir
 					winnerOutcome = out
 				}
 			}
+			// 记录本次胜者（覆盖旧记录并刷新 TTL），供后续请求抢跑
+			if winnerOutcome.err == nil && winnerOutcome.channel != nil {
+				tokenId, vmName, winModel, winChannelId := info.TokenId, vm.Name, targets[winnerIdx].Model, winnerOutcome.channel.Id
+				gopool.Go(func() {
+					service.RecordVirtualModelWinner(tokenId, vmName, winModel, winChannelId)
+				})
+			}
 			settleVirtualBilling(c, info, winnerOutcome, winnerOutcome.info.VirtualBranchUsage, nil)
 			return winnerOutcome.err
+		case <-timerCh:
+			// 抢跑超时：启动其余分支进入正常竞速（抢跑分支不取消，继续参与）
+			timerCh = nil
+			launchAllRemaining()
 		case out := <-doneCh:
 			remaining--
 			if out.err != nil {
 				lastErr = out.err
 				logger.LogInfo(c, fmt.Sprintf("virtual model %s race: branch #%d (%s) failed: %s",
 					vm.Name, out.idx, targets[out.idx].Model, out.err.Error()))
+				// 抢跑分支在定时器到期前失败：立即启动其余分支
+				if timerCh != nil {
+					if timer != nil {
+						timer.Stop()
+					}
+					timerCh = nil
+					launchAllRemaining()
+				}
 			}
 		}
 	}
@@ -432,7 +543,7 @@ func virtualQualityMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.V
 			if reqErr != nil {
 				outcome.err = reqErr
 			} else {
-				outcome = runVirtualBranch(c, info, t, branchReq, writer, c.Request.Context())
+				outcome = runVirtualBranch(c, info, t, branchReq, writer, c.Request.Context(), 0)
 				outcome.idx = idx
 			}
 			if outcome.err == nil {
@@ -516,7 +627,7 @@ func virtualQualityMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.V
 		ChannelId: agg.ChannelId,
 		Group:     agg.Group,
 	}
-	aggOutcome := runVirtualBranch(c, info, aggTarget, aggReq, c.Writer, c.Request.Context())
+	aggOutcome := runVirtualBranch(c, info, aggTarget, aggReq, c.Writer, c.Request.Context(), 0)
 	if aggOutcome.err != nil {
 		return aggOutcome.err
 	}

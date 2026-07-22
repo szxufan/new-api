@@ -478,6 +478,73 @@ export function VirtualModelsMutateDrawer({
                 />
               </div>
             )}
+
+            {mode === 'speed' && (
+              <div className='space-y-4 rounded-lg border p-4'>
+                <div className='text-sm font-medium'>
+                  {t('Head Start Settings')}
+                </div>
+                <FormDescription>
+                  {t(
+                    'The last winning model+channel is recorded per token and virtual model (overwritten each race, expires after 1 hour). New requests call the winner first; if it produces no response within the head start time (first chunk for streaming, full response otherwise), the remaining models are called concurrently. Set 0 to disable and always race all models.'
+                  )}
+                </FormDescription>
+                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='head_start_stream_ms'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Streaming Head Start (ms)')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            value={field.value}
+                            onChange={(e) => {
+                              const v = e.target.valueAsNumber
+                              field.onChange(Number.isNaN(v) ? 0 : v)
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('0 = disabled. Timed to the first chunk.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='head_start_non_stream_ms'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Non-streaming Head Start (ms)')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            value={field.value}
+                            onChange={(e) => {
+                              const v = e.target.valueAsNumber
+                              field.onChange(Number.isNaN(v) ? 0 : v)
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('0 = disabled. Timed to the full response.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
           </form>
         </Form>
         <SheetFooter className='grid grid-cols-2 gap-2 border-t px-4 py-3 sm:flex sm:px-6 sm:py-4'>

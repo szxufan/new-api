@@ -54,6 +54,8 @@ describe('transformFormDataToPayload', () => {
     aggregator_channel_id: 0,
     aggregator_group: '',
     aggregator_prompt_template: 'Answer: {{answers}}',
+    head_start_stream_ms: 500,
+    head_start_non_stream_ms: 2000,
   }
 
   it('stringifies targets and aggregator and trims strings', () => {
@@ -74,6 +76,12 @@ describe('transformFormDataToPayload', () => {
     })
   })
 
+  it('passes head start fields through to the payload', () => {
+    const payload = transformFormDataToPayload(formValues)
+    expect(payload.head_start_stream_ms).toBe(500)
+    expect(payload.head_start_non_stream_ms).toBe(2000)
+  })
+
   it('keeps the provided status', () => {
     const payload = transformFormDataToPayload(
       formValues,
@@ -91,6 +99,8 @@ describe('transformVirtualModelToFormDefaults', () => {
       mode: 'speed',
       targets: '[{"model":"gpt-4o"},{"model":"claude-sonnet","channel_id":2}]',
       aggregator: '{}',
+      head_start_stream_ms: 300,
+      head_start_non_stream_ms: 1500,
       status: VIRTUAL_MODEL_STATUS.ENABLED,
       created_time: 100,
       updated_time: 200,
@@ -106,5 +116,24 @@ describe('transformVirtualModelToFormDefaults', () => {
     ])
     expect(values.aggregator_model).toBe('')
     expect(values.aggregator_channel_id).toBe(0)
+    expect(values.head_start_stream_ms).toBe(300)
+    expect(values.head_start_non_stream_ms).toBe(1500)
+  })
+
+  it('defaults head start fields to 0 for legacy records without them', () => {
+    const legacy = {
+      id: 2,
+      name: 'legacy-vm',
+      mode: 'speed',
+      targets: '[{"model":"gpt-4o"},{"model":"gpt-4o-mini"}]',
+      aggregator: '{}',
+      status: VIRTUAL_MODEL_STATUS.ENABLED,
+      created_time: 100,
+      updated_time: 200,
+    } as unknown as VirtualModel
+
+    const values = transformVirtualModelToFormDefaults(legacy)
+    expect(values.head_start_stream_ms).toBe(0)
+    expect(values.head_start_non_stream_ms).toBe(0)
   })
 })

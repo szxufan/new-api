@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -231,4 +233,47 @@ func TestInheritBranchModelInfo(t *testing.T) {
 	mainInfo3 := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
 	inheritBranchModelInfo(mainInfo3, &relaycommon.RelayInfo{})
 	assert.Nil(t, mainInfo3.ChannelMeta)
+}
+
+// resolveHeadStartTarget：根据胜者记录解析抢跑分支
+func TestResolveHeadStartTarget(t *testing.T) {
+	targets := []model.VirtualModelTarget{
+		{Model: "gpt-4o"},                    // 0: 自动选渠道
+		{Model: "gpt-4o-mini", ChannelId: 7}, // 1: 固定渠道 7
+		{Model: "claude-3"},                  // 2: 自动选渠道
+	}
+
+	// 记录 nil：无抢跑
+	idx, forced := resolveHeadStartTarget(targets, nil)
+	assert.Equal(t, -1, idx)
+	assert.Equal(t, 0, forced)
+
+	// 自动渠道的 target 命中：锁定记录的渠道
+	idx, forced = resolveHeadStartTarget(targets, &service.VirtualWinnerRecord{Model: "gpt-4o", ChannelId: 42})
+	assert.Equal(t, 0, idx)
+	assert.Equal(t, 42, forced)
+
+	// 固定渠道一致：命中且不额外锁定
+	idx, forced = resolveHeadStartTarget(targets, &service.VirtualWinnerRecord{Model: "gpt-4o-mini", ChannelId: 7})
+	assert.Equal(t, 1, idx)
+	assert.Equal(t, 0, forced)
+
+	// 固定渠道不一致（配置已变更）：记录失效
+	idx, forced = resolveHeadStartTarget(targets, &service.VirtualWinnerRecord{Model: "gpt-4o-mini", ChannelId: 99})
+	assert.Equal(t, -1, idx)
+	assert.Equal(t, 0, forced)
+
+	// 记录模型不在 targets 中：无匹配
+	idx, forced = resolveHeadStartTarget(targets, &service.VirtualWinnerRecord{Model: "llama-3", ChannelId: 1})
+	assert.Equal(t, -1, idx)
+	assert.Equal(t, 0, forced)
+
+	// 同模型多个 target：取第一个匹配
+	dupTargets := []model.VirtualModelTarget{
+		{Model: "gpt-4o", ChannelId: 5},
+		{Model: "gpt-4o"},
+	}
+	idx, forced = resolveHeadStartTarget(dupTargets, &service.VirtualWinnerRecord{Model: "gpt-4o", ChannelId: 5})
+	assert.Equal(t, 0, idx)
+	assert.Equal(t, 0, forced)
 }

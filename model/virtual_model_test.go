@@ -72,6 +72,20 @@ func TestVirtualModelValidate(t *testing.T) {
 		{Model: "gpt-4o-mini"},
 	}))
 	assert.Error(t, vm.Validate())
+
+	// 抢跑时间为负数
+	vm = newSpeedVirtualModel(t, "vm-negative-headstart")
+	vm.HeadStartStreamMs = -1
+	assert.Error(t, vm.Validate())
+	vm = newSpeedVirtualModel(t, "vm-negative-headstart2")
+	vm.HeadStartNonStreamMs = -1
+	assert.Error(t, vm.Validate())
+
+	// 抢跑时间合法（0=关闭）
+	vm = newSpeedVirtualModel(t, "vm-headstart-ok")
+	vm.HeadStartStreamMs = 500
+	vm.HeadStartNonStreamMs = 2000
+	assert.NoError(t, vm.Validate())
 }
 
 func TestVirtualModelCRUDAndCache(t *testing.T) {
