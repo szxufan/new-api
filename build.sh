@@ -9,6 +9,9 @@ BINARY_NAME="new-api"
 
 SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
 SKIP_BACKEND="${SKIP_BACKEND:-false}"
+# vite 构建大项目时 Node 默认堆内存不足，可调大上限避免 OOM
+NODE_MAX_OLD_SPACE_SIZE="${NODE_MAX_OLD_SPACE_SIZE:-4096}"
+export NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} ${NODE_OPTIONS:-}"
 
 # go 可能未安装，此时回退到 uname 检测
 detect_os() {
