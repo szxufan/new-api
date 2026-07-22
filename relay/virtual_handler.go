@@ -578,4 +578,13 @@ func inheritBranchModelInfo(mainInfo *relaycommon.RelayInfo, branchInfo *relayco
 		mainInfo.UpstreamModelName = branchInfo.OriginModelName
 	}
 	mainInfo.IsModelMapped = true
+	// 继承分支的首响应时间：主 RelayInfo 的 FirstResponseTime 是哨兵值（StartTime-1s），
+	// 不继承会导致日志 frt 缺失/为负（流式由分支 SSE 首个 chunk 触发 SetFirstResponseTime）
+	if !branchInfo.FirstResponseTime.IsZero() {
+		mainInfo.FirstResponseTime = branchInfo.FirstResponseTime
+	}
+	// 继承分支的流状态，保证流式请求的 stream_status 日志完整
+	if branchInfo.StreamStatus != nil {
+		mainInfo.StreamStatus = branchInfo.StreamStatus
+	}
 }

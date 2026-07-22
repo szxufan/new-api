@@ -192,14 +192,26 @@ func TestInheritBranchModelInfo(t *testing.T) {
 	mainInfo := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
 
 	// 分支渠道无模型映射：UpstreamModelName 回退为分支目标模型名
+	firstResp := time.Now()
 	branchInfo := &relaycommon.RelayInfo{
-		OriginModelName: "gpt-4o",
-		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 42},
+		OriginModelName:   "gpt-4o",
+		ChannelMeta:       &relaycommon.ChannelMeta{ChannelId: 42},
+		FirstResponseTime: firstResp,
 	}
 	inheritBranchModelInfo(mainInfo, branchInfo)
 	assert.True(t, mainInfo.IsModelMapped)
 	assert.Equal(t, "gpt-4o", mainInfo.UpstreamModelName)
 	assert.Equal(t, 42, mainInfo.ChannelId, "渠道额度归属应记到分支渠道")
+	assert.Equal(t, firstResp, mainInfo.FirstResponseTime, "应继承分支首响应时间，保证日志 frt 正确")
+
+	// 分支首响应时间为零值时不覆盖主信息
+	mainInfoKeep := &relaycommon.RelayInfo{OriginModelName: "virtual-auto", FirstResponseTime: firstResp}
+	branchNoFrt := &relaycommon.RelayInfo{
+		OriginModelName: "gpt-4o-mini",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 44},
+	}
+	inheritBranchModelInfo(mainInfoKeep, branchNoFrt)
+	assert.Equal(t, firstResp, mainInfoKeep.FirstResponseTime)
 
 	// 分支渠道有模型映射：继承最终上游模型名
 	mainInfo2 := &relaycommon.RelayInfo{OriginModelName: "virtual-auto"}
