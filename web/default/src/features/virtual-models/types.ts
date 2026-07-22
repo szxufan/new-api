@@ -54,6 +54,8 @@ export const virtualModelSchema = z.object({
   aggregator: z.string(),
   head_start_stream_ms: z.number(), // speed mode: head start (ms) for streaming requests, 0 = disabled
   head_start_non_stream_ms: z.number(), // speed mode: head start (ms) for non-streaming requests, 0 = disabled
+  quality_trigger_count: z.number(), // quality mode: start wait timer after N sub-model replies, default 1
+  quality_wait_ms: z.number(), // quality mode: max wait (ms) for remaining sub-models after trigger, 0 = disabled
   status: z.number(), // 1: enabled, 2: disabled
   created_time: z.number(),
   updated_time: z.number(),
@@ -79,6 +81,8 @@ export interface VirtualModelPayload {
   aggregator: string
   head_start_stream_ms: number
   head_start_non_stream_ms: number
+  quality_trigger_count: number
+  quality_wait_ms: number
   status: number
 }
 

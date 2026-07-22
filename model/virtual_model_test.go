@@ -86,6 +86,21 @@ func TestVirtualModelValidate(t *testing.T) {
 	vm.HeadStartStreamMs = 500
 	vm.HeadStartNonStreamMs = 2000
 	assert.NoError(t, vm.Validate())
+
+	// 质量模式等待时间为负数
+	vm = newSpeedVirtualModel(t, "vm-negative-quality-wait")
+	vm.QualityWaitMs = -1
+	assert.Error(t, vm.Validate())
+
+	// 质量模式触发数量为负数
+	vm = newSpeedVirtualModel(t, "vm-negative-quality-trigger")
+	vm.QualityTriggerCount = -1
+	assert.Error(t, vm.Validate())
+
+	// 质量模式触发数量为 0（视为不启用，合法）
+	vm = newSpeedVirtualModel(t, "vm-quality-trigger-zero")
+	vm.QualityTriggerCount = 0
+	assert.NoError(t, vm.Validate())
 }
 
 func TestVirtualModelCRUDAndCache(t *testing.T) {

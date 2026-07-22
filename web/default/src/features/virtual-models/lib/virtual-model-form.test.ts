@@ -56,6 +56,8 @@ describe('transformFormDataToPayload', () => {
     aggregator_prompt_template: 'Answer: {{answers}}',
     head_start_stream_ms: 500,
     head_start_non_stream_ms: 2000,
+    quality_trigger_count: 2,
+    quality_wait_ms: 3000,
   }
 
   it('stringifies targets and aggregator and trims strings', () => {
@@ -80,6 +82,12 @@ describe('transformFormDataToPayload', () => {
     const payload = transformFormDataToPayload(formValues)
     expect(payload.head_start_stream_ms).toBe(500)
     expect(payload.head_start_non_stream_ms).toBe(2000)
+  })
+
+  it('passes quality wait fields through to the payload', () => {
+    const payload = transformFormDataToPayload(formValues)
+    expect(payload.quality_trigger_count).toBe(2)
+    expect(payload.quality_wait_ms).toBe(3000)
   })
 
   it('keeps the provided status', () => {
@@ -118,6 +126,23 @@ describe('transformVirtualModelToFormDefaults', () => {
     expect(values.aggregator_channel_id).toBe(0)
     expect(values.head_start_stream_ms).toBe(300)
     expect(values.head_start_non_stream_ms).toBe(1500)
+  })
+
+  it('defaults quality wait fields for legacy records without them', () => {
+    const legacy = {
+      id: 3,
+      name: 'legacy-quality-vm',
+      mode: 'quality',
+      targets: '[{"model":"gpt-4o"}]',
+      aggregator: '{"model":"gpt-4o-mini"}',
+      status: VIRTUAL_MODEL_STATUS.ENABLED,
+      created_time: 100,
+      updated_time: 200,
+    } as unknown as VirtualModel
+
+    const values = transformVirtualModelToFormDefaults(legacy)
+    expect(values.quality_trigger_count).toBe(1)
+    expect(values.quality_wait_ms).toBe(0)
   })
 
   it('defaults head start fields to 0 for legacy records without them', () => {

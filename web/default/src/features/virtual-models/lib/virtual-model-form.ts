@@ -55,6 +55,12 @@ export function getVirtualModelFormSchema(t: TFunction) {
       head_start_non_stream_ms: z
         .number()
         .min(0, t('Head start time cannot be negative')),
+      quality_trigger_count: z
+        .number()
+        .min(0, t('Trigger count cannot be negative')),
+      quality_wait_ms: z
+        .number()
+        .min(0, t('Wait time cannot be negative')),
     })
     .superRefine((data, ctx) => {
       const modeConfig = VIRTUAL_MODEL_MODE_CONFIG[data.mode]
@@ -92,6 +98,8 @@ export type VirtualModelFormValues = {
   aggregator_prompt_template: string
   head_start_stream_ms: number
   head_start_non_stream_ms: number
+  quality_trigger_count: number
+  quality_wait_ms: number
 }
 
 // ============================================================================
@@ -111,6 +119,8 @@ export const VIRTUAL_MODEL_FORM_DEFAULT_VALUES: VirtualModelFormValues = {
   aggregator_prompt_template: '',
   head_start_stream_ms: 0,
   head_start_non_stream_ms: 0,
+  quality_trigger_count: 1,
+  quality_wait_ms: 0,
 }
 
 // ============================================================================
@@ -144,6 +154,8 @@ export function transformFormDataToPayload(
     aggregator: JSON.stringify(aggregator),
     head_start_stream_ms: data.head_start_stream_ms || 0,
     head_start_non_stream_ms: data.head_start_non_stream_ms || 0,
+    quality_trigger_count: data.quality_trigger_count || 1,
+    quality_wait_ms: data.quality_wait_ms || 0,
     status,
   }
 }
@@ -171,5 +183,7 @@ export function transformVirtualModelToFormDefaults(
     aggregator_prompt_template: aggregator.prompt_template || '',
     head_start_stream_ms: virtualModel.head_start_stream_ms || 0,
     head_start_non_stream_ms: virtualModel.head_start_non_stream_ms || 0,
+    quality_trigger_count: virtualModel.quality_trigger_count || 1,
+    quality_wait_ms: virtualModel.quality_wait_ms || 0,
   }
 }

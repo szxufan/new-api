@@ -9,8 +9,22 @@ BINARY_NAME="new-api"
 
 SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
 SKIP_BACKEND="${SKIP_BACKEND:-false}"
-GOOS="${GOOS:-$(go env GOOS)}"
-GOARCH="${GOARCH:-$(go env GOARCH)}"
+
+# go 可能未安装，此时回退到 uname 检测
+detect_os() {
+    uname -s | tr '[:upper:]' '[:lower:]'
+}
+
+detect_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64)   echo "amd64" ;;
+        aarch64|arm64)  echo "arm64" ;;
+        *)              uname -m ;;
+    esac
+}
+
+GOOS="${GOOS:-$(command -v go >/dev/null 2>&1 && go env GOOS || detect_os)}"
+GOARCH="${GOARCH:-$(command -v go >/dev/null 2>&1 && go env GOARCH || detect_arch)}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -41,10 +55,54 @@ install_bun() {
     fi
 }
 
+install_go() {
+    info "未检测到 go，尝试自动安装 ..."
+    if ! command -v curl >/dev/null 2>&1; then
+        err "缺少 curl，无法自动安装 go，请手动安装: https://go.dev/dl/"
+        exit 1
+    fi
+
+    local version
+    version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1 || true)"
+    if [ -z "$version" ]; then
+        err "无法获取 Go 最新版本，请手动安装: https://go.dev/dl/"
+        exit 1
+    fi
+
+    local os arch install_dir="$HOME/.local"
+    os="$(detect_os)"
+    arch="$(detect_arch)"
+
+    info "下载 ${version} (${os}/${arch}) ..."
+    local tmp
+    tmp="$(mktemp -d)"
+    if ! curl -fsSL "https://go.dev/dl/${version}.${os}-${arch}.tar.gz" -o "$tmp/go.tar.gz"; then
+        rm -rf "$tmp"
+        err "Go 下载失败，请手动安装: https://go.dev/dl/"
+        exit 1
+    fi
+
+    rm -rf "$install_dir/go"
+    mkdir -p "$install_dir"
+    tar -C "$install_dir" -xzf "$tmp/go.tar.gz"
+    rm -rf "$tmp"
+
+    export PATH="$install_dir/go/bin:$PATH"
+    if command -v go >/dev/null 2>&1; then
+        ok "go 安装成功: $(go version)"
+    else
+        err "go 安装失败，请手动安装: https://go.dev/dl/"
+        exit 1
+    fi
+}
+
 check_deps() {
-    local missing=()
     if [ "$SKIP_BACKEND" = "false" ]; then
-        command -v go >/dev/null 2>&1 || missing+=("go")
+        # 先将 go 默认安装目录加入 PATH，避免已安装但未配置 PATH 时误判
+        export PATH="$HOME/.local/go/bin:/usr/local/go/bin:$PATH"
+        if ! command -v go >/dev/null 2>&1; then
+            install_go
+        fi
     fi
     if [ "$SKIP_FRONTEND" = "false" ]; then
         # 先将 bun 默认安装目录加入 PATH，避免已安装但未配置 PATH 时误判
@@ -53,11 +111,6 @@ check_deps() {
         if ! command -v bun >/dev/null 2>&1; then
             install_bun
         fi
-    fi
-    if [ ${#missing[@]} -ne 0 ]; then
-        err "缺少必要依赖: ${missing[*]}"
-        err "请安装后再运行"
-        exit 1
     fi
 }
 

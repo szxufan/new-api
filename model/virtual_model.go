@@ -41,6 +41,8 @@ type VirtualModel struct {
 	Aggregator           string `json:"aggregator" gorm:"type:text"`               // JSON: VirtualModelAggregator
 	HeadStartStreamMs    int    `json:"head_start_stream_ms" gorm:"default:0"`     // 速度模式-流式请求抢跑时间（毫秒），0=关闭
 	HeadStartNonStreamMs int    `json:"head_start_non_stream_ms" gorm:"default:0"` // 速度模式-非流式请求抢跑时间（毫秒），0=关闭
+	QualityTriggerCount  int    `json:"quality_trigger_count" gorm:"default:1"`    // 质量模式：收到第 N 个子模型回复后启动等待计时
+	QualityWaitMs        int    `json:"quality_wait_ms" gorm:"default:0"`          // 质量模式：触发后等待其余模型的最长时间（毫秒），0=关闭
 	Status               int    `json:"status" gorm:"default:1"`                   // 1=启用 2=禁用
 	CreatedTime          int64  `json:"created_time" gorm:"bigint"`
 	UpdatedTime          int64  `json:"updated_time" gorm:"bigint"`
@@ -134,6 +136,12 @@ func (vm *VirtualModel) Validate() error {
 	}
 	if vm.HeadStartStreamMs < 0 || vm.HeadStartNonStreamMs < 0 {
 		return errors.New("抢跑时间不能为负数")
+	}
+	if vm.QualityWaitMs < 0 {
+		return errors.New("质量模式等待时间不能为负数")
+	}
+	if vm.QualityTriggerCount < 0 {
+		return errors.New("质量模式触发数量不能为负数")
 	}
 	return nil
 }
@@ -268,6 +276,8 @@ func (vm *VirtualModel) Update() error {
 		"aggregator":               vm.Aggregator,
 		"head_start_stream_ms":     vm.HeadStartStreamMs,
 		"head_start_non_stream_ms": vm.HeadStartNonStreamMs,
+		"quality_trigger_count":    vm.QualityTriggerCount,
+		"quality_wait_ms":          vm.QualityWaitMs,
 		"status":                   vm.Status,
 		"updated_time":             vm.UpdatedTime,
 	}).Error; err != nil {

@@ -534,36 +534,74 @@ const defaultAggregatorPromptTemplate = `The user's latest request has been answ
 func virtualQualityMode(c *gin.Context, info *relaycommon.RelayInfo, vm *model.VirtualModel, targets []model.VirtualModelTarget) *types.NewAPIError {
 	n := len(targets)
 	doneCh := make(chan *virtualBranchOutcome, n)
+	cancels := make([]context.CancelFunc, n)
+	branchDone := make([]bool, n)
 
 	for i, target := range targets {
-		go func(idx int, t model.VirtualModelTarget) {
+		cancelCtx, cancel := context.WithCancel(c.Request.Context())
+		cancels[i] = cancel
+		go func(idx int, t model.VirtualModelTarget, bCtx context.Context) {
 			writer := newCaptureWriter()
 			outcome := &virtualBranchOutcome{idx: idx}
 			branchReq, reqErr := prepareBranchRequest(info, t.Model, true)
 			if reqErr != nil {
 				outcome.err = reqErr
 			} else {
-				outcome = runVirtualBranch(c, info, t, branchReq, writer, c.Request.Context(), 0)
+				outcome = runVirtualBranch(c, info, t, branchReq, writer, bCtx, 0)
 				outcome.idx = idx
 			}
 			if outcome.err == nil {
 				outcome.body = writer.buf.Bytes()
 			}
 			doneCh <- outcome
-		}(i, target)
+		}(i, target, cancelCtx)
 	}
 
-	// 等待全部分支完成
+	// 等待分支完成，支持触发数量 + 超时
+	triggerCount := vm.QualityTriggerCount
+	if triggerCount < 1 {
+		triggerCount = 1 // 兜底：0/负数视为 1，避免永不触发
+	}
+	var timer *time.Timer
+	var timerCh <-chan time.Time
+	fired := false
+	successCount := 0
 	outcomes := make([]*virtualBranchOutcome, 0, n)
 	var lastErr *types.NewAPIError
-	for i := 0; i < n; i++ {
-		out := <-doneCh
-		outcomes = append(outcomes, out)
-		if out.err != nil {
-			lastErr = out.err
-			logger.LogInfo(c, fmt.Sprintf("virtual model %s quality: branch #%d (%s) failed: %s",
-				vm.Name, out.idx, targets[out.idx].Model, out.err.Error()))
+
+	for completed := 0; completed < n; {
+		select {
+		case out := <-doneCh:
+			completed++
+			branchDone[out.idx] = true
+			outcomes = append(outcomes, out)
+			if out.err != nil {
+				lastErr = out.err
+				logger.LogInfo(c, fmt.Sprintf("virtual model %s quality: branch #%d (%s) failed: %s",
+					vm.Name, out.idx, targets[out.idx].Model, out.err.Error()))
+				continue
+			}
+			successCount++
+			if vm.QualityWaitMs > 0 && !fired && successCount >= triggerCount {
+				fired = true
+				timer = time.NewTimer(time.Duration(vm.QualityWaitMs) * time.Millisecond)
+				timerCh = timer.C
+				logger.LogInfo(c, fmt.Sprintf("virtual model %s quality: trigger count %d reached, waiting up to %d ms for remaining branches",
+					vm.Name, triggerCount, vm.QualityWaitMs))
+			}
+		case <-timerCh:
+			timerCh = nil
+			for idx, cancel := range cancels {
+				if cancel != nil && !branchDone[idx] {
+					cancel()
+				}
+			}
+			logger.LogInfo(c, fmt.Sprintf("virtual model %s quality: wait timeout after %d ms, cancelling unfinished branches",
+				vm.Name, vm.QualityWaitMs))
 		}
+	}
+	if timer != nil {
+		timer.Stop()
 	}
 
 	// 收集成功分支的回复文本与 usage

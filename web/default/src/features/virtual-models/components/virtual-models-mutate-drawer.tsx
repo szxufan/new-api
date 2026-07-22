@@ -476,6 +476,60 @@ export function VirtualModelsMutateDrawer({
                     </FormItem>
                   )}
                 />
+                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='quality_trigger_count'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Trigger Count')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            value={field.value}
+                            onChange={(e) => {
+                              const v = e.target.valueAsNumber
+                              field.onChange(Number.isNaN(v) ? 0 : v)
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Start the wait timer after this many sub-model replies arrive. Default 1.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='quality_wait_ms'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Wait Timeout (ms)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            value={field.value}
+                            onChange={(e) => {
+                              const v = e.target.valueAsNumber
+                              field.onChange(Number.isNaN(v) ? 0 : v)
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            '0 = wait for all. After the trigger count is reached, wait this long for the remaining sub-models; unreturned branches are cancelled and aggregated with the answers already received.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
             )}
 
