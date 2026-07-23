@@ -309,7 +309,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, retryCount int) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, retryCount int, nodeName string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -390,6 +390,17 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 			retryCondition = "CAST(json_extract(logs.other, '$.retry_count') AS INTEGER) > ?"
 		}
 		tx = tx.Where(retryCondition, retryCount)
+	}
+	if nodeName != "" {
+		var nodeCondition string
+		if common.UsingPostgreSQL {
+			nodeCondition = "logs.other::jsonb -> 'admin_info' ->> 'node_name' = ?"
+		} else if common.UsingMySQL {
+			nodeCondition = "JSON_UNQUOTE(JSON_EXTRACT(logs.other, '$.admin_info.node_name')) = ?"
+		} else { // SQLite
+			nodeCondition = "json_extract(logs.other, '$.admin_info.node_name') = ?"
+		}
+		tx = tx.Where(nodeCondition, nodeName)
 	}
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {

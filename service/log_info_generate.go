@@ -72,6 +72,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 	AppendUserAgentAdminInfo(ctx, adminInfo)
+	AppendNodeIdentityAdminInfo(adminInfo)
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
@@ -97,6 +98,18 @@ func AppendUserAgentAdminInfo(ctx *gin.Context, adminInfo map[string]interface{}
 	}
 	if ua := strings.TrimSpace(ctx.Request.UserAgent()); ua != "" {
 		adminInfo["user_agent"] = ua
+	}
+}
+
+func AppendNodeIdentityAdminInfo(adminInfo map[string]interface{}) {
+	if adminInfo == nil {
+		return
+	}
+	if common.NodeName != "" {
+		adminInfo["node_name"] = common.NodeName
+	}
+	if serverIp := common.GetIp(); serverIp != "" {
+		adminInfo["server_ip"] = serverIp
 	}
 }
 

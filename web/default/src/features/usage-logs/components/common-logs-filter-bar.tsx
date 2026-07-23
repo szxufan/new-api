@@ -91,6 +91,7 @@ export function CommonLogsFilterBar<TData>(
     if (searchParams.requestId) initial.requestId = searchParams.requestId
     if (searchParams.upstreamRequestId)
       initial.upstreamRequestId = searchParams.upstreamRequestId
+    if (searchParams.nodeName) initial.nodeName = searchParams.nodeName
     return initial
   })
   const [logType, setLogType] = useState<LogTypeValue | ''>(() => {
@@ -113,6 +114,8 @@ export function CommonLogsFilterBar<TData>(
     if (searchParams.upstreamRequestId)
       next.upstreamRequestId = searchParams.upstreamRequestId
     if (searchParams.retryCount) next.retryCount = searchParams.retryCount
+    if (searchParams.nodeName) next.nodeName = searchParams.nodeName
+    if (searchParams.nodeName) next.nodeName = searchParams.nodeName
 
     if (Object.keys(next).length > 0) {
       queueMicrotask(() => {
@@ -137,6 +140,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.requestId,
     searchParams.upstreamRequestId,
     searchParams.retryCount,
+    searchParams.nodeName,
     searchParams.type,
   ])
 
@@ -168,6 +172,7 @@ export function CommonLogsFilterBar<TData>(
       startTime: start,
       endTime: end,
       retryCount: undefined,
+      nodeName: undefined,
     }
     setFilters(resetFilters)
     setLogType('')
@@ -209,7 +214,8 @@ export function CommonLogsFilterBar<TData>(
     !!filters.channel ||
     !!filters.requestId ||
     !!filters.upstreamRequestId ||
-    !!filters.retryCount
+    !!filters.retryCount ||
+    !!filters.nodeName
 
   const hasAdditionalFilters =
     !!filters.model || !!filters.group || !!logType || hasExpandedFilters
@@ -376,6 +382,15 @@ export function CommonLogsFilterBar<TData>(
               placeholder={t('Min Retry Count')}
               value={filters.retryCount ?? ''}
               onChange={handleRetryCountChange}
+              onKeyDown={handleKeyDown}
+              className={inputClass}
+            />
+          )}
+          {isAdmin && (
+            <Input
+              placeholder={t('Node Name')}
+              value={filters.nodeName || ''}
+              onChange={(e) => handleChange('nodeName', e.target.value)}
               onKeyDown={handleKeyDown}
               className={inputClass}
             />

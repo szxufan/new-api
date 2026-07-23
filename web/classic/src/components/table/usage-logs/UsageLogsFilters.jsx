@@ -120,6 +120,14 @@ const LogsFilters = ({
                 pure
                 size='small'
               />
+              <Form.Input
+                field='node_name'
+                prefix={<IconSearch />}
+                placeholder={t('节点名称')}
+                showClear
+                pure
+                size='small'
+              />
             </>
           )}
         </div>

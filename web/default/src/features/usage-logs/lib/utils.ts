@@ -219,6 +219,9 @@ export function buildApiParams(config: {
     ...(searchParams.retryCount
       ? { retry_count: Number(searchParams.retryCount) }
       : {}),
+    ...(searchParams.nodeName
+      ? { node_name: String(searchParams.nodeName) }
+      : {}),
     ...buildTimeRangeParams(searchParams, false),
   }
 

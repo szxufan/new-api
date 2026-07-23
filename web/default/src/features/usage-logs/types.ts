@@ -54,6 +54,7 @@ export interface CommonLogFilters extends CommonFilters {
   requestId?: string
   upstreamRequestId?: string
   retryCount?: number
+  nodeName?: string
 }
 
 /**
@@ -276,6 +277,7 @@ export interface GetLogsParams {
   request_id?: string
   upstream_request_id?: string
   retry_count?: number
+  node_name?: string
 }
 
 export interface GetLogsResponse {
@@ -301,6 +303,7 @@ export interface GetLogStatsParams {
   request_id?: string
   upstream_request_id?: string
   retry_count?: number
+  node_name?: string
 }
 
 export interface GetLogStatsResponse {

@@ -614,6 +614,22 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 />
               )}
 
+              {props.isAdmin && other?.admin_info?.node_name && (
+                <DetailRow
+                  label={t('Node Name')}
+                  value={other.admin_info.node_name}
+                  mono
+                />
+              )}
+
+              {props.isAdmin && other?.admin_info?.server_ip && (
+                <DetailRow
+                  label={t('Server IP')}
+                  value={other.admin_info.server_ip}
+                  mono
+                />
+              )}
+
               {showTiming && props.log.use_time > 0 && (
                 <DetailRow
                   label={t('Response Time')}

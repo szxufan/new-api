@@ -39,6 +39,7 @@ const usageLogsSearchSchema = z.object({
   requestId: z.string().optional().catch(''),
   upstreamRequestId: z.string().optional().catch(''),
   retryCount: z.number().optional(),
+  nodeName: z.string().optional().catch(''),
   startTime: z.number().optional(),
   endTime: z.number().optional(),
 })

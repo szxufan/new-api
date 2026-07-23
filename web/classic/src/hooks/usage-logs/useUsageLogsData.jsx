@@ -642,6 +642,20 @@ export const useLogsData = () => {
           value: localCountMode,
         });
       }
+      if (isAdminUser && logs[i].type !== 6 && logs[i].type !== 1 && other?.admin_info) {
+        if (other.admin_info.node_name) {
+          expandDataLocal.push({
+            key: t('节点名称'),
+            value: other.admin_info.node_name,
+          });
+        }
+        if (other.admin_info.server_ip) {
+          expandDataLocal.push({
+            key: t('服务器IP'),
+            value: other.admin_info.server_ip,
+          });
+        }
+      }
       if (isAdminUser && logs[i].type === 1) {
         const adminInfo = other?.admin_info;
         if (adminInfo) {
@@ -740,6 +754,7 @@ export const useLogsData = () => {
       channel,
       group,
       request_id,
+      node_name,
       logType: formLogType,
     } = getFormValues();
 
@@ -753,7 +768,7 @@ export const useLogsData = () => {
     let localStartTimestamp = Date.parse(start_timestamp) / 1000;
     let localEndTimestamp = Date.parse(end_timestamp) / 1000;
     if (isAdminUser) {
-      url = `/api/log/?p=${startIdx}&page_size=${pageSize}&type=${currentLogType}&username=${username}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&channel=${channel}&group=${group}&request_id=${request_id}`;
+      url = `/api/log/?p=${startIdx}&page_size=${pageSize}&type=${currentLogType}&username=${username}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&channel=${channel}&group=${group}&request_id=${request_id}&node_name=${node_name || ''}`;
     } else {
       url = `/api/log/self/?p=${startIdx}&page_size=${pageSize}&type=${currentLogType}&token_name=${token_name}&model_name=${model_name}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&group=${group}&request_id=${request_id}`;
     }

@@ -59,6 +59,7 @@ export function buildSearchParams(
           upstreamRequestId: commonFilters.upstreamRequestId,
         }),
         ...(commonFilters.retryCount && { retryCount: commonFilters.retryCount }),
+        ...(commonFilters.nodeName && { nodeName: commonFilters.nodeName }),
       }
     }
     case 'drawing': {

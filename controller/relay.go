@@ -761,6 +761,7 @@ func recordFinalErrorLog(c *gin.Context, relayInfo *relaycommon.RelayInfo, err *
 	}
 	service.AppendChannelAffinityAdminInfo(c, adminInfo)
 	service.AppendUserAgentAdminInfo(c, adminInfo)
+	service.AppendNodeIdentityAdminInfo(adminInfo)
 	// 后备渠道信息
 	if fallbackFromId := common.GetContextKeyInt(c, constant.ContextKeyFallbackFromChannelId); fallbackFromId > 0 {
 		adminInfo["fallback_from_channel_id"] = fallbackFromId
