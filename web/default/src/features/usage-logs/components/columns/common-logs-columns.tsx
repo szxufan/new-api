@@ -281,6 +281,22 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           )
         },
         meta: { label: t('User'), mobileHidden: true },
+      },
+      {
+        id: 'node_name',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Node Name')} />
+        ),
+        cell: ({ row }) => {
+          const log = row.original
+          const other = parseLogOther(log.other)
+          const nodeName = other?.admin_info?.node_name
+          if (!nodeName) return null
+          return (
+            <span className='font-mono text-xs tabular-nums'>{nodeName}</span>
+          )
+        },
+        meta: { label: t('Node Name'), mobileHidden: true },
       }
     )
   }

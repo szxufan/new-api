@@ -610,6 +610,18 @@ export const getLogsColumns = ({
       },
     },
     {
+      key: COLUMN_KEYS.NODE_NAME,
+      title: t('节点名称'),
+      dataIndex: 'node_name',
+      render: (text, record, index) => {
+        if (!isAdminUser) return null;
+        let other = getLogOther(record.other);
+        const nodeName = other?.admin_info?.node_name;
+        if (!nodeName) return null;
+        return <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{nodeName}</span>;
+      },
+    },
+    {
       key: COLUMN_KEYS.TOKEN,
       title: t('令牌'),
       dataIndex: 'token_name',
