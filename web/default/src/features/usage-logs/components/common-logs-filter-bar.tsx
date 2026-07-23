@@ -40,6 +40,10 @@ import {
 } from '@/components/ui/tooltip'
 import { DataTableToolbar } from '@/components/data-table'
 import { LOG_TYPES } from '../constants'
+import {
+  useGroupOptions,
+  useChannelOptions,
+} from '../hooks/use-log-filter-options'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
@@ -70,6 +74,8 @@ export function CommonLogsFilterBar<TData>(
   const isAdmin = useIsAdmin()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
+  const { data: groupOptions = [] } = useGroupOptions()
+  const { data: channelOptions = [] } = useChannelOptions(isAdmin)
 
   const [filters, setFilters] = useState<CommonLogFilters>(() => {
     const { start, end } = getDefaultTimeRange()
@@ -106,6 +112,7 @@ export function CommonLogsFilterBar<TData>(
     if (searchParams.requestId) next.requestId = searchParams.requestId
     if (searchParams.upstreamRequestId)
       next.upstreamRequestId = searchParams.upstreamRequestId
+    if (searchParams.retryCount) next.retryCount = searchParams.retryCount
 
     if (Object.keys(next).length > 0) {
       queueMicrotask(() => {
@@ -129,6 +136,7 @@ export function CommonLogsFilterBar<TData>(
     searchParams.username,
     searchParams.requestId,
     searchParams.upstreamRequestId,
+    searchParams.retryCount,
     searchParams.type,
   ])
 
@@ -156,7 +164,11 @@ export function CommonLogsFilterBar<TData>(
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
-    const resetFilters: CommonLogFilters = { startTime: start, endTime: end }
+    const resetFilters: CommonLogFilters = {
+      startTime: start,
+      endTime: end,
+      retryCount: undefined,
+    }
     setFilters(resetFilters)
     setLogType('')
 
@@ -180,12 +192,24 @@ export function CommonLogsFilterBar<TData>(
     [handleApply]
   )
 
+  const handleRetryCountChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = Number(e.target.value)
+      setFilters((prev) => ({
+        ...prev,
+        retryCount: val > 0 ? val : undefined,
+      }))
+    },
+    []
+  )
+
   const hasExpandedFilters =
     !!filters.token ||
     !!filters.username ||
     !!filters.channel ||
     !!filters.requestId ||
-    !!filters.upstreamRequestId
+    !!filters.upstreamRequestId ||
+    !!filters.retryCount
 
   const hasAdditionalFilters =
     !!filters.model || !!filters.group || !!logType || hasExpandedFilters
@@ -241,14 +265,33 @@ export function CommonLogsFilterBar<TData>(
             onKeyDown={handleKeyDown}
             className={inputClass}
           />
-          <Input
-            placeholder={t('Group')}
-            type={sensitiveType}
-            value={filters.group || ''}
-            onChange={(e) => handleChange('group', e.target.value)}
-            onKeyDown={handleKeyDown}
-            className={inputClass}
-          />
+          <Select
+            items={[
+              { value: 'all', label: t('All Groups') },
+              ...groupOptions.map((g) => ({
+                value: g,
+                label: g,
+              })),
+            ]}
+            value={filters.group || 'all'}
+            onValueChange={(value) => {
+              handleChange('group', value === 'all' ? '' : (value as string))
+            }}
+          >
+            <SelectTrigger className={inputClass}>
+              <SelectValue placeholder={t('All Groups')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                <SelectItem value='all'>{t('All Groups')}</SelectItem>
+                {groupOptions.map((g) => (
+                  <SelectItem key={g} value={g}>
+                    {g}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <Select
             items={[
               { value: 'all', label: t('All Types') },
@@ -276,10 +319,6 @@ export function CommonLogsFilterBar<TData>(
               </SelectGroup>
             </SelectContent>
           </Select>
-        </>
-      }
-      expandable={
-        <>
           <Input
             placeholder={t('Token Name')}
             type={sensitiveType}
@@ -299,10 +338,44 @@ export function CommonLogsFilterBar<TData>(
             />
           )}
           {isAdmin && (
+            <Select
+              items={[
+                { value: 'all', label: t('All Channels') },
+                ...channelOptions.map((ch) => ({
+                  value: String(ch.id),
+                  label: `#${ch.id} ${ch.name}`.trim(),
+                })),
+              ]}
+              value={filters.channel || 'all'}
+              onValueChange={(value) => {
+                handleChange(
+                  'channel',
+                  value === 'all' ? '' : (value as string)
+                )
+              }}
+            >
+              <SelectTrigger className={inputClass}>
+                <SelectValue placeholder={t('All Channels')} />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='all'>{t('All Channels')}</SelectItem>
+                  {channelOptions.map((ch) => (
+                    <SelectItem key={ch.id} value={String(ch.id)}>
+                      {`#${ch.id} ${ch.name}`.trim()}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+          {isAdmin && (
             <Input
-              placeholder={t('Channel ID')}
-              value={filters.channel || ''}
-              onChange={(e) => handleChange('channel', e.target.value)}
+              type='number'
+              min='0'
+              placeholder={t('Min Retry Count')}
+              value={filters.retryCount ?? ''}
+              onChange={handleRetryCountChange}
               onKeyDown={handleKeyDown}
               className={inputClass}
             />
@@ -323,7 +396,6 @@ export function CommonLogsFilterBar<TData>(
           />
         </>
       }
-      hasExpandedActiveFilters={hasExpandedFilters}
       hasAdditionalFilters={hasAdditionalFilters}
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}

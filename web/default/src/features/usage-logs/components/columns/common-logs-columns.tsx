@@ -21,7 +21,6 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { CircleAlert, Sparkles, KeyRound } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatUseTime,
   formatLogQuota,
@@ -42,27 +41,17 @@ import {
   formatModelName,
   getFirstResponseTimeColor,
   getResponseTimeColor,
-  getTieredBillingSummary,
-  hasAnyCacheTokens,
   parseLogOther,
-  isViolationFeeLog,
 } from '../../lib/format'
 import {
   isDisplayableLogType,
   isTimingLogType,
   getLogTypeConfig,
-  isPerCallBilling,
 } from '../../lib/utils'
 import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { ModelBadge } from '../model-badge'
 import { useUsageLogsContext } from '../usage-logs-provider'
-
-interface DetailSegment {
-  text: string
-  muted?: boolean
-  danger?: boolean
-}
 
 function formatRatioCompact(ratio: number | undefined): string {
   if (ratio == null || !Number.isFinite(ratio)) return '-'
@@ -87,170 +76,6 @@ function getGroupRatioText(other: LogOtherData | null): string | null {
   }
 
   return null
-}
-
-function buildDetailSegments(
-  log: UsageLog,
-  other: LogOtherData | null,
-  t: (key: string, opts?: Record<string, unknown>) => string
-): DetailSegment[] {
-  if (log.type === 6) {
-    return [{ text: t('Async task refund') }]
-  }
-
-  if (log.type !== 2) return []
-
-  const isViolation = isViolationFeeLog(other)
-  if (isViolation) {
-    const segments: DetailSegment[] = []
-    segments.push({ text: t('Violation Fee'), danger: true })
-    if (other?.violation_fee_code) {
-      segments.push({
-        text: other.violation_fee_code,
-        muted: true,
-      })
-    }
-    segments.push({
-      text: `${t('Fee')}: ${formatLogQuota(other?.fee_quota ?? log.quota)}`,
-      muted: true,
-    })
-    return segments
-  }
-
-  if (!other) return []
-
-  const segments: DetailSegment[] = []
-
-  const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
-  const formatPrice = (price: number) =>
-    `${formatBillingCurrencyFromUSD(price, priceOpts)}/M`
-  const formatPriceCompact = (price: number) =>
-    formatBillingCurrencyFromUSD(price, priceOpts)
-  const formatPriceList = (prices: string[], showUnit: boolean) => {
-    const text = prices.join(' / ')
-    return showUnit ? `${text}/M` : text
-  }
-  const isTieredExpr = other.billing_mode === 'tiered_expr'
-  const tieredSummary = getTieredBillingSummary(other)
-  if (isTieredExpr) {
-    if (tieredSummary) {
-      const baseEntries = tieredSummary.priceEntries
-        .filter((entry) => ['inputPrice', 'outputPrice'].includes(entry.field))
-        .map((entry) => formatPriceCompact(entry.price))
-      if (baseEntries.length > 0) {
-        const tierLabel = tieredSummary.tier.label || t('Default')
-        segments.push({
-          text: `${tierLabel} · ${formatPriceList(baseEntries, true)}`,
-        })
-      }
-
-      const cacheEntries = tieredSummary.priceEntries
-        .filter((entry) =>
-          ['cacheReadPrice', 'cacheCreatePrice', 'cacheCreate1hPrice'].includes(
-            entry.field
-          )
-        )
-        .map((entry) => {
-          return formatPriceCompact(entry.price)
-        })
-      if (cacheEntries.length > 0) {
-        segments.push({
-          text: `${t('Cache')} ${formatPriceList(cacheEntries, false)}`,
-          muted: true,
-        })
-      }
-
-      const otherEntries = tieredSummary.priceEntries
-        .filter(
-          (entry) =>
-            ![
-              'inputPrice',
-              'outputPrice',
-              'cacheReadPrice',
-              'cacheCreatePrice',
-              'cacheCreate1hPrice',
-            ].includes(entry.field)
-        )
-        .map((entry) => `${t(entry.shortLabel)} ${formatPrice(entry.price)}`)
-      if (otherEntries.length > 0) {
-        segments.push({
-          text: otherEntries.join(' · '),
-          muted: true,
-        })
-      }
-    } else {
-      segments.push({
-        text: `${t('Dynamic Pricing')} · ${t('No matching results')}`,
-        muted: true,
-      })
-    }
-  } else {
-    const isPerCall = isPerCallBilling(other.model_price)
-    if (isPerCall) {
-      segments.push({
-        text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(other.model_price!, priceOpts)}`,
-      })
-    } else if (other.model_ratio != null) {
-      const inputPriceUSD = other.model_ratio * 2.0
-      const baseEntries = [formatPriceCompact(inputPriceUSD)]
-      if (other.completion_ratio != null) {
-        baseEntries.push(
-          formatPriceCompact(inputPriceUSD * other.completion_ratio)
-        )
-      }
-      segments.push({
-        text: `${t('Standard')} · ${formatPriceList(baseEntries, true)}`,
-      })
-
-      if (hasAnyCacheTokens(other)) {
-        const cacheEntries = [
-          other.cache_ratio != null && other.cache_ratio !== 1
-            ? formatPriceCompact(inputPriceUSD * other.cache_ratio)
-            : null,
-          other.cache_creation_ratio != null && other.cache_creation_ratio !== 1
-            ? formatPriceCompact(inputPriceUSD * other.cache_creation_ratio)
-            : null,
-          other.cache_creation_ratio_1h != null &&
-          other.cache_creation_ratio_1h !== 0
-            ? formatPriceCompact(inputPriceUSD * other.cache_creation_ratio_1h)
-            : null,
-        ].filter(Boolean) as string[]
-
-        if (cacheEntries.length > 0) {
-          segments.push({
-            text: `${t('Cache')} ${formatPriceList(cacheEntries, false)}`,
-            muted: true,
-          })
-        }
-      }
-    } else {
-      const userGroupRatio = other.user_group_ratio
-      const groupRatio = other.group_ratio
-      const isUserGroup =
-        userGroupRatio != null &&
-        Number.isFinite(userGroupRatio) &&
-        userGroupRatio !== -1
-      const effectiveRatio = isUserGroup ? userGroupRatio : groupRatio
-      const ratioLabel = isUserGroup
-        ? t('User Exclusive Ratio')
-        : t('Group Ratio')
-
-      if (effectiveRatio != null && Number.isFinite(effectiveRatio)) {
-        segments.push({
-          text: `${ratioLabel} ${formatRatioCompact(effectiveRatio)}x`,
-        })
-      }
-    }
-  }
-
-  if (other.is_system_prompt_overwritten) {
-    segments.push({
-      text: t('System Prompt Override'),
-      danger: true,
-    })
-  }
-
-  return segments
 }
 
 export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
@@ -406,6 +231,13 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
           if (!log.username) return null
 
+          // 优先使用 display_name，回退到 username
+          const displayName = log.display_name || log.username
+          const tooltipText =
+            log.display_name && log.display_name !== log.username
+              ? `${log.display_name} (${log.username})`
+              : log.username
+
           return (
             <button
               type='button'
@@ -438,12 +270,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                       <span className='text-muted-foreground max-w-[100px] truncate text-sm hover:underline' />
                     }
                   >
-                    {sensitiveVisible ? log.username : '••••'}
+                    {sensitiveVisible ? displayName : '••••'}
                   </TooltipTrigger>
-                  {sensitiveVisible && log.username.length > 12 && (
-                    <TooltipContent side='top'>
-                      {log.username}
-                    </TooltipContent>
+                  {sensitiveVisible && tooltipText.length > 12 && (
+                    <TooltipContent side='top'>{tooltipText}</TooltipContent>
                   )}
                 </Tooltip>
               </TooltipProvider>
@@ -809,36 +639,39 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const other = parseLogOther(log.other)
 
-        const segments = buildDetailSegments(log, other, t)
-        const primary = segments[0]
-        const hasMore = segments.length > 1
+        // 展示请求转换信息（复用 details-dialog.tsx 的逻辑）
+        const conversionChain =
+          other && Array.isArray(other.request_conversion)
+            ? other.request_conversion.filter(Boolean)
+            : []
+        const conversionLabel =
+          conversionChain.length <= 1
+            ? t('Native format')
+            : conversionChain.join(' -> ')
+        const showConversion =
+          isAdmin &&
+          log.type !== 6 &&
+          (!!other?.request_path || conversionChain.length > 0)
 
         return (
           <>
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+              className='group flex max-w-[200px] flex-col gap-0.5 text-left text-xs'
               onClick={() => setDialogOpen(true)}
               title={t('Click to view full details')}
             >
-              {primary ? (
-                <span
-                  className={cn(
-                    'truncate leading-snug group-hover:underline',
-                    primary.muted
-                      ? 'text-muted-foreground/60'
-                      : primary.danger
-                        ? 'text-red-600 dark:text-red-400'
-                        : 'text-foreground'
-                  )}
-                >
-                  {primary.text}
-                  {hasMore && (
-                    <span className='text-muted-foreground/40 ml-0.5'>
-                      +{segments.length - 1}
+              {showConversion ? (
+                <>
+                  <span className='truncate leading-snug text-foreground group-hover:underline'>
+                    {conversionLabel}
+                  </span>
+                  {other?.request_path && (
+                    <span className='text-muted-foreground/60 truncate'>
+                      {other.request_path}
                     </span>
                   )}
-                </span>
+                </>
               ) : log.content ? (
                 <span className='text-muted-foreground truncate group-hover:underline'>
                   {log.content}

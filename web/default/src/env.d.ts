@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /// <reference types="@rsbuild/core/types" />
+/// <reference types="@testing-library/jest-dom/vitest" />
 
 declare module '@visactor/react-vchart' {
   export const VChart: React.ComponentType<Record<string, unknown>>

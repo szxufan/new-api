@@ -58,11 +58,7 @@ export function DataTableRowActions<TData>({
       : VIRTUAL_MODEL_STATUS.ENABLED
 
     const result = await updateVirtualModel({
-      id: virtualModel.id,
-      name: virtualModel.name,
-      mode: virtualModel.mode,
-      targets: virtualModel.targets,
-      aggregator: virtualModel.aggregator,
+      ...virtualModel,
       status: newStatus,
     })
     if (result.success) {

@@ -31,7 +31,9 @@ export function parseTargets(targets: string): VirtualModelTarget[] {
   }
 }
 
-export function parseAggregator(aggregator: string): VirtualModelAggregator {
+export function parseAggregator(
+  aggregator: string
+): Partial<VirtualModelAggregator> {
   try {
     const parsed = JSON.parse(aggregator || '{}')
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)

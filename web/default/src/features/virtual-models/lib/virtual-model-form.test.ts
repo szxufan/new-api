@@ -109,6 +109,8 @@ describe('transformVirtualModelToFormDefaults', () => {
       aggregator: '{}',
       head_start_stream_ms: 300,
       head_start_non_stream_ms: 1500,
+      quality_trigger_count: 1,
+      quality_wait_ms: 0,
       status: VIRTUAL_MODEL_STATUS.ENABLED,
       created_time: 100,
       updated_time: 200,
