@@ -73,9 +73,25 @@ export function CommonLogsFilterBar<TData>(
 
   const [filters, setFilters] = useState<CommonLogFilters>(() => {
     const { start, end } = getDefaultTimeRange()
-    return { startTime: start, endTime: end }
+    const initial: CommonLogFilters = { startTime: start, endTime: end }
+    if (searchParams.startTime)
+      initial.startTime = new Date(searchParams.startTime)
+    if (searchParams.endTime) initial.endTime = new Date(searchParams.endTime)
+    if (searchParams.channel) initial.channel = String(searchParams.channel)
+    if (searchParams.model) initial.model = searchParams.model
+    if (searchParams.token) initial.token = searchParams.token
+    if (searchParams.group) initial.group = searchParams.group
+    if (searchParams.username) initial.username = searchParams.username
+    if (searchParams.requestId) initial.requestId = searchParams.requestId
+    if (searchParams.upstreamRequestId)
+      initial.upstreamRequestId = searchParams.upstreamRequestId
+    return initial
   })
-  const [logType, setLogType] = useState<LogTypeValue | ''>('')
+  const [logType, setLogType] = useState<LogTypeValue | ''>(() => {
+    const typeArr = searchParams.type
+    if (Array.isArray(typeArr) && typeArr.length === 1) return typeArr[0]
+    return ''
+  })
 
   useEffect(() => {
     const next: Partial<CommonLogFilters> = {}
@@ -92,12 +108,16 @@ export function CommonLogsFilterBar<TData>(
       next.upstreamRequestId = searchParams.upstreamRequestId
 
     if (Object.keys(next).length > 0) {
-      setFilters((prev) => ({ ...prev, ...next }))
+      queueMicrotask(() => {
+        setFilters((prev) => ({ ...prev, ...next }))
+      })
     }
 
     const typeArr = searchParams.type
     if (Array.isArray(typeArr) && typeArr.length === 1) {
-      setLogType(typeArr[0])
+      queueMicrotask(() => {
+        setLogType(typeArr[0])
+      })
     }
   }, [
     searchParams.startTime,
@@ -209,7 +229,7 @@ export function CommonLogsFilterBar<TData>(
             handleChange('startTime', start)
             handleChange('endTime', end)
           }}
-          className='w-full sm:w-[340px]'
+          className='w-full sm:w-85'
         />
       }
       additionalSearch={
@@ -297,9 +317,7 @@ export function CommonLogsFilterBar<TData>(
           <Input
             placeholder={t('Upstream Request ID')}
             value={filters.upstreamRequestId || ''}
-            onChange={(e) =>
-              handleChange('upstreamRequestId', e.target.value)
-            }
+            onChange={(e) => handleChange('upstreamRequestId', e.target.value)}
             onKeyDown={handleKeyDown}
             className={inputClass}
           />

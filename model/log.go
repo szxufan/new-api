@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -38,6 +39,7 @@ type Log struct {
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
+	DisplayName       string `json:"display_name" gorm:"->"`
 }
 
 // don't use iota, avoid change log type value
@@ -307,7 +309,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, retryCount int) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -316,17 +318,48 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 
 	if modelName != "" {
+		// 先包裹 % 实现部分匹配（若用户未自行包含 %），再 sanitize
+		if !strings.Contains(modelName, "%") {
+			modelName = "%" + modelName + "%"
+		}
 		modelNamePattern, err := sanitizeLikePattern(modelName)
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	if username != "" {
-		tx = tx.Where("logs.username = ?", username)
+		// 先包裹 % 实现部分匹配
+		if !strings.Contains(username, "%") {
+			username = "%" + username + "%"
+		}
+		usernamePattern, err := sanitizeLikePattern(username)
+		if err != nil {
+			return nil, 0, err
+		}
+		// 两步查询：用户表在主库 DB，日志可能在独立的 LOG_DB，跨库子查询不可行
+		var userIds []int
+		if err = DB.Model(&User{}).Select("id").
+			Where("LOWER(username) LIKE LOWER(?) OR LOWER(display_name) LIKE LOWER(?)",
+				usernamePattern, usernamePattern).
+			Pluck("id", &userIds).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(userIds) == 0 {
+			// 无匹配用户，直接返回空结果
+			return []*Log{}, 0, nil
+		}
+		tx = tx.Where("logs.user_id IN ?", userIds)
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		if !strings.Contains(tokenName, "%") {
+			tokenName = "%" + tokenName + "%"
+		}
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", tokenNamePattern)
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -345,6 +378,18 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+	if retryCount > 0 {
+		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法
+		var retryCondition string
+		if common.UsingPostgreSQL {
+			retryCondition = "(logs.other::jsonb ->> 'retry_count')::int > ?"
+		} else if common.UsingMySQL {
+			retryCondition = "CAST(JSON_EXTRACT(logs.other, '$.retry_count') AS UNSIGNED) > ?"
+		} else { // SQLite
+			retryCondition = "CAST(json_extract(logs.other, '$.retry_count') AS INTEGER) > ?"
+		}
+		tx = tx.Where(retryCondition, retryCount)
 	}
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
@@ -395,6 +440,32 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		}
 	}
 
+	// 批量查询用户表填充 DisplayName（用户表在主库 DB）
+	userIds := types.NewSet[int]()
+	for _, log := range logs {
+		if log.UserId != 0 {
+			userIds.Add(log.UserId)
+		}
+	}
+	if userIds.Len() > 0 {
+		var users []struct {
+			Id          int    `gorm:"column:id"`
+			DisplayName string `gorm:"column:display_name"`
+		}
+		if err = DB.Table("users").Select("id, display_name").Where("id IN ?", userIds.Items()).Find(&users).Error; err != nil {
+			return logs, total, err
+		}
+		userMap := make(map[int]string, len(users))
+		for _, u := range users {
+			userMap[u.Id] = u.DisplayName
+		}
+		for i := range logs {
+			if name, ok := userMap[logs[i].UserId]; ok && name != "" {
+				logs[i].DisplayName = name
+			}
+		}
+	}
+
 	return logs, total, err
 }
 
@@ -409,14 +480,24 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	}
 
 	if modelName != "" {
+		if !strings.Contains(modelName, "%") {
+			modelName = "%" + modelName + "%"
+		}
 		modelNamePattern, err := sanitizeLikePattern(modelName)
 		if err != nil {
 			return nil, 0, err
 		}
-		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
+		tx = tx.Where("LOWER(logs.model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	if tokenName != "" {
-		tx = tx.Where("logs.token_name = ?", tokenName)
+		if !strings.Contains(tokenName, "%") {
+			tokenName = "%" + tokenName + "%"
+		}
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("LOWER(logs.token_name) LIKE LOWER(?) ESCAPE '!'", tokenNamePattern)
 	}
 	if requestId != "" {
 		tx = tx.Where("logs.request_id = ?", requestId)
@@ -454,19 +535,44 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, retryCount int) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, sum(prompt_tokens) + sum(completion_tokens) tpm")
 
 	if username != "" {
-		tx = tx.Where("username = ?", username)
-		rpmTpmQuery = rpmTpmQuery.Where("username = ?", username)
+		// 两步查询：用户表在主库 DB，日志可能在独立的 LOG_DB，跨库子查询不可行
+		if !strings.Contains(username, "%") {
+			username = "%" + username + "%"
+		}
+		usernamePattern, err := sanitizeLikePattern(username)
+		if err != nil {
+			return stat, err
+		}
+		var userIds []int
+		if err = DB.Model(&User{}).Select("id").
+			Where("LOWER(username) LIKE LOWER(?) OR LOWER(display_name) LIKE LOWER(?)",
+				usernamePattern, usernamePattern).
+			Pluck("id", &userIds).Error; err != nil {
+			return stat, err
+		}
+		if len(userIds) == 0 {
+			return stat, nil // 无匹配用户，统计为 0
+		}
+		tx = tx.Where("user_id IN ?", userIds)
+		rpmTpmQuery = rpmTpmQuery.Where("user_id IN ?", userIds)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
-		rpmTpmQuery = rpmTpmQuery.Where("token_name = ?", tokenName)
+		if !strings.Contains(tokenName, "%") {
+			tokenName = "%" + tokenName + "%"
+		}
+		tokenNamePattern, err := sanitizeLikePattern(tokenName)
+		if err != nil {
+			return stat, err
+		}
+		tx = tx.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", tokenNamePattern)
+		rpmTpmQuery = rpmTpmQuery.Where("LOWER(token_name) LIKE LOWER(?) ESCAPE '!'", tokenNamePattern)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("created_at >= ?", startTimestamp)
@@ -475,12 +581,15 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		tx = tx.Where("created_at <= ?", endTimestamp)
 	}
 	if modelName != "" {
+		if !strings.Contains(modelName, "%") {
+			modelName = "%" + modelName + "%"
+		}
 		modelNamePattern, err := sanitizeLikePattern(modelName)
 		if err != nil {
 			return stat, err
 		}
-		tx = tx.Where("model_name LIKE ? ESCAPE '!'", modelNamePattern)
-		rpmTpmQuery = rpmTpmQuery.Where("model_name LIKE ? ESCAPE '!'", modelNamePattern)
+		tx = tx.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
+		rpmTpmQuery = rpmTpmQuery.Where("LOWER(model_name) LIKE LOWER(?) ESCAPE '!'", modelNamePattern)
 	}
 	if channel != 0 {
 		tx = tx.Where("channel_id = ?", channel)
@@ -489,6 +598,19 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if group != "" {
 		tx = tx.Where(logGroupCol+" = ?", group)
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+	}
+	if retryCount > 0 {
+		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法
+		var retryCondition string
+		if common.UsingPostgreSQL {
+			retryCondition = "(other::jsonb ->> 'retry_count')::int > ?"
+		} else if common.UsingMySQL {
+			retryCondition = "CAST(JSON_EXTRACT(other, '$.retry_count') AS UNSIGNED) > ?"
+		} else { // SQLite
+			retryCondition = "CAST(json_extract(other, '$.retry_count') AS INTEGER) > ?"
+		}
+		tx = tx.Where(retryCondition, retryCount)
+		rpmTpmQuery = rpmTpmQuery.Where(retryCondition, retryCount)
 	}
 
 	tx = tx.Where("type = ?", LogTypeConsume)

@@ -216,6 +216,9 @@ export function buildApiParams(config: {
     ...(searchParams.upstreamRequestId
       ? { upstream_request_id: String(searchParams.upstreamRequestId) }
       : {}),
+    ...(searchParams.retryCount
+      ? { retry_count: Number(searchParams.retryCount) }
+      : {}),
     ...buildTimeRangeParams(searchParams, false),
   }
 
