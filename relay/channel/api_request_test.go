@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -205,4 +206,26 @@ func TestApplyDefaultUserAgent(t *testing.T) {
 	headers.Set("User-Agent", "kling-sdk/1.0")
 	applyDefaultUserAgent(&headers)
 	require.Equal(t, "kling-sdk/1.0", headers.Get("User-Agent"))
+}
+
+// TestStartPingKeepAlive_StopWaitsForGoroutineExit 验证停止函数返回后
+// ping goroutine 已完全退出，不会再有任何写入（避免与后续数据写并发污染 SSE 流）。
+func TestStartPingKeepAlive_StopWaitsForGoroutineExit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	stop := startPingKeepAlive(ctx, 20*time.Millisecond)
+	// 等待若干次 ping 发出
+	time.Sleep(150 * time.Millisecond)
+	stop()
+
+	// stop 返回后 goroutine 必须已退出：记录当前字节数，再等待多个 ping 周期，
+	// 字节数不应再增长
+	bodyLenAfterStop := recorder.Body.Len()
+	require.Greater(t, bodyLenAfterStop, 0, "ping data should have been written before stop")
+	time.Sleep(150 * time.Millisecond)
+	require.Equal(t, bodyLenAfterStop, recorder.Body.Len(),
+		"no ping data should be written after stop returns")
 }

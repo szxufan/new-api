@@ -413,8 +413,11 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 
 func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) context.CancelFunc {
 	pingerCtx, stopPinger := context.WithCancel(context.Background())
+	done := make(chan struct{})
 
 	gopool.Go(func() {
+		// 最后关闭 done，用于通知停止方 goroutine 已完全退出
+		defer close(done)
 		defer func() {
 			// 增加panic恢复处理
 			if r := recover(); r != nil {
@@ -464,7 +467,17 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) context.Canc
 		}
 	})
 
-	return stopPinger
+	// 返回的停止函数会等待 ping goroutine 完全退出：
+	// 正在进行中的 ping 写若与后续数据写并发，会破坏 net/http ResponseWriter
+	// 的字节流（SSE 帧交错污染）。等待上限需覆盖 sendPingData 的 10 秒写超时。
+	return func() {
+		stopPinger()
+		select {
+		case <-done:
+		case <-time.After(12 * time.Second):
+			logger.LogError(c, "timeout waiting for SSE ping goroutine to stop")
+		}
+	}
 }
 
 func sendPingData(c *gin.Context, mutex *sync.Mutex) error {

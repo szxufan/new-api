@@ -343,6 +343,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			// 流式响应已提交（HTTP 200 已随保活/部分数据发出）时，状态码无法再变更，
+			// 裸 JSON 也不是合法 SSE 帧会被客户端静默忽略，改为向流内写入 SSE 错误帧
+			if relayFormat != types.RelayFormatOpenAIRealtime && helper.IsStreamResponseCommitted(c) {
+				helper.WriteStreamError(c, relayFormat, newAPIError)
+				return
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())

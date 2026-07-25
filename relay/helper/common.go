@@ -126,6 +126,56 @@ func RetryKeepAlive(c *gin.Context) error {
 	return FlushWriter(c)
 }
 
+// IsStreamResponseCommitted 判断 SSE 流式响应是否已向客户端提交。
+// 判定条件：已设置 SSE 响应头（event_stream_headers_set）且已有字节实际写出
+// （保活 ping、retrying 注释行或部分数据都会触发首个 Write）。
+// 一旦提交，HTTP 状态码已锁定为 200，后续错误无法再依赖状态码表达。
+func IsStreamResponseCommitted(c *gin.Context) bool {
+	if c == nil || c.Writer == nil {
+		return false
+	}
+	if _, set := c.Get("event_stream_headers_set"); !set {
+		return false
+	}
+	return c.Writer.Written()
+}
+
+// WriteStreamError 在流式响应已提交（状态码锁定为 200）后，将错误以 SSE 帧
+// 的形式追加到流中。裸 JSON 不是合法 SSE 帧，会被客户端解析器按未知字段静默
+// 忽略，表现为流被静默截断；封装成 SSE 帧后客户端可以正常感知错误。
+// OpenAI 系格式：data: {"error": {...}} + [DONE]；Claude 格式：event: error。
+func WriteStreamError(c *gin.Context, relayFormat types.RelayFormat, newAPIError *types.NewAPIError) {
+	if c == nil || c.Writer == nil || newAPIError == nil {
+		return
+	}
+	var frame string
+	if relayFormat == types.RelayFormatClaude {
+		errJSON, err := common.Marshal(gin.H{
+			"type":  "error",
+			"error": newAPIError.ToClaudeError(),
+		})
+		if err != nil {
+			logger.LogError(c, "marshal claude stream error failed: "+err.Error())
+			return
+		}
+		frame = "event: error\ndata: " + string(errJSON) + "\n\n"
+	} else {
+		errJSON, err := common.Marshal(gin.H{
+			"error": newAPIError.ToOpenAIError(),
+		})
+		if err != nil {
+			logger.LogError(c, "marshal openai stream error failed: "+err.Error())
+			return
+		}
+		frame = "data: " + string(errJSON) + "\n\ndata: [DONE]\n\n"
+	}
+	if _, err := c.Writer.Write([]byte(frame)); err != nil {
+		logger.LogError(c, "write stream error failed: "+err.Error())
+		return
+	}
+	_ = FlushWriter(c)
+}
+
 func ObjectData(c *gin.Context, object interface{}) error {
 	if object == nil {
 		return errors.New("object is nil")
