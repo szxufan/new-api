@@ -24,8 +24,8 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Combobox } from '@/components/ui/combobox'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -363,7 +363,7 @@ export function CommonLogsFilterBar<TData>(
               placeholder={t('All Channels')}
               searchPlaceholder={t('Search channels...')}
               emptyText={t('No channel found.')}
-              className={inputClass}
+              className='w-full sm:w-[200px] lg:w-[240px]'
             />
           )}
           {isAdmin && (
