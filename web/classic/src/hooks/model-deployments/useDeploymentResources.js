@@ -269,7 +269,7 @@ export const useDeploymentResources = () => {
 
   const createDeployment = useCallback(async (deploymentData) => {
     try {
-      const response = await API.post('/api/deployments', deploymentData);
+      const response = await API.post('/api/deployments/', deploymentData);
       if (response.data.success) {
         return response.data.data;
       } else {

@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Combobox } from '@/components/ui/combobox'
 import {
   Select,
   SelectContent,
@@ -344,8 +345,8 @@ export function CommonLogsFilterBar<TData>(
             />
           )}
           {isAdmin && (
-            <Select
-              items={[
+            <Combobox
+              options={[
                 { value: 'all', label: t('All Channels') },
                 ...channelOptions.map((ch) => ({
                   value: String(ch.id),
@@ -359,21 +360,11 @@ export function CommonLogsFilterBar<TData>(
                   value === 'all' ? '' : (value as string)
                 )
               }}
-            >
-              <SelectTrigger className={inputClass}>
-                <SelectValue placeholder={t('All Channels')} />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  <SelectItem value='all'>{t('All Channels')}</SelectItem>
-                  {channelOptions.map((ch) => (
-                    <SelectItem key={ch.id} value={String(ch.id)}>
-                      {`#${ch.id} ${ch.name}`.trim()}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              placeholder={t('All Channels')}
+              searchPlaceholder={t('Search channels...')}
+              emptyText={t('No channel found.')}
+              className={inputClass}
+            />
           )}
           {isAdmin && (
             <Input

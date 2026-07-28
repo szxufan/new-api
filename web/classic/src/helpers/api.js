@@ -369,7 +369,7 @@ export async function onCustomOAuthClicked(provider, options = {}) {
 
 let channelModels = undefined;
 export async function loadChannelModels() {
-  const res = await API.get('/api/models');
+  const res = await API.get('/api/models/');
   const { success, data } = res.data;
   if (!success) {
     return;

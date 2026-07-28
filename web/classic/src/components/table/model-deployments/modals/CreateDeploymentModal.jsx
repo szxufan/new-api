@@ -594,7 +594,7 @@ const CreateDeploymentModal = ({ visible, onCancel, onSuccess, t }) => {
         },
       };
 
-      const response = await API.post('/api/deployments', requestData);
+      const response = await API.post('/api/deployments/', requestData);
 
       if (response.data.success) {
         showSuccess(t('容器创建成功'));

@@ -1196,7 +1196,7 @@ const EditChannelModal = (props) => {
 
   const fetchModelGroups = async () => {
     try {
-      const res = await API.get('/api/prefill_group?type=model');
+      const res = await API.get('/api/prefill_group/?type=model');
       if (res?.data?.success) {
         setModelGroups(res.data.data || []);
       }
