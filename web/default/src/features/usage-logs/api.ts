@@ -33,7 +33,7 @@ import type {
 // ============================================================================
 
 function buildApiPath(endpoint: string, isAdmin: boolean): string {
-  return isAdmin ? endpoint : `${endpoint}/self`
+  return isAdmin ? endpoint : `${endpoint}self`
 }
 
 async function fetchLogs<T>(
@@ -60,8 +60,10 @@ async function fetchLogStats<T>(
   const queryParams = buildQueryParams(
     params as unknown as Record<string, unknown>
   )
-  const path = buildApiPath(endpoint, isAdmin)
-  const res = await api.get(`${path}/stat?${queryParams}`)
+  const path = isAdmin
+    ? `${endpoint}stat`
+    : `${endpoint}self/stat`
+  const res = await api.get(`${path}?${queryParams}`)
   return res.data
 }
 
