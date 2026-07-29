@@ -459,9 +459,26 @@ func CacheGetFallbackChannel(fallbackChannelIDs []int, model string) (*Channel, 
 	return nil, nil
 }
 
-// CacheGetDisabledChannelsWithFallback 查找所有被限流或自动禁用且配置了后备渠道的渠道，
+// isChannelInGroup 检查渠道是否属于指定分组（通过 channel.Group 字段判断）。
+// 与 IsChannelEnabledForGroupModel 不同，此函数不依赖 group2model2channels 缓存，
+// 因此即使渠道被禁用后从缓存中移除，仍能正确判断分组归属。
+func isChannelInGroup(channel *Channel, group string) bool {
+	for _, g := range channel.GetGroups() {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
+
+// CacheGetDisabledChannelsWithFallback 查找所有配置了后备渠道的渠道，
 // 并尝试为指定模型找到可用的后备渠道。
-// 当常规渠道选择找不到可用渠道时调用，用于在不可用渠道中寻找后备路径。
+// 当常规渠道选择找不到可用渠道时调用，用于在所有渠道中寻找后备路径。
+// 不限制渠道状态，因为：
+// 1. 渠道被禁用后已从 group2model2channels 移除，不能用 IsChannelEnabledForGroupModel 过滤；
+// 2. 正常启用的渠道也可能需要后备（常规选择未选到它但后备渠道可用）。
+// 仍需检查渠道是否属于当前分组（通过 channel.Group 字段判断），避免跨分组匹配无关渠道。
+// 后备渠道的可用性由 CacheGetFallbackChannel 内部保证（状态必须为启用且支持该模型）。
 func CacheGetDisabledChannelsWithFallback(group string, model string) (*Channel, int, error) {
 	if !common.MemoryCacheEnabled {
 		return getDisabledChannelsWithFallbackDB(group, model)
@@ -471,12 +488,8 @@ func CacheGetDisabledChannelsWithFallback(group string, model string) (*Channel,
 	defer channelSyncLock.RUnlock()
 
 	for _, channel := range channelsIDM {
-		// 只关注被限流或自动禁用的渠道
-		if channel.Status != common.ChannelStatusRateLimited429 && channel.Status != common.ChannelStatusAutoDisabled {
-			continue
-		}
-		// 检查该渠道是否在指定分组中支持该模型
-		if !IsChannelEnabledForGroupModel(group, model, channel.Id) {
+		// 检查渠道是否属于当前分组
+		if !isChannelInGroup(channel, group) {
 			continue
 		}
 		// 检查该渠道是否配置了后备渠道
@@ -484,7 +497,7 @@ func CacheGetDisabledChannelsWithFallback(group string, model string) (*Channel,
 		if len(fallbackIds) == 0 {
 			continue
 		}
-		// 尝试查找可用的后备渠道
+		// 尝试查找可用的后备渠道（内部会检查后备渠道状态和模型支持）
 		fallbackChannel, fallbackErr := CacheGetFallbackChannel(fallbackIds, model)
 		if fallbackErr == nil && fallbackChannel != nil {
 			return fallbackChannel, channel.Id, nil
@@ -494,21 +507,17 @@ func CacheGetDisabledChannelsWithFallback(group string, model string) (*Channel,
 }
 
 // getDisabledChannelsWithFallbackDB 数据库模式下的后备渠道查找
+// 逻辑与缓存模式一致：遍历所有渠道，查找配置了后备渠道且后备渠道可用的。
 func getDisabledChannelsWithFallbackDB(group string, model string) (*Channel, int, error) {
-	// 查找该分组+模型下被限流或自动禁用的渠道
-	var abilities []Ability
-	err := DB.Where(commonGroupCol+" = ? AND model = ? AND enabled = ?", group, model, true).
-		Find(&abilities).Error
+	var channels []Channel
+	err := DB.Find(&channels).Error
 	if err != nil {
 		return nil, 0, err
 	}
 
-	for _, ability := range abilities {
-		channel, err := GetChannelById(ability.ChannelId, true)
-		if err != nil || channel == nil {
-			continue
-		}
-		if channel.Status != common.ChannelStatusRateLimited429 && channel.Status != common.ChannelStatusAutoDisabled {
+	for _, channel := range channels {
+		// 检查渠道是否属于当前分组
+		if !isChannelInGroup(&channel, group) {
 			continue
 		}
 		fallbackIds := channel.GetFallbackChannelIDs()

@@ -127,3 +127,150 @@ func TestCacheGetFallbackChannel_NonExistentChannel(t *testing.T) {
 		t.Errorf("expected nil for non-existent channel, got %v", ch)
 	}
 }
+
+func TestIsChannelInGroup(t *testing.T) {
+	tests := []struct {
+		name     string
+		group    string
+		channel  *Channel
+		expected bool
+	}{
+		{
+			name:     "single group match",
+			group:    "default",
+			channel:  &Channel{Group: "default"},
+			expected: true,
+		},
+		{
+			name:     "single group no match",
+			group:    "vip",
+			channel:  &Channel{Group: "default"},
+			expected: false,
+		},
+		{
+			name:     "multi group contains target",
+			group:    "vip",
+			channel:  &Channel{Group: "default,vip"},
+			expected: true,
+		},
+		{
+			name:     "multi group not contains target",
+			group:    "premium",
+			channel:  &Channel{Group: "default,vip"},
+			expected: false,
+		},
+		{
+			name:     "empty group",
+			group:    "default",
+			channel:  &Channel{Group: ""},
+			expected: false,
+		},
+		{
+			name:     "group with spaces",
+			group:    "vip",
+			channel:  &Channel{Group: "default, vip"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isChannelInGroup(tt.channel, tt.group)
+			if result != tt.expected {
+				t.Errorf("isChannelInGroup(%q, %q) = %v, want %v", tt.channel.Group, tt.group, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCacheGetDisabledChannelsWithFallback_GroupFilter(t *testing.T) {
+	original := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	defer func() { common.MemoryCacheEnabled = original }()
+
+	// 设置缓存：渠道1属于 default 分组（自动禁用），渠道2属于 vip 分组（启用）
+	// 渠道1 配置了后备渠道ID为2
+	ch1 := &Channel{
+		Id:        1,
+		Group:     "default",
+		Status:    common.ChannelStatusAutoDisabled,
+		Models:    "gpt-4",
+		OtherInfo: `{"fallback_channel_ids":[2]}`,
+	}
+	ch2 := &Channel{
+		Id:     2,
+		Group:  "vip",
+		Status: common.ChannelStatusEnabled,
+		Models: "gpt-4",
+	}
+
+	resetCache()
+	setupCache(
+		map[int]*Channel{1: ch1, 2: ch2},
+		map[string]map[string][]int{
+			"vip": {"gpt-4": {2}},
+		},
+	)
+
+	// 查找 default 分组的后备渠道：渠道1属于 default，其后备渠道2可用
+	fallbackCh, originalId, err := CacheGetDisabledChannelsWithFallback("default", "gpt-4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fallbackCh == nil {
+		t.Error("expected fallback channel to be found for default group, got nil")
+	}
+	if originalId != 1 {
+		t.Errorf("expected originalId=1, got %d", originalId)
+	}
+
+	// 查找 premium 分组的后备渠道：没有渠道属于 premium，应返回 nil
+	fallbackCh, _, err = CacheGetDisabledChannelsWithFallback("premium", "gpt-4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fallbackCh != nil {
+		t.Error("expected nil for non-matching group, got a channel")
+	}
+}
+
+func TestCacheGetDisabledChannelsWithFallback_EnabledChannel(t *testing.T) {
+	original := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	defer func() { common.MemoryCacheEnabled = original }()
+
+	// 正常启用的渠道配置了后备渠道，也应该能被找到
+	ch1 := &Channel{
+		Id:        1,
+		Group:     "default",
+		Status:    common.ChannelStatusEnabled,
+		Models:    "gpt-4",
+		OtherInfo: `{"fallback_channel_ids":[2]}`,
+	}
+	ch2 := &Channel{
+		Id:     2,
+		Group:  "vip",
+		Status: common.ChannelStatusEnabled,
+		Models: "gpt-4",
+	}
+
+	resetCache()
+	setupCache(
+		map[int]*Channel{1: ch1, 2: ch2},
+		map[string]map[string][]int{
+			"default": {"gpt-4": {1}},
+			"vip":     {"gpt-4": {2}},
+		},
+	)
+
+	fallbackCh, originalId, err := CacheGetDisabledChannelsWithFallback("default", "gpt-4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fallbackCh == nil {
+		t.Error("expected fallback channel from enabled channel, got nil")
+	}
+	if originalId != 1 {
+		t.Errorf("expected originalId=1, got %d", originalId)
+	}
+}
