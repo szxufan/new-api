@@ -128,56 +128,70 @@ func TestCacheGetFallbackChannel_NonExistentChannel(t *testing.T) {
 	}
 }
 
-func TestIsChannelInGroup(t *testing.T) {
+func TestIsChannelInGroupModel(t *testing.T) {
 	tests := []struct {
-		name     string
-		group    string
-		channel  *Channel
-		expected bool
+		name      string
+		group     string
+		modelName string
+		channel   *Channel
+		expected  bool
 	}{
 		{
-			name:     "single group match",
-			group:    "default",
-			channel:  &Channel{Group: "default"},
-			expected: true,
+			name:      "group and model both match",
+			group:     "default",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "default", Models: "gpt-4,gpt-3.5"},
+			expected:  true,
 		},
 		{
-			name:     "single group no match",
-			group:    "vip",
-			channel:  &Channel{Group: "default"},
-			expected: false,
+			name:      "group match but model not",
+			group:     "default",
+			modelName: "claude-3",
+			channel:   &Channel{Group: "default", Models: "gpt-4,gpt-3.5"},
+			expected:  false,
 		},
 		{
-			name:     "multi group contains target",
-			group:    "vip",
-			channel:  &Channel{Group: "default,vip"},
-			expected: true,
+			name:      "model match but group not",
+			group:     "vip",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "default", Models: "gpt-4"},
+			expected:  false,
 		},
 		{
-			name:     "multi group not contains target",
-			group:    "premium",
-			channel:  &Channel{Group: "default,vip"},
-			expected: false,
+			name:      "multi group contains target, model match",
+			group:     "vip",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "default,vip", Models: "gpt-4"},
+			expected:  true,
 		},
 		{
-			name:     "empty group",
-			group:    "default",
-			channel:  &Channel{Group: ""},
-			expected: false,
+			name:      "multi group not contains target",
+			group:     "premium",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "default,vip", Models: "gpt-4"},
+			expected:  false,
 		},
 		{
-			name:     "group with spaces",
-			group:    "vip",
-			channel:  &Channel{Group: "default, vip"},
-			expected: true,
+			name:      "empty group",
+			group:     "default",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "", Models: "gpt-4"},
+			expected:  false,
+		},
+		{
+			name:      "empty models",
+			group:     "default",
+			modelName: "gpt-4",
+			channel:   &Channel{Group: "default", Models: ""},
+			expected:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isChannelInGroup(tt.channel, tt.group)
+			result := isChannelInGroupModel(tt.channel, tt.group, tt.modelName)
 			if result != tt.expected {
-				t.Errorf("isChannelInGroup(%q, %q) = %v, want %v", tt.channel.Group, tt.group, result, tt.expected)
+				t.Errorf("isChannelInGroupModel(%q, %q, %q) = %v, want %v", tt.channel.Group, tt.group, tt.modelName, result, tt.expected)
 			}
 		})
 	}
@@ -231,6 +245,15 @@ func TestCacheGetDisabledChannelsWithFallback_GroupFilter(t *testing.T) {
 	}
 	if fallbackCh != nil {
 		t.Error("expected nil for non-matching group, got a channel")
+	}
+
+	// 查找 default 分组下 claude-3 模型的后备渠道：渠道1不支持 claude-3，应返回 nil
+	fallbackCh, _, err = CacheGetDisabledChannelsWithFallback("default", "claude-3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fallbackCh != nil {
+		t.Error("expected nil for non-matching model, got a channel")
 	}
 }
 

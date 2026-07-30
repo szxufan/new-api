@@ -459,12 +459,22 @@ func CacheGetFallbackChannel(fallbackChannelIDs []int, model string) (*Channel, 
 	return nil, nil
 }
 
-// isChannelInGroup 检查渠道是否属于指定分组（通过 channel.Group 字段判断）。
+// isChannelInGroupModel 检查渠道是否属于指定分组且支持指定模型（通过 channel.Group/Models 字段判断）。
 // 与 IsChannelEnabledForGroupModel 不同，此函数不依赖 group2model2channels 缓存，
-// 因此即使渠道被禁用后从缓存中移除，仍能正确判断分组归属。
-func isChannelInGroup(channel *Channel, group string) bool {
+// 因此即使渠道被禁用后从缓存中移除，仍能正确判断分组归属和模型支持。
+func isChannelInGroupModel(channel *Channel, group string, modelName string) bool {
+	groupMatch := false
 	for _, g := range channel.GetGroups() {
 		if g == group {
+			groupMatch = true
+			break
+		}
+	}
+	if !groupMatch {
+		return false
+	}
+	for _, m := range channel.GetModels() {
+		if m == modelName {
 			return true
 		}
 	}
@@ -489,7 +499,7 @@ func CacheGetDisabledChannelsWithFallback(group string, model string) (*Channel,
 
 	for _, channel := range channelsIDM {
 		// 检查渠道是否属于当前分组
-		if !isChannelInGroup(channel, group) {
+		if !isChannelInGroupModel(channel, group, model) {
 			continue
 		}
 		// 检查该渠道是否配置了后备渠道
@@ -517,7 +527,7 @@ func getDisabledChannelsWithFallbackDB(group string, model string) (*Channel, in
 
 	for _, channel := range channels {
 		// 检查渠道是否属于当前分组
-		if !isChannelInGroup(&channel, group) {
+		if !isChannelInGroupModel(&channel, group, model) {
 			continue
 		}
 		fallbackIds := channel.GetFallbackChannelIDs()
