@@ -63,7 +63,11 @@ var (
 	modelSupportEndpointsLock = sync.RWMutex{}
 
 	modelFallbackModel = make(map[string]string)
-	modelFallbackLock  = sync.RWMutex{}
+	// 规则匹配降级列表：前缀/后缀/包含匹配的模型元数据，用于 GetModelFallbackModel 回退查找
+	modelFallbackPrefixList   []*Model
+	modelFallbackSuffixList   []*Model
+	modelFallbackContainsList []*Model
+	modelFallbackLock         = sync.RWMutex{}
 )
 
 func GetPricing() []Pricing {
@@ -176,8 +180,30 @@ func updatePricing() {
 			newFallback[modelName] = meta.FallbackModel
 		}
 	}
+	// 缓存规则匹配列表，供 GetModelFallbackModel 精确匹配失败时回退查找
+	newPrefixList := make([]*Model, 0)
+	newSuffixList := make([]*Model, 0)
+	newContainsList := make([]*Model, 0)
+	for _, m := range prefixList {
+		if m.FallbackModel != "" {
+			newPrefixList = append(newPrefixList, m)
+		}
+	}
+	for _, m := range suffixList {
+		if m.FallbackModel != "" {
+			newSuffixList = append(newSuffixList, m)
+		}
+	}
+	for _, m := range containsList {
+		if m.FallbackModel != "" {
+			newContainsList = append(newContainsList, m)
+		}
+	}
 	modelFallbackLock.Lock()
 	modelFallbackModel = newFallback
+	modelFallbackPrefixList = newPrefixList
+	modelFallbackSuffixList = newSuffixList
+	modelFallbackContainsList = newContainsList
 	modelFallbackLock.Unlock()
 
 	// 预加载供应商
