@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -202,18 +203,14 @@ func tryChannelOnce(
 			if !shouldRetryChannel(c, lastError) {
 				return lastError
 			}
-			if common.RetryIntervalMs > 0 {
-				retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
-			}
+			retryIntervalWait(c, *totalAttempts)
 			continue
 		}
 
 		if !shouldRetryChannel(c, lastError) {
 			break
 		}
-		if common.RetryIntervalMs > 0 {
-			retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
-		}
+		retryIntervalWait(c, *totalAttempts)
 	}
 	return lastError
 }
@@ -988,9 +985,7 @@ func RelayTask(c *gin.Context) {
 				if !shouldRetryTaskRelay(c, channel.Id, taskErr, maxAttempts-totalAttempts) {
 					break
 				}
-				if common.RetryIntervalMs > 0 {
-					retryKeepAliveSleep(c, time.Duration(common.RetryIntervalMs)*time.Millisecond)
-				}
+				retryIntervalWait(c, totalAttempts)
 			}
 
 			if taskErr == nil {
@@ -1140,4 +1135,25 @@ func retryKeepAliveSleep(c *gin.Context, totalWait time.Duration) {
 			return
 		}
 	}
+}
+
+// retryIntervalWait 计算第 attempt 次重试前的等待时间并休眠。
+// 策略：线性递增 + 随机抖动。等待时长为 0 时不等待，立即重试（保持原行为）。
+func retryIntervalWait(c *gin.Context, attempt int) {
+	if wait := retryIntervalMs(attempt); wait > 0 {
+		retryKeepAliveSleep(c, wait)
+	}
+}
+
+// retryIntervalMs 返回第 attempt 次重试的等待时长（毫秒级 time.Duration）。
+// 线性递增：基础等待 = RetryIntervalMs * attempt（attempt >= 1 表示已完成的重试尝试次数）；
+// 随机抖动：在基础值的 [0.8, 1.2] 内随机，避免并发重试惊群。
+// RetryIntervalMs <= 0 或 attempt < 1 时返回 0，表示不等待。
+func retryIntervalMs(attempt int) time.Duration {
+	if common.RetryIntervalMs <= 0 || attempt < 1 {
+		return 0
+	}
+	base := time.Duration(common.RetryIntervalMs*attempt) * time.Millisecond
+	jitter := 0.8 + rand.Float64()*0.4
+	return time.Duration(float64(base) * jitter)
 }

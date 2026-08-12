@@ -202,6 +202,10 @@ export async function handleUpdateTagField(
 
 /**
  * Test channel connectivity
+ *
+ * 注意：后端 /api/channel/test/:id 返回的 `time` 字段单位为秒，
+ * 此处统一转换为毫秒后通过 `responseTime` 回调传出，
+ * 与 formatResponseTime 的毫秒语义保持一致。
  */
 export async function handleTestChannel(
   id: number,
@@ -231,7 +235,7 @@ export async function handleTestChannel(
       toast.success(i18next.t(SUCCESS_MESSAGES.TESTED))
       onTestComplete?.(
         true,
-        response.time,
+        response.time * 1000,
         undefined,
         undefined,
         response.fingerprint

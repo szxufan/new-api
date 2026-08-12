@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   formatBalance,
+  formatResponseTime,
   getBalanceVariant,
   formatQuota,
   isTagAggregateRow,
@@ -80,6 +81,31 @@ describe('formatQuota', () => {
   it('should format large quota values', () => {
     const result = formatQuota(1000000)
     expect(result).toBe('1000000 quota')
+  })
+})
+
+describe('formatResponseTime', () => {
+  // 入参单位为毫秒：< 1000 显示毫秒，>= 1000 显示秒
+  it('should show "Not tested" for zero', () => {
+    expect(formatResponseTime(0)).toBe('Not tested')
+  })
+
+  it('should show milliseconds for values below 1000', () => {
+    expect(formatResponseTime(0.5)).toBe('0.5ms')
+    expect(formatResponseTime(999)).toBe('999ms')
+  })
+
+  it('should show seconds for values at or above 1000', () => {
+    expect(formatResponseTime(1000)).toBe('1.00s')
+    expect(formatResponseTime(2500)).toBe('2.50s')
+  })
+
+  it('should support i18n via t function', () => {
+    const t = (key: string, options?: { value?: number | string }) =>
+      key === '{{value}}s' ? `${options?.value} 秒` : `${options?.value} 毫秒`
+
+    expect(formatResponseTime(2500, t)).toBe('2.50 秒')
+    expect(formatResponseTime(500, t)).toBe('500 毫秒')
   })
 })
 
