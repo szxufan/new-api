@@ -309,6 +309,14 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
+// pgJsonObjectExpr 构造 PostgreSQL 表达式：当 column 是合法 JSON 对象/数组时返回该 jsonb 值，否则返回 NULL。
+// 历史数据中 other 字段可能存在非 JSON 文本（如空字符串、普通文本），直接执行 column::jsonb
+// 会报 invalid input syntax for type json (SQLSTATE 22P02)，因此先按 JSON 对象/数组的首字符特征
+// 做前置校验，避免按 retry_count / node_name 过滤时整个查询报错。
+func pgJsonObjectExpr(column string) string {
+	return fmt.Sprintf("CASE WHEN %s ~ '^[[:space:]]*[{[]' THEN %s::jsonb ELSE NULL END", column, column)
+}
+
 func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, retryCount int, nodeName string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
@@ -380,10 +388,12 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 	if retryCount > 0 {
-		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法
+		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法。
+		// MySQL/SQLite 的 JSON 提取函数对非法 JSON 返回 NULL（不报错），PostgreSQL 的 ::jsonb
+		// 转换会抛 22P02，需要先经 pgJsonObjectExpr 前置校验容错。
 		var retryCondition string
 		if common.UsingPostgreSQL {
-			retryCondition = "(logs.other::jsonb ->> 'retry_count')::int > ?"
+			retryCondition = fmt.Sprintf("(%s ->> 'retry_count')::int > ?", pgJsonObjectExpr("logs.other"))
 		} else if common.UsingMySQL {
 			retryCondition = "CAST(JSON_EXTRACT(logs.other, '$.retry_count') AS UNSIGNED) > ?"
 		} else { // SQLite
@@ -394,7 +404,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if nodeName != "" {
 		var nodeCondition string
 		if common.UsingPostgreSQL {
-			nodeCondition = "logs.other::jsonb -> 'admin_info' ->> 'node_name' = ?"
+			nodeCondition = fmt.Sprintf("(%s) -> 'admin_info' ->> 'node_name' = ?", pgJsonObjectExpr("logs.other"))
 		} else if common.UsingMySQL {
 			nodeCondition = "JSON_UNQUOTE(JSON_EXTRACT(logs.other, '$.admin_info.node_name')) = ?"
 		} else { // SQLite
@@ -611,10 +621,12 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
 	if retryCount > 0 {
-		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法
+		// 重试次数存储在 other 字段的 JSON 中，按数据库类型选择提取语法。
+		// MySQL/SQLite 的 JSON 提取函数对非法 JSON 返回 NULL（不报错），PostgreSQL 的 ::jsonb
+		// 转换会抛 22P02，需要先经 pgJsonObjectExpr 前置校验容错。
 		var retryCondition string
 		if common.UsingPostgreSQL {
-			retryCondition = "(other::jsonb ->> 'retry_count')::int > ?"
+			retryCondition = fmt.Sprintf("(%s ->> 'retry_count')::int > ?", pgJsonObjectExpr("other"))
 		} else if common.UsingMySQL {
 			retryCondition = "CAST(JSON_EXTRACT(other, '$.retry_count') AS UNSIGNED) > ?"
 		} else { // SQLite

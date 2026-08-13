@@ -34,10 +34,13 @@ func GetRandomString(length int) string {
 	return lo.RandomString(length, lo.AlphanumericCharset)
 }
 
+// MapToJsonStr 将 map 序列化为 JSON 字符串。
+// 序列化失败时返回 "{}" 而不是空字符串：空字符串不是合法 JSON，
+// 会导致 PostgreSQL 端对 other 字段执行 ::jsonb 转换时报 SQLSTATE 22P02。
 func MapToJsonStr(m map[string]interface{}) string {
 	bytes, err := json.Marshal(m)
 	if err != nil {
-		return ""
+		return "{}"
 	}
 	return string(bytes)
 }
