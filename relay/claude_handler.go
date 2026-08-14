@@ -36,6 +36,11 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewError(fmt.Errorf("failed to copy request to ClaudeRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	// 重试防缓存：重试时在最后一条 user 消息末尾追加内容，避免命中上游错误缓存
+	if info.ChannelSetting.AntiCacheRetryEnabled && info.ChannelSetting.AntiCacheRetryContent != "" && info.RetryIndex > 1 {
+		applyRetryAntiCacheClaude(request.Messages, info.ChannelSetting.AntiCacheRetryContent, info.RetryIndex)
+	}
+
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())

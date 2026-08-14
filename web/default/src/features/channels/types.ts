@@ -92,6 +92,8 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   response_detection?: ResponseDetection
   anti_cache_test?: boolean
+  anti_cache_retry_enabled?: boolean
+  anti_cache_retry_content?: string
 }
 
 export interface ResponseDetection {

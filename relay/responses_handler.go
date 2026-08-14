@@ -62,6 +62,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	// 重试防缓存：重试时在 Input 最后一条 user 消息末尾追加内容，避免命中上游错误缓存
+	if info.ChannelSetting.AntiCacheRetryEnabled && info.ChannelSetting.AntiCacheRetryContent != "" && info.RetryIndex > 1 {
+		request.Input, err = applyRetryAntiCacheResponses(request.Input, info.ChannelSetting.AntiCacheRetryContent, info.RetryIndex)
+		if err != nil {
+			return types.NewError(fmt.Errorf("failed to apply retry anti-cache to responses request: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
+
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())

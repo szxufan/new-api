@@ -64,6 +64,8 @@ export const channelFormSchema = z.object({
   system_prompt: z.string().optional(),
   system_prompt_override: z.boolean().optional(),
   anti_cache_test: z.boolean().optional(),
+  anti_cache_retry_enabled: z.boolean().optional(),
+  anti_cache_retry_content: z.string().optional(),
   // Response detection settings (stored in setting JSON)
   response_detection_enabled: z.boolean().optional(),
   response_detection_keywords: z.string().optional(), // comma-separated
@@ -133,6 +135,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   system_prompt: '',
   system_prompt_override: false,
   anti_cache_test: false,
+  anti_cache_retry_enabled: false,
+  anti_cache_retry_content: '',
   // Response detection settings
   response_detection_enabled: false,
   response_detection_keywords: '',
@@ -177,6 +181,8 @@ export function transformChannelToFormDefaults(
     system_prompt: '',
     system_prompt_override: false,
     anti_cache_test: false,
+    anti_cache_retry_enabled: false,
+    anti_cache_retry_content: '',
     response_detection_enabled: false,
     response_detection_keywords: '',
     response_detection_max_retries: 0,
@@ -195,6 +201,8 @@ export function transformChannelToFormDefaults(
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
         anti_cache_test: parsed.anti_cache_test || false,
+        anti_cache_retry_enabled: parsed.anti_cache_retry_enabled || false,
+        anti_cache_retry_content: parsed.anti_cache_retry_content || '',
         response_detection_enabled: parsed.response_detection?.enabled || false,
         response_detection_keywords: Array.isArray(
           parsed.response_detection?.keywords
@@ -332,6 +340,8 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
     anti_cache_test: formData.anti_cache_test || false,
+    anti_cache_retry_enabled: formData.anti_cache_retry_enabled || false,
+    anti_cache_retry_content: formData.anti_cache_retry_content || '',
   }
 
   // Only include response_detection if enabled

@@ -3322,6 +3322,50 @@ export function ChannelMutateDrawer({
                           </FormItem>
                         )}
                       />
+
+                      <FormField
+                        control={form.control}
+                        name='anti_cache_retry_enabled'
+                        render={({ field }) => (
+                          <FormItem className='flex items-center justify-between px-4 py-3'>
+                            <div className='space-y-0.5'>
+                              <FormLabel>{t('Retry Anti-Cache')}</FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Append configured content to the last message on each retry; the Nth retry appends N copies, to avoid hitting upstream error cache (OpenAI/Claude/Responses formats; not in passthrough mode)'
+                                )}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='anti_cache_retry_content'
+                        render={({ field }) => (
+                          <FormItem className='px-4 py-3'>
+                            <FormLabel>{t('Anti-Cache Retry Content')}</FormLabel>
+                            <FormDescription>
+                              {t(
+                                'Appended to the end of the last user message on each retry; the Nth retry appends N copies'
+                              )}
+                            </FormDescription>
+                            <FormControl>
+                              <Input
+                                placeholder={t('e.g. Do it now!')}
+                                {...field}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
                     <FormField

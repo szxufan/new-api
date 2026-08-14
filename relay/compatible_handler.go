@@ -40,6 +40,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	request.DeduplicateToolCallIDs()
 	request.MergeConsecutiveMessages()
 
+	// 重试防缓存：重试时在最后一条 user 消息末尾追加内容，避免命中上游错误缓存
+	if info.ChannelSetting.AntiCacheRetryEnabled && info.ChannelSetting.AntiCacheRetryContent != "" && info.RetryIndex > 1 {
+		applyRetryAntiCacheOpenAI(request.Messages, info.ChannelSetting.AntiCacheRetryContent, info.RetryIndex)
+	}
+
 	if request.WebSearchOptions != nil {
 		c.Set("chat_completion_web_search_context_size", request.WebSearchOptions.SearchContextSize)
 	}

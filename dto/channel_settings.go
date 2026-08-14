@@ -8,16 +8,18 @@ type ChannelSettings struct {
 	SystemPrompt           string             `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool               `json:"system_prompt_override,omitempty"`
 	ResponseDetection      *ResponseDetection `json:"response_detection,omitempty"`
-	AntiCacheTest          bool               `json:"anti_cache_test,omitempty"` // 渠道测试时在提示词附加当前时间，防止上游缓存命中
+	AntiCacheTest          bool               `json:"anti_cache_test,omitempty"`          // 渠道测试时在提示词附加当前时间，防止上游缓存命中
+	AntiCacheRetryEnabled  bool               `json:"anti_cache_retry_enabled,omitempty"` // 重试时在最后一条消息追加内容，避免命中上游错误缓存
+	AntiCacheRetryContent  string             `json:"anti_cache_retry_content,omitempty"` // 重试追加的内容，第 N 次重试追加 N 个
 }
 
 // ResponseDetection 响应内容检测配置，检测到关键词后可自动重试
 type ResponseDetection struct {
-	Enabled          bool     `json:"enabled,omitempty"`              // 是否启用响应内容检测
-	Keywords         []string `json:"keywords,omitempty"`             // 检测关键词列表（不区分大小写）
-	MaxRetries       int      `json:"max_retries,omitempty"`          // 检测命中后最大重试次数（0=使用全局重试次数）
-	OnHit            string   `json:"on_hit,omitempty"`               // 命中后行为: "retry"(默认) | "abort"
-	TreatEmptyAsHit  bool     `json:"treat_empty_as_hit,omitempty"`   // 是否将空回复（trim 后内容为空且无工具调用）视为检测命中
+	Enabled         bool     `json:"enabled,omitempty"`            // 是否启用响应内容检测
+	Keywords        []string `json:"keywords,omitempty"`           // 检测关键词列表（不区分大小写）
+	MaxRetries      int      `json:"max_retries,omitempty"`        // 检测命中后最大重试次数（0=使用全局重试次数）
+	OnHit           string   `json:"on_hit,omitempty"`             // 命中后行为: "retry"(默认) | "abort"
+	TreatEmptyAsHit bool     `json:"treat_empty_as_hit,omitempty"` // 是否将空回复（trim 后内容为空且无工具调用）视为检测命中
 }
 
 type VertexKeyType string
