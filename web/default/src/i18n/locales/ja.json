@@ -3015,6 +3015,8 @@
     "Pick a date": "日付を選択",
     "Pick or create both a store and a product before saving.": "Pick or create both a store and a product before saving.",
     "Ping Interval (seconds)": "Ping間隔（秒）",
+    "Upstream User-Agent Passthrough": "上流 User-Agent パススルー",
+    "One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.": "1 行に 1 つの UA フラグメントを入力してください。受信リクエストの User-Agent がいずれかのフラグメント（大文字小文字を区別しない）を含む場合、元のクライアント UA を上流に転送します。それ以外は既定の上流 UA を使用します。空欄の場合は無効です。",
     "Plan": "プラン",
     "Plan Name": "プラン名",
     "Plan price must be greater than zero": "Plan price must be greater than zero",

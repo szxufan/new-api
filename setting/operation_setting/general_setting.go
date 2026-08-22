@@ -1,6 +1,10 @@
 package operation_setting
 
-import "github.com/QuantumNous/new-api/setting/config"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/setting/config"
+)
 
 // 额度展示类型
 const (
@@ -20,6 +24,10 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 允许透传给上游的客户端 User-Agent 片段名单，多行文本，每行一个；
+	// 入口请求 UA 含任一片段（子串匹配、忽略大小写）时，将原始 UA 透传给上游；
+	// 留空表示全部不透传，沿用默认 User-Agent。
+	UserAgentPassthrough string `json:"user_agent_passthrough"`
 }
 
 // 默认配置
@@ -88,4 +96,34 @@ func GetUsdToCurrencyRate(usdToCny float64) float64 {
 	default:
 		return 1
 	}
+}
+
+// GetUserAgentPassthroughList 返回 UA 透传名单（按行拆分、去空白、过滤空行）。
+func (g *GeneralSetting) GetUserAgentPassthroughList() []string {
+	raw := strings.Split(g.UserAgentPassthrough, "\n")
+	list := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		list = append(list, line)
+	}
+	return list
+}
+
+// ShouldPassthroughUserAgent 判断入口请求的 User-Agent 是否命中透传名单：
+// 任一片段作为子串出现（忽略大小写）即命中；名单为空或 ua 为空时恒为 false。
+func (g *GeneralSetting) ShouldPassthroughUserAgent(ua string) bool {
+	ua = strings.TrimSpace(ua)
+	if ua == "" {
+		return false
+	}
+	uaLower := strings.ToLower(ua)
+	for _, pattern := range g.GetUserAgentPassthroughList() {
+		if strings.Contains(uaLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }

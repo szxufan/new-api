@@ -7,6 +7,7 @@ import (
 	"time"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -196,16 +197,83 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 func TestApplyDefaultUserAgent(t *testing.T) {
 	t.Parallel()
 
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	info := &relaycommon.RelayInfo{IsChannelTest: false}
+
 	// 未设置 UA 时写入默认值
 	headers := http.Header{}
-	applyDefaultUserAgent(&headers)
+	applyDefaultUserAgent(ctx, info, &headers)
 	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
 
 	// 适配器已显式设置 UA 时保留原值
 	headers = http.Header{}
 	headers.Set("User-Agent", "kling-sdk/1.0")
-	applyDefaultUserAgent(&headers)
+	applyDefaultUserAgent(ctx, info, &headers)
 	require.Equal(t, "kling-sdk/1.0", headers.Get("User-Agent"))
+}
+
+func TestApplyDefaultUserAgentPassthrough(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+
+	setGeneralSetting := func(list string) (restore func()) {
+		prev := operation_setting.GetGeneralSetting().UserAgentPassthrough
+		operation_setting.GetGeneralSetting().UserAgentPassthrough = list
+		return func() { operation_setting.GetGeneralSetting().UserAgentPassthrough = prev }
+	}
+
+	newCtx := func(clientUA string) *gin.Context {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		if clientUA != "" {
+			ctx.Request.Header.Set("User-Agent", clientUA)
+		}
+		return ctx
+	}
+
+	const clientUA = "codex-cli/1.0 (linux x86_64)"
+
+	// 命中名单 → 上游 UA 等于客户端原始 UA
+	restore := setGeneralSetting("codex\nclaude-cli")
+	headers := http.Header{}
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, clientUA, headers.Get("User-Agent"))
+	restore()
+
+	// 名单未命中 → 默认 UA
+	restore = setGeneralSetting("claude-cli")
+	headers = http.Header{}
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	restore()
+
+	// 命中但为渠道测试请求 → 不透传，使用默认 UA
+	restore = setGeneralSetting("codex")
+	headers = http.Header{}
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: true}, &headers)
+	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	restore()
+
+	// 客户端无 UA → 默认 UA（即使名单宽松）
+	restore = setGeneralSetting("codex")
+	headers = http.Header{}
+	applyDefaultUserAgent(newCtx(""), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	restore()
+
+	// 请求头已有 UA（模拟适配器显式设置）→ 保持原值
+	restore = setGeneralSetting("codex")
+	headers = http.Header{}
+	headers.Set("User-Agent", "kling-sdk/1.0")
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, "kling-sdk/1.0", headers.Get("User-Agent"))
+	restore()
 }
 
 // TestStartPingKeepAlive_StopWaitsForGoroutineExit 验证停止函数返回后

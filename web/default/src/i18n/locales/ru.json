@@ -3015,6 +3015,8 @@
     "Pick a date": "Выберите дату",
     "Pick or create both a store and a product before saving.": "Pick or create both a store and a product before saving.",
     "Ping Interval (seconds)": "Интервал Ping (секунды)",
+    "Upstream User-Agent Passthrough": "Передача User-Agent в вышестоящий канал",
+    "One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.": "По одному фрагменту в строке. Если User-Agent входящего запроса содержит любой из фрагментов (без учёта регистра), оригинальный UA клиента передаётся в вышестоящий канал; иначе используется UA по умолчанию. Оставьте пустым, чтобы отключить.",
     "Plan": "План",
     "Plan Name": "Название плана",
     "Plan price must be greater than zero": "Plan price must be greater than zero",

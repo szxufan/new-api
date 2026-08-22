@@ -88,6 +88,7 @@ const schema = z.object({
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
     ping_interval_seconds: z.coerce.number().min(1),
+    user_agent_passthrough: z.string(),
   }),
 })
 
@@ -100,6 +101,7 @@ type FlatGlobalModelSettings = {
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
+  'general_setting.user_agent_passthrough': string
 }
 
 const flattenGlobalValues = (
@@ -119,6 +121,8 @@ const flattenGlobalValues = (
     values.general_setting.ping_interval_enabled,
   'general_setting.ping_interval_seconds':
     values.general_setting.ping_interval_seconds,
+  'general_setting.user_agent_passthrough':
+    values.general_setting.user_agent_passthrough,
 })
 
 function normalizeJsonText(value: string, fallback: string) {
@@ -398,6 +402,30 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 <FormDescription>
                   {t(
                     'Recommended to keep this high to avoid upstream throttling.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='general_setting.user_agent_passthrough'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Upstream User-Agent Passthrough')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={4}
+                    placeholder={`codex\nclaude-cli`}
+                    {...field}
+                    onChange={(event) => field.onChange(event.target.value)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.'
                   )}
                 </FormDescription>
                 <FormMessage />

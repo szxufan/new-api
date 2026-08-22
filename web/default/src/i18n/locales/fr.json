@@ -3015,6 +3015,8 @@
     "Pick a date": "Choisir une date",
     "Pick or create both a store and a product before saving.": "Pick or create both a store and a product before saving.",
     "Ping Interval (seconds)": "Intervalle de ping (secondes)",
+    "Upstream User-Agent Passthrough": "Transmission du User-Agent en amont",
+    "One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.": "Un fragment par ligne. Si le User-Agent de la requête entrante contient l'un des fragments (insensible à la casse), le User-Agent d'origine du client est transmis en amont ; sinon, le User-Agent amont par défaut est utilisé. Laissez vide pour désactiver.",
     "Plan": "Plan",
     "Plan Name": "Nom du plan",
     "Plan price must be greater than zero": "Plan price must be greater than zero",

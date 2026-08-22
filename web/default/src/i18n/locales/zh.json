@@ -3015,6 +3015,8 @@
     "Pick a date": "选择日期",
     "Pick or create both a store and a product before saving.": "保存前请先选择或新建店铺和商品。",
     "Ping Interval (seconds)": "Ping 间隔（秒）",
+    "Upstream User-Agent Passthrough": "上游 User-Agent 透传",
+    "One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.": "每行一个 UA 片段。入口请求的 User-Agent 包含任一片段（不区分大小写）时，将原始 UA 透传给上游；否则使用默认上游 UA。留空表示不透传。",
     "Plan": "套餐",
     "Plan Name": "套餐名称",
     "Plan price must be greater than zero": "套餐价格必须大于 0",

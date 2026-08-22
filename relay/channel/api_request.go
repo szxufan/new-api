@@ -305,15 +305,30 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 }
 
 // defaultUpstreamUserAgent 是向上游渠道发送请求时的默认 User-Agent。
-// 渠道适配器显式设置的 UA 优先；渠道 Header Override 在其后应用，仍可覆盖。
+// 优先级：渠道适配器显式设置的 UA > UA 透传名单命中（透传入口请求原始 UA）>
+// 默认值；渠道 Header Override 在其后应用，仍可覆盖。
 const defaultUpstreamUserAgent = "hertz"
 
 // applyDefaultUserAgent 在请求头未设置 User-Agent 时写入默认值，
 // 避免使用 Go 标准库的默认 UA（Go-http-client/1.1）。
-func applyDefaultUserAgent(headers *http.Header) {
-	if headers.Get("User-Agent") == "" {
-		headers.Set("User-Agent", defaultUpstreamUserAgent)
+// 若全局配置 general_setting.user_agent_passthrough 名单命中入口请求的
+// User-Agent（子串匹配、忽略大小写），则将客户端原始 UA 透传给上游；
+// 渠道测试请求（IsChannelTest）不透传。
+func applyDefaultUserAgent(c *gin.Context, info *common.RelayInfo, headers *http.Header) {
+	if headers.Get("User-Agent") != "" {
+		// 适配器显式设置的 UA 优先
+		return
 	}
+	clientUA := ""
+	if c != nil && c.Request != nil {
+		clientUA = strings.TrimSpace(c.Request.UserAgent())
+	}
+	if clientUA != "" && (info == nil || !info.IsChannelTest) &&
+		operation_setting.GetGeneralSetting().ShouldPassthroughUserAgent(clientUA) {
+		headers.Set("User-Agent", clientUA)
+		return
+	}
+	headers.Set("User-Agent", defaultUpstreamUserAgent)
 }
 
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
@@ -332,7 +347,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	applyDefaultUserAgent(&headers)
+	applyDefaultUserAgent(c, info, &headers)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -365,7 +380,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	applyDefaultUserAgent(&headers)
+	applyDefaultUserAgent(c, info, &headers)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -390,7 +405,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	applyDefaultUserAgent(&targetHeader)
+	applyDefaultUserAgent(c, info, &targetHeader)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)

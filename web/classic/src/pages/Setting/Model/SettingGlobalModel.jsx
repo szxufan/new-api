@@ -72,6 +72,7 @@ const defaultGlobalSettingInputs = {
   'global.chat_completions_to_responses_policy': '{}',
   'general_setting.ping_interval_enabled': false,
   'general_setting.ping_interval_seconds': 60,
+  'general_setting.user_agent_passthrough': '',
 };
 
 export default function SettingGlobalModel(props) {
@@ -398,6 +399,34 @@ export default function SettingGlobalModel(props) {
                     }
                     min={1}
                     disabled={!inputs['general_setting.ping_interval_enabled']}
+                  />
+                </Col>
+              </Row>
+            </Form.Section>
+
+            <Form.Section
+              text={
+                <span style={{ fontSize: 14, fontWeight: 600 }}>
+                  {t('上游 User-Agent 透传')}
+                </span>
+              }
+            >
+              <Row style={{ marginTop: 10 }}>
+                <Col span={24}>
+                  <Form.TextArea
+                    label={t('UA 透传名单')}
+                    field={'general_setting.user_agent_passthrough'}
+                    placeholder={t('例如：') + '\ncodex\nclaude-cli'}
+                    rows={4}
+                    extraText={t(
+                      '每行一个 UA 片段。入口请求的 User-Agent 包含任一片段（不区分大小写）时，将原始 UA 透传给上游；否则使用默认上游 UA。留空表示不透传。',
+                    )}
+                    onChange={(value) =>
+                      setInputs({
+                        ...inputs,
+                        'general_setting.user_agent_passthrough': value,
+                      })
+                    }
                   />
                 </Col>
               </Row>
