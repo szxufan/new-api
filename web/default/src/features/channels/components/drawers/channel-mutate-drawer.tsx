@@ -944,9 +944,16 @@ export function ChannelMutateDrawer({
   // Handle successful submission
   const handleSuccess = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+    // 更新成功后移除该渠道的详情缓存，确保下次打开编辑侧栏时重新拉取最新数据；
+    // 否则详情缓存未失效，侧栏会展示更新前的旧配置
+    if (channelId != null) {
+      queryClient.removeQueries({
+        queryKey: channelsQueryKeys.detail(channelId),
+      })
+    }
     onOpenChange(false)
     setOpen(null)
-  }, [queryClient, onOpenChange, setOpen])
+  }, [queryClient, onOpenChange, setOpen, channelId])
 
   // Show missing models confirmation dialog
   const confirmMissingModelMappings = useCallback(
@@ -3351,7 +3358,9 @@ export function ChannelMutateDrawer({
                         name='anti_cache_retry_content'
                         render={({ field }) => (
                           <FormItem className='px-4 py-3'>
-                            <FormLabel>{t('Anti-Cache Retry Content')}</FormLabel>
+                            <FormLabel>
+                              {t('Anti-Cache Retry Content')}
+                            </FormLabel>
                             <FormDescription>
                               {t(
                                 'Appended to the end of the last user message on each retry; the Nth retry appends N copies'

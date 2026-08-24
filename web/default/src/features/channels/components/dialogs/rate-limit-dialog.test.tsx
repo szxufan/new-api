@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RateLimitDialog } from './rate-limit-dialog'
 import * as api from '../../api'
+import type { Channel } from '../../types'
 import * as provider from '../channels-provider'
 
 vi.mock('../channels-provider', () => ({
@@ -14,7 +15,7 @@ vi.mock('../../api', () => ({
   unrateLimitChannel: vi.fn(),
 }))
 
-const mockToast = { success: vi.fn(), error: vi.fn() }
+const mockToast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 vi.mock('sonner', () => ({ toast: mockToast }))
 
 describe('RateLimitDialog', () => {
@@ -30,8 +31,8 @@ describe('RateLimitDialog', () => {
         id: 1,
         name: 'Test Channel',
         status,
-      } as any,
-    } as any)
+      } as Channel,
+    } as unknown as ReturnType<typeof provider.useChannels>)
 
     return render(
       <QueryClientProvider client={queryClient}>
@@ -43,7 +44,9 @@ describe('RateLimitDialog', () => {
   describe('Set Rate Limit mode (status not rate limited)', () => {
     it('should render set rate limit form', () => {
       renderDialog(1)
-      expect(screen.getByText('Set Rate Limit')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Set Rate Limit' })
+      ).toBeInTheDocument()
       expect(screen.getByLabelText(/Rate Limit Duration/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/Rate Limit Reason/i)).toBeInTheDocument()
     })
@@ -129,13 +132,17 @@ describe('RateLimitDialog', () => {
   describe('Remove Rate Limit mode (status rate limited)', () => {
     it('should render remove rate limit form for status 4', () => {
       renderDialog(4)
-      expect(screen.getByText('Remove Rate Limit')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Remove Rate Limit' })
+      ).toBeInTheDocument()
       expect(screen.getByText(/This channel is currently rate limited/i)).toBeInTheDocument()
     })
 
     it('should render remove rate limit form for status 5', () => {
       renderDialog(5)
-      expect(screen.getByText('Remove Rate Limit')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Remove Rate Limit' })
+      ).toBeInTheDocument()
     })
 
     it('should call unrateLimitChannel on submit', async () => {
@@ -183,8 +190,8 @@ describe('RateLimitDialog', () => {
     it('should call onOpenChange with false when cancel clicked', () => {
       const onOpenChange = vi.fn()
       vi.mocked(provider.useChannels).mockReturnValue({
-        currentRow: { id: 1, name: 'Test', status: 1 } as any,
-      } as any)
+        currentRow: { id: 1, name: 'Test', status: 1 } as Channel,
+      } as unknown as ReturnType<typeof provider.useChannels>)
 
       render(
         <QueryClientProvider client={queryClient}>
