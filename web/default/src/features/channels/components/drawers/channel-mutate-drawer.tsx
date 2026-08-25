@@ -144,7 +144,6 @@ import {
   formatModelsArray,
   extractRedirectModels,
   extractMappingSourceModels,
-  hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
 } from '../../lib'
@@ -310,8 +309,6 @@ export function ChannelMutateDrawer({
   const [codexOAuthDialogOpen, setCodexOAuthDialogOpen] = useState(false)
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
     useState(false)
-  const initialModelsRef = useRef<string[]>([])
-  const initialModelMappingRef = useRef<string>('')
   const initialStatusCodeMappingRef = useRef<string>('')
   // Track which channel's data has been loaded into the form
   const loadedChannelIdRef = useRef<number | null>(null)
@@ -672,10 +669,6 @@ export function ChannelMutateDrawer({
           readAdvancedSettingsPreference() ||
             hasAdvancedSettingsValues(defaults)
         )
-        initialModelsRef.current = parseModelsString(
-          channelData.data.models || ''
-        )
-        initialModelMappingRef.current = channelData.data.model_mapping || ''
         initialStatusCodeMappingRef.current =
           channelData.data.status_code_mapping || ''
       }
@@ -685,8 +678,6 @@ export function ChannelMutateDrawer({
         loadedChannelIdRef.current = null
         form.reset(CHANNEL_FORM_DEFAULT_VALUES)
         setAdvancedSettingsOpen(false)
-        initialModelsRef.current = []
-        initialModelMappingRef.current = ''
         initialStatusCodeMappingRef.current = ''
       }
     }
@@ -1060,22 +1051,16 @@ export function ChannelMutateDrawer({
       const normalizedModels = parseModelsString(data.models || '')
 
       // Check for missing models in model_mapping
+      // 触发条件：只要 model_mapping 的源模型中存在 models 列表里缺失的模型，
+      // 即弹出确认对话框——不再依赖“配置已修改”这一前置条件，
+      // 从而覆盖“未做任何修改”和“models 为空”两种场景。
       if (hasModelMapping) {
         const missingModels = findMissingModelsInMapping(
           data.model_mapping!,
           normalizedModels
         )
 
-        const shouldPromptMissing =
-          missingModels.length > 0 &&
-          hasModelConfigChanged(
-            normalizedModels,
-            data.model_mapping || '',
-            initialModelsRef.current,
-            initialModelMappingRef.current
-          )
-
-        if (shouldPromptMissing) {
+        if (missingModels.length > 0) {
           const confirmAction = await confirmMissingModelMappings(missingModels)
           if (confirmAction === 'cancel') {
             return
@@ -1087,7 +1072,21 @@ export function ChannelMutateDrawer({
             data.models = formatModelsArray(updatedModels)
             form.setValue('models', data.models)
           }
+          // 'submit'：用户拒绝追加，继续走后续提交逻辑；
+          // 若此时 models 仍为空，下方校验会阻止提交（与原 schema 行为一致）。
         }
+      }
+
+      // 手动校验 models 非空：schema 已移除 min(1) 校验，
+      // 以便 models 为空时仍能进入 onSubmit 触发上面的自动追加弹窗。
+      // 用户未追加（或没有可追加模型）时，此处兜底阻止空 models 提交。
+      const finalModels = parseModelsString(data.models || '')
+      if (finalModels.length === 0) {
+        form.setError('models', {
+          type: 'manual',
+          message: t('At least one model is required'),
+        })
+        return
       }
 
       setIsSubmitting(true)

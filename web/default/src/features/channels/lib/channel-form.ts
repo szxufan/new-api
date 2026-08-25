@@ -30,7 +30,10 @@ export const channelFormSchema = z.object({
   base_url: z.string().optional(),
   key: z.string(),
   openai_organization: z.string().optional(),
-  models: z.string().min(1, 'At least one model is required'),
+  // models 的“至少一个模型”校验改在 onSubmit 中手动执行：
+  // 当 models 为空但 model_mapping 中存在可自动追加的源模型时，需要先弹出确认对话框，
+  // 由用户决定是否追加，因此不能在 schema 层直接拦截空 models。
+  models: z.string(),
   group: z.array(z.string()).min(1, 'At least one group is required'),
   group_blacklist: z.array(z.string()).optional(),
   model_mapping: z.string().optional(),

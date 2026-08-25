@@ -92,7 +92,36 @@ vi.mock('../dialogs/fetch-models-dialog', () => ({
   FetchModelsDialog: () => null,
 }))
 vi.mock('../dialogs/missing-models-confirmation-dialog', () => ({
-  MissingModelsConfirmationDialog: () => null,
+  MissingModelsConfirmationDialog: (props: {
+    open: boolean
+    missingModels: string[]
+    onConfirm: (action: string) => void
+  }) =>
+    props.open ? (
+      <div data-testid='missing-models-dialog'>
+        <span data-testid='missing-models-list'>
+          {props.missingModels.join(',')}
+        </span>
+        <button
+          data-testid='missing-models-cancel'
+          onClick={() => props.onConfirm('cancel')}
+        >
+          cancel
+        </button>
+        <button
+          data-testid='missing-models-submit'
+          onClick={() => props.onConfirm('submit')}
+        >
+          submit
+        </button>
+        <button
+          data-testid='missing-models-add'
+          onClick={() => props.onConfirm('add')}
+        >
+          add
+        </button>
+      </div>
+    ) : null,
 }))
 vi.mock('../dialogs/param-override-editor-dialog', () => ({
   ParamOverrideEditorDialog: () => null,
@@ -130,7 +159,7 @@ const updatedChannel: Channel = {
   name: 'Updated Channel',
 }
 
-function renderDrawer(queryClient: QueryClient) {
+function renderDrawer(queryClient: QueryClient, row: Channel = baseChannel) {
   const setOpenRef: { current: ((open: boolean) => void) | null } = {
     current: null,
   }
@@ -145,7 +174,7 @@ function renderDrawer(queryClient: QueryClient) {
         <ChannelMutateDrawer
           open={open}
           onOpenChange={setOpen}
-          currentRow={baseChannel}
+          currentRow={row}
         />
       </QueryClientProvider>
     )
@@ -213,5 +242,139 @@ describe('ChannelMutateDrawer - 更新后重新打开的数据新鲜度回归测
     )
     // 详情缓存已失效，必须重新请求详情接口
     expect(vi.mocked(api.getChannel).mock.calls.length).toBeGreaterThan(1)
+  })
+})
+
+describe('ChannelMutateDrawer - model_mapping 缺失模型自动追加', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.getGroups).mockResolvedValue({ success: true, data: [] })
+    vi.mocked(api.getAllModels).mockResolvedValue({ success: true, data: [] })
+    vi.mocked(api.getPrefillGroups).mockResolvedValue({
+      success: true,
+      data: [],
+    })
+    vi.mocked(api.searchChannels).mockResolvedValue({
+      success: true,
+      data: { items: [], total: 0, type_counts: {} },
+    } as never)
+    vi.mocked(api.updateChannel).mockResolvedValue({ success: true })
+  })
+
+  it('models 为空且 model_mapping 有缺失模型：选择追加则补全并保存', async () => {
+    const channel: Channel = {
+      ...baseChannel,
+      models: '',
+      model_mapping: JSON.stringify({ 'gpt-4': 'gpt-4-turbo' }),
+    } as Channel
+    vi.mocked(api.getChannel).mockResolvedValue({ success: true, data: channel })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderDrawer(queryClient, channel)
+
+    // 等待表单加载完成（确保 form.reset 已执行，model_mapping 已填入）
+    const nameInput = await screen.findByLabelText('Name *')
+    await waitFor(() => expect(nameInput).toHaveValue('Test Channel'))
+
+    const form = document.getElementById('channel-form') as HTMLFormElement
+    fireEvent.submit(form)
+
+    // models 为空但有可自动追加的模型时，应弹出确认对话框
+    const dialog = await screen.findByTestId('missing-models-dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(screen.getByTestId('missing-models-list').textContent).toBe('gpt-4')
+
+    // 选择追加：补全 models 后正常保存
+    fireEvent.click(screen.getByTestId('missing-models-add'))
+    await waitFor(() =>
+      expect(api.updateChannel).toHaveBeenCalledTimes(1)
+    )
+    const payload = vi.mocked(api.updateChannel).mock.calls[0][1]
+    expect(payload.models).toBe('gpt-4')
+  })
+
+  it('models 为空且 model_mapping 有缺失模型：选择直接提交则阻止保存', async () => {
+    const channel: Channel = {
+      ...baseChannel,
+      models: '',
+      model_mapping: JSON.stringify({ 'gpt-4': 'gpt-4-turbo' }),
+    } as Channel
+    vi.mocked(api.getChannel).mockResolvedValue({ success: true, data: channel })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderDrawer(queryClient, channel)
+
+    const nameInput2 = await screen.findByLabelText('Name *')
+    await waitFor(() => expect(nameInput2).toHaveValue('Test Channel'))
+    const form = document.getElementById('channel-form') as HTMLFormElement
+    fireEvent.submit(form)
+
+    await screen.findByTestId('missing-models-dialog')
+    // 用户拒绝追加：models 仍为空，应阻止保存（与原“空 models 不允许保存”一致）
+    fireEvent.click(screen.getByTestId('missing-models-submit'))
+
+    await waitFor(() =>
+      expect(api.updateChannel).not.toHaveBeenCalled()
+    )
+  })
+
+  it('未做修改且 model_mapping 有缺失模型：选择直接提交则正常保存', async () => {
+    const channel: Channel = {
+      ...baseChannel,
+      models: 'gpt-3.5-turbo',
+      model_mapping: JSON.stringify({ 'gpt-4': 'gpt-4-turbo' }),
+    } as Channel
+    vi.mocked(api.getChannel).mockResolvedValue({ success: true, data: channel })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderDrawer(queryClient, channel)
+
+    const nameInput3 = await screen.findByLabelText('Name *')
+    await waitFor(() => expect(nameInput3).toHaveValue('Test Channel'))
+    const form = document.getElementById('channel-form') as HTMLFormElement
+    // 不修改任何字段直接提交
+    fireEvent.submit(form)
+
+    // 即使未修改，只要有可自动追加的模型也应弹出对话框
+    await screen.findByTestId('missing-models-dialog')
+    // 用户拒绝追加：models 非空，应正常保存（与原“未修改正常保存”一致）
+    fireEvent.click(screen.getByTestId('missing-models-submit'))
+
+    await waitFor(() =>
+      expect(api.updateChannel).toHaveBeenCalledTimes(1)
+    )
+    const payload = vi.mocked(api.updateChannel).mock.calls[0][1]
+    expect(payload.models).toBe('gpt-3.5-turbo')
+  })
+
+  it('models 为空且无 model_mapping：直接阻止保存', async () => {
+    const channel: Channel = {
+      ...baseChannel,
+      models: '',
+      model_mapping: '',
+    } as Channel
+    vi.mocked(api.getChannel).mockResolvedValue({ success: true, data: channel })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderDrawer(queryClient, channel)
+
+    const nameInput4 = await screen.findByLabelText('Name *')
+    await waitFor(() => expect(nameInput4).toHaveValue('Test Channel'))
+    const form = document.getElementById('channel-form') as HTMLFormElement
+    fireEvent.submit(form)
+
+    // 没有 model_mapping 不会弹窗，且 models 为空应阻止保存
+    await waitFor(() =>
+      expect(screen.queryByTestId('missing-models-dialog')).not.toBeInTheDocument()
+    )
+    expect(api.updateChannel).not.toHaveBeenCalled()
   })
 })

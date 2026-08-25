@@ -3,6 +3,8 @@ import {
   parseJsonToMappingRows,
   convertMappingRowsToJson,
   type MappingRow,
+  findMissingModelsInMapping,
+  hasModelConfigChanged,
 } from './model-mapping-validation'
 
 describe('parseJsonToMappingRows', () => {
@@ -114,5 +116,82 @@ describe('roundtrip: parseJsonToMappingRows -> convertMappingRowsToJson', () => 
     expect(rows).not.toBeNull()
     const roundtripJson = convertMappingRowsToJson(rows!)
     expect(JSON.parse(roundtripJson)).toEqual(JSON.parse(originalJson))
+  })
+})
+
+describe('findMissingModelsInMapping', () => {
+  it('should return empty array for empty model_mapping', () => {
+    expect(findMissingModelsInMapping('', ['gpt-4'])).toEqual([])
+    expect(findMissingModelsInMapping('   ', ['gpt-4'])).toEqual([])
+  })
+
+  it('should return empty array for invalid JSON', () => {
+    expect(findMissingModelsInMapping('{invalid}', ['gpt-4'])).toEqual([])
+    expect(findMissingModelsInMapping('not json', ['gpt-4'])).toEqual([])
+  })
+
+  it('should return empty array for non-object JSON', () => {
+    expect(findMissingModelsInMapping('[]', ['gpt-4'])).toEqual([])
+    expect(findMissingModelsInMapping('"string"', ['gpt-4'])).toEqual([])
+    expect(findMissingModelsInMapping('42', ['gpt-4'])).toEqual([])
+  })
+
+  it('should return empty when all mapping keys exist in models', () => {
+    const mapping = JSON.stringify({ 'gpt-4': 'gpt-4-turbo' })
+    expect(findMissingModelsInMapping(mapping, ['gpt-4'])).toEqual([])
+  })
+
+  it('should return mapping keys missing from models', () => {
+    const mapping = JSON.stringify({
+      'gpt-4': 'gpt-4-turbo',
+      'claude-3': 'claude-3-opus',
+    })
+    expect(findMissingModelsInMapping(mapping, ['gpt-4'])).toEqual([
+      'claude-3',
+    ])
+  })
+
+  it('should return all keys when models list is empty', () => {
+    const mapping = JSON.stringify({
+      'gpt-4': 'gpt-4-turbo',
+      'claude-3': 'claude-3-opus',
+    })
+    expect(findMissingModelsInMapping(mapping, [])).toEqual([
+      'gpt-4',
+      'claude-3',
+    ])
+  })
+
+  it('should deduplicate and trim mapping keys', () => {
+    const mapping = JSON.stringify({ ' gpt-4 ': 'gpt-4-turbo' })
+    expect(findMissingModelsInMapping(mapping, [])).toEqual(['gpt-4'])
+  })
+})
+
+describe('hasModelConfigChanged', () => {
+  it('should return true for new channel (empty initial)', () => {
+    expect(hasModelConfigChanged(['gpt-4'], '', [], '')).toBe(true)
+  })
+
+  it('should return true when models length changed', () => {
+    expect(
+      hasModelConfigChanged(['gpt-4', 'gpt-3.5'], '', ['gpt-4'], '')
+    ).toBe(true)
+  })
+
+  it('should return true when a model entry changed', () => {
+    expect(hasModelConfigChanged(['gpt-4o'], '', ['gpt-4'], '')).toBe(true)
+  })
+
+  it('should return true when model_mapping changed', () => {
+    const mapping = JSON.stringify({ 'gpt-4': 'gpt-4-turbo' })
+    expect(hasModelConfigChanged(['gpt-4'], mapping, ['gpt-4'], '')).toBe(true)
+  })
+
+  it('should return false when nothing changed', () => {
+    const mapping = JSON.stringify({ 'gpt-4': 'gpt-4-turbo' })
+    expect(hasModelConfigChanged(['gpt-4'], mapping, ['gpt-4'], mapping)).toBe(
+      false
+    )
   })
 })
