@@ -23,6 +23,7 @@ import type {
   MessageVersion,
   ChatCompletionMessage,
   ContentPart,
+  MessageAttachment,
 } from '../types'
 
 /**
@@ -59,11 +60,15 @@ export function updateCurrentVersionContent(
 /**
  * Create a user message
  */
-export function createUserMessage(content: string): Message {
+export function createUserMessage(
+  content: string,
+  attachments?: MessageAttachment[]
+): Message {
   return {
     key: nanoid(),
     from: MESSAGE_ROLES.USER,
     versions: [createMessageVersion(content)],
+    attachments: attachments?.length ? attachments : undefined,
   }
 }
 
@@ -128,12 +133,35 @@ export function getTextContent(content: string | ContentPart[]): string {
 
 /**
  * Format message for API request
+ * - 图片附件（含 url）以 image_url 形式发送（content 变为 ContentPart[]）
+ * - 历史 url 已剥离的图片附件：在文本末尾追加 [image: 文件名] 占位行
  */
 export function formatMessageForAPI(message: Message): ChatCompletionMessage {
   const currentVersion = getCurrentVersion(message)
+  const attachments = message.attachments || []
+
+  // 分离：有 url 的图片 / 已丢失 url 的图片
+  const imageUrls: string[] = []
+  const lostImages: string[] = []
+  for (const att of attachments) {
+    if (att.kind !== 'image') continue
+    if (att.url && att.url.trim() !== '') {
+      imageUrls.push(att.url.trim())
+    } else {
+      lostImages.push(att.filename || 'image')
+    }
+  }
+
+  let text = currentVersion.content
+  if (lostImages.length > 0) {
+    const tail = lostImages.map((n) => `[image: ${n}]`).join('\n')
+    text = text ? `${text}\n${tail}` : tail
+  }
+
+  const content = buildMessageContent(text, imageUrls)
   return {
     role: message.from,
-    content: currentVersion.content,
+    content,
   }
 }
 

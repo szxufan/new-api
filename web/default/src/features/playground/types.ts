@@ -26,10 +26,21 @@ export interface MessageVersion {
   content: string
 }
 
+// 附件类型：图片以 image_url 发送；文本类文件内容内联进消息文本后仅作展示占位
+export interface MessageAttachment {
+  id: string
+  kind: 'image' | 'file'
+  filename: string
+  mediaType: string
+  /** dataURL，仅内存存在；持久化到 localStorage 时会被剥离 */
+  url?: string
+}
+
 export interface Message {
   key: string
   from: MessageRole
   versions: MessageVersion[]
+  attachments?: MessageAttachment[]
   sources?: { href: string; title: string }[]
   reasoning?: {
     content: string

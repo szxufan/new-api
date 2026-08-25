@@ -10,6 +10,7 @@
   "Anthropic": "Anthropic",
   "API URL": "API URL",
   "API2GPT": "API2GPT",
+  "At least one model is required": "At least one model is required",
   "AZURE_OPENAI_ENDPOINT *": "AZURE_OPENAI_ENDPOINT *",
   "Bind a Pancake store + product": "Bind a Pancake store + product",
   "Bound product:": "Bound product:",

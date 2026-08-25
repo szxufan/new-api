@@ -109,10 +109,18 @@ export function loadMessages(): Message[] | null {
 
 /**
  * Save messages to localStorage
+ * 附件的 url（dataURL）仅内存保存，写盘前剥离以避免 localStorage 溢出
  */
 export function saveMessages(messages: Message[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages))
+    const persisted = messages.map((m) => {
+      if (!m.attachments?.length) return m
+      const strippedAttachments = m.attachments.map(({ url: _url, ...rest }) =>
+        rest
+      )
+      return { ...m, attachments: strippedAttachments }
+    })
+    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(persisted))
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to save messages:', error)

@@ -99,3 +99,10 @@ export const MESSAGE_ACTION_LABELS = {
   NO_CONTENT: 'No content to copy',
   WAIT_GENERATION: 'Please wait for the current generation to complete',
 } as const
+
+// 附件相关常量
+// 图片压缩：最长边限制 + JPEG 质量
+export const ATTACHMENT_IMAGE_MAX_DIMENSION = 1568
+export const ATTACHMENT_IMAGE_JPEG_QUALITY = 0.85
+// 文本类文件读取上限（字节），超出则截断
+export const TEXT_FILE_MAX_BYTES = 1 * 1024 * 1024

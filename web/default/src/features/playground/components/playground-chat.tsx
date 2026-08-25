@@ -51,8 +51,9 @@ import {
 import { MESSAGE_ROLES } from '../constants'
 import { getMessageContentStyles } from '../lib/message-styles'
 import { parseThinkTags } from '../lib/message-utils'
-import type { Message as MessageType } from '../types'
+import type { Message as MessageType, MessageAttachment } from '../types'
 import { MessageActions } from './message-actions'
+import { MessageAttachments } from './message-attachments'
 import { MessageError } from './message-error'
 
 interface PlaygroundChatProps {
@@ -250,6 +251,16 @@ export function PlaygroundChat({
                                   ) : (
                                     showMessageContent && (
                                       <>
+                                        {message.from ===
+                                          MESSAGE_ROLES.USER &&
+                                          message.attachments?.length && (
+                                            <MessageAttachments
+                                              attachments={
+                                                message.attachments as MessageAttachment[]
+                                              }
+                                              className='mb-2'
+                                            />
+                                          )}
                                         <MessageContent
                                           variant='flat'
                                           className={cn(
