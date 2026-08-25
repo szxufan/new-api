@@ -17,9 +17,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState } from 'react'
+import { EraserIcon } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import {
   Branch,
   BranchMessages,
@@ -62,6 +75,7 @@ interface PlaygroundChatProps {
   onRegenerateMessage?: (message: MessageType) => void
   onEditMessage?: (message: MessageType) => void
   onDeleteMessage?: (message: MessageType) => void
+  onClearConversation?: () => void
   isGenerating?: boolean
   editingKey?: string | null
   onSaveEdit?: (newContent: string) => void
@@ -75,12 +89,14 @@ export function PlaygroundChat({
   onRegenerateMessage,
   onEditMessage,
   onDeleteMessage,
+  onClearConversation,
   isGenerating = false,
   editingKey,
   onSaveEdit,
   onCancelEdit,
   onSaveEditAndSubmit,
 }: PlaygroundChatProps) {
+  const { t } = useTranslation()
   const [editText, setEditText] = useState('')
   const [originalText, setOriginalText] = useState('')
 
@@ -105,6 +121,41 @@ export function PlaygroundChat({
       {/* Remove outer padding; apply padding to inner centered container to align with input */}
       <ConversationContent className='p-0'>
         <div className='mx-auto w-full max-w-4xl px-4 py-4'>
+          {/* 顶部工具栏：清空会话 */}
+          {messages.length > 0 && onClearConversation && (
+            <div className='mb-2 flex justify-end'>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button
+                      className='size-7 text-muted-foreground hover:text-foreground'
+                      disabled={isGenerating}
+                      size='icon'
+                      variant='ghost'
+                    />
+                  }
+                >
+                  <EraserIcon className='size-4' />
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {t('Clear conversation')}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('This will permanently delete all messages in this conversation. This action cannot be undone.')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={onClearConversation}>
+                      {t('Clear')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
           {messages.map((message, messageIndex) => {
             const { versions = [] } = message
             const isLastAssistantMessage =

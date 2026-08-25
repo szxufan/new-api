@@ -756,6 +756,8 @@
     "Cleanup Mode": "Режим очистки",
     "Clear": "Очистить",
     "Clear all": "Очистить все",
+    "Clear conversation": "Очистить беседу",
+    "This will permanently delete all messages in this conversation. This action cannot be undone.": "Это навсегда удалит все сообщения в этой беседе. Это действие нельзя отменить.",
     "Clear All": "Очистить все",
     "Clear All Cache": "Очистить весь кэш",
     "Clear all filters": "Очистить все фильтры",

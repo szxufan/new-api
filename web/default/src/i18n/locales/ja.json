@@ -756,6 +756,8 @@
     "Cleanup Mode": "クリーンアップ方式",
     "Clear": "クリア",
     "Clear all": "すべてクリア",
+    "Clear conversation": "会話を消去",
+    "This will permanently delete all messages in this conversation. This action cannot be undone.": "この会話のすべてのメッセージが完全に削除されます。この操作は取り消せません。",
     "Clear All": "すべてクリア",
     "Clear All Cache": "全キャッシュをクリア",
     "Clear all filters": "すべてのフィルターをクリア",

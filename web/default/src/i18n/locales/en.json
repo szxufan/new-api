@@ -756,6 +756,8 @@
     "Cleanup Mode": "Cleanup Mode",
     "Clear": "Clear",
     "Clear all": "Clear all",
+    "Clear conversation": "Clear conversation",
+    "This will permanently delete all messages in this conversation. This action cannot be undone.": "This will permanently delete all messages in this conversation. This action cannot be undone.",
     "Clear All": "Clear All",
     "Clear All Cache": "Clear All Cache",
     "Clear all filters": "Clear all filters",

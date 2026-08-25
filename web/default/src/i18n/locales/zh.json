@@ -756,6 +756,8 @@
     "Cleanup Mode": "清理方式",
     "Clear": "清空",
     "Clear all": "清除全部",
+    "Clear conversation": "清空会话",
+    "This will permanently delete all messages in this conversation. This action cannot be undone.": "这将永久删除当前会话中的所有消息，此操作无法撤销。",
     "Clear All": "清除全部",
     "Clear All Cache": "清空全部缓存",
     "Clear all filters": "清除所有筛选",
