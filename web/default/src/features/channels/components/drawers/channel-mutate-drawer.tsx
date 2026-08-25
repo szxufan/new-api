@@ -1072,21 +1072,8 @@ export function ChannelMutateDrawer({
             data.models = formatModelsArray(updatedModels)
             form.setValue('models', data.models)
           }
-          // 'submit'：用户拒绝追加，继续走后续提交逻辑；
-          // 若此时 models 仍为空，下方校验会阻止提交（与原 schema 行为一致）。
+          // 'submit'：用户拒绝追加，继续走后续提交逻辑。
         }
-      }
-
-      // 手动校验 models 非空：schema 已移除 min(1) 校验，
-      // 以便 models 为空时仍能进入 onSubmit 触发上面的自动追加弹窗。
-      // 用户未追加（或没有可追加模型）时，此处兜底阻止空 models 提交。
-      const finalModels = parseModelsString(data.models || '')
-      if (finalModels.length === 0) {
-        form.setError('models', {
-          type: 'manual',
-          message: t('At least one model is required'),
-        })
-        return
       }
 
       setIsSubmitting(true)

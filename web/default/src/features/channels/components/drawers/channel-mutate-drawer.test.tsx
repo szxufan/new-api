@@ -295,7 +295,7 @@ describe('ChannelMutateDrawer - model_mapping 缺失模型自动追加', () => {
     expect(payload.models).toBe('gpt-4')
   })
 
-  it('models 为空且 model_mapping 有缺失模型：选择直接提交则阻止保存', async () => {
+  it('models 为空且 model_mapping 有缺失模型：选择直接提交则正常保存', async () => {
     const channel: Channel = {
       ...baseChannel,
       models: '',
@@ -314,12 +314,15 @@ describe('ChannelMutateDrawer - model_mapping 缺失模型自动追加', () => {
     fireEvent.submit(form)
 
     await screen.findByTestId('missing-models-dialog')
-    // 用户拒绝追加：models 仍为空，应阻止保存（与原“空 models 不允许保存”一致）
+    // 用户拒绝追加：models 仍为空，但不再阻止空 models 提交，应正常保存
     fireEvent.click(screen.getByTestId('missing-models-submit'))
 
     await waitFor(() =>
-      expect(api.updateChannel).not.toHaveBeenCalled()
+      expect(api.updateChannel).toHaveBeenCalledTimes(1)
     )
+    const payload = vi.mocked(api.updateChannel).mock.calls[0][1]
+    // 空字符串 models 在 payload 中被清理为 null
+    expect(payload.models).toBe(null)
   })
 
   it('未做修改且 model_mapping 有缺失模型：选择直接提交则正常保存', async () => {
@@ -353,7 +356,7 @@ describe('ChannelMutateDrawer - model_mapping 缺失模型自动追加', () => {
     expect(payload.models).toBe('gpt-3.5-turbo')
   })
 
-  it('models 为空且无 model_mapping：直接阻止保存', async () => {
+  it('models 为空且无 model_mapping：直接正常保存', async () => {
     const channel: Channel = {
       ...baseChannel,
       models: '',
@@ -371,10 +374,15 @@ describe('ChannelMutateDrawer - model_mapping 缺失模型自动追加', () => {
     const form = document.getElementById('channel-form') as HTMLFormElement
     fireEvent.submit(form)
 
-    // 没有 model_mapping 不会弹窗，且 models 为空应阻止保存
+    // 没有 model_mapping 不会弹窗，models 为空也允许直接保存
     await waitFor(() =>
       expect(screen.queryByTestId('missing-models-dialog')).not.toBeInTheDocument()
     )
-    expect(api.updateChannel).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(api.updateChannel).toHaveBeenCalledTimes(1)
+    )
+    const payload = vi.mocked(api.updateChannel).mock.calls[0][1]
+    // 空字符串 models 在 payload 中被清理为 null
+    expect(payload.models).toBe(null)
   })
 })
