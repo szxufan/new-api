@@ -10,6 +10,7 @@
   "Anthropic": "Anthropic",
   "API URL": "API URL",
   "API2GPT": "API2GPT",
+  "At least one model is required": "At least one model is required",
   "AZURE_OPENAI_ENDPOINT *": "AZURE_OPENAI_ENDPOINT *",
   "checkout.session.completed": "checkout.session.completed",
   "checkout.session.expired": "checkout.session.expired",
@@ -99,5 +100,6 @@
   "Well-Known URL": "Well-Known URL",
   "whsec_xxx": "whsec_xxx",
   "Worker URL": "Worker URL",
-  "Xinference": "Xinference"
+  "Xinference": "Xinference",
+  "Base64 JSON": "Base64 JSON"
 }

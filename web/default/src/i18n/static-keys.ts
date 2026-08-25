@@ -489,4 +489,19 @@ export const STATIC_I18N_KEYS = [
   'Failed to load',
   'Expired at',
   'Cancelled at',
+
+  // Image Debug (constants-driven labels)
+  '1024 * 1024',
+  '1024 * 1792',
+  '1280 * 720',
+  '1792 * 1024',
+  '256 * 256',
+  '512 * 512',
+  '720 * 1280',
+  'Standard',
+  'HD',
+  'Vivid',
+  'Natural',
+  'URL',
+  'Base64 JSON',
 ] as const

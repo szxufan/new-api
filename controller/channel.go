@@ -1423,6 +1423,7 @@ func GetTagModels(c *gin.Context) {
 
 // CopyChannel handles cloning an existing channel with its key.
 // POST /api/channel/copy/:id
+// The cloned channel is always created in the disabled (manually disabled) state.
 // Optional query params:
 //
 //	suffix         - string appended to the original name (default "_复制")
@@ -1455,6 +1456,7 @@ func CopyChannel(c *gin.Context) {
 	clone.Id = 0     // let DB auto-generate
 	clone.CreatedTime = common.GetTimestamp()
 	clone.Name = origin.Name + suffix
+	clone.Status = common.ChannelStatusManuallyDisabled // copied channels start disabled
 	clone.TestTime = 0
 	clone.ResponseTime = 0
 	if resetBalance {
