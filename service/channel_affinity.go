@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -286,6 +287,30 @@ func GetChannelAffinityCounts(channelIDs []int) map[int]int64 {
 		return getChannelAffinityCountsRedis(channelIDs)
 	}
 	return getChannelAffinityCountsMem(channelIDs)
+}
+
+// FillChannelAffinityCounts 批量查询并回填每个渠道当前的亲和性计数。
+// 内存模式读取原子计数器，Redis 模式走反向索引精确统计，均为精确值。
+func FillChannelAffinityCounts(channels []*model.Channel) {
+	if len(channels) == 0 {
+		return
+	}
+	channelIDs := make([]int, 0, len(channels))
+	for _, ch := range channels {
+		if ch != nil && ch.Id > 0 {
+			channelIDs = append(channelIDs, ch.Id)
+		}
+	}
+	if len(channelIDs) == 0 {
+		return
+	}
+	counts := GetChannelAffinityCounts(channelIDs)
+	for _, ch := range channels {
+		if ch == nil || ch.Id <= 0 {
+			continue
+		}
+		ch.AffinityCount = counts[ch.Id]
+	}
 }
 
 // IsChannelAffinityMatched 检查当前请求是否匹配了亲和性规则。

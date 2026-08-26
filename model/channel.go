@@ -62,6 +62,9 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+
+	// AffinityCount 当前亲和性缓存指向该渠道的条目数（仅列表展示用，不落库）
+	AffinityCount int64 `json:"affinity_count" gorm:"-"`
 }
 
 type ChannelInfo struct {

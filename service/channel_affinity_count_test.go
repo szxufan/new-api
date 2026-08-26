@@ -2,6 +2,8 @@ package service
 
 import (
 	"testing"
+
+	"github.com/QuantumNous/new-api/model"
 )
 
 // resetAffinityCountMapForTest 清空全局亲和性计数 map，确保测试间互不影响。
@@ -103,6 +105,43 @@ func TestChannelAffinityCount_GetMemNil(t *testing.T) {
 	if len(counts) != 0 {
 		t.Errorf("expected empty map for empty channelIDs, got %v", counts)
 	}
+
+	resetAffinityCountMapForTest()
+}
+
+// TestChannelAffinityCount_FillChannelAffinityCounts 测试批量回填渠道亲和性计数
+func TestChannelAffinityCount_FillChannelAffinityCounts(t *testing.T) {
+	resetAffinityCountMapForTest()
+
+	// 递增 channel 1 两次、channel 2 一次；channel 3 无计数
+	incrementChannelAffinityCount(1)
+	incrementChannelAffinityCount(1)
+	incrementChannelAffinityCount(2)
+
+	channels := []*model.Channel{
+		{Id: 1},
+		{Id: 2},
+		{Id: 3},
+		nil, // 空指针不应 panic 且被跳过
+		{Id: 0}, // 非法 ID 不应 panic 且被跳过
+	}
+	FillChannelAffinityCounts(channels)
+
+	if channels[0].AffinityCount != 2 {
+		t.Errorf("expected channel 1 affinity_count=2, got %d", channels[0].AffinityCount)
+	}
+	if channels[1].AffinityCount != 1 {
+		t.Errorf("expected channel 2 affinity_count=1, got %d", channels[1].AffinityCount)
+	}
+	if channels[2].AffinityCount != 0 {
+		t.Errorf("expected channel 3 affinity_count=0, got %d", channels[2].AffinityCount)
+	}
+
+	// 空列表 / 仅空指针 / 仅非法 ID 均不应 panic
+	FillChannelAffinityCounts(nil)
+	FillChannelAffinityCounts([]*model.Channel{})
+	FillChannelAffinityCounts([]*model.Channel{nil})
+	FillChannelAffinityCounts([]*model.Channel{{Id: 0}})
 
 	resetAffinityCountMapForTest()
 }

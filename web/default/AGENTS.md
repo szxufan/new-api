@@ -174,3 +174,4 @@
 - **2026-01-29**：重组文档结构，合并重复内容，明确主次与交叉引用。
 - **2026-01-31**：在 3.2 中补充「类型检查」要求：改动 TS/TSX 后须执行 typecheck 并修复至无错。
 - **2026-08-25**：游乐场实现「上传文件/上传照片/截图/拍照」四功能：复用 `ai-elements/prompt-input` 附件能力；图片压缩为 JPEG dataURL 并以 `image_url` 发送；文本类文件内容内联进消息文本；截图用 `getDisplayMedia`、拍照用 `getUserMedia` 弹窗捕获；附件仅内存保存（localStorage 中剥离 url）。新增 `MessageAttachment` 类型、`attachment-utils.ts`、`camera-capture-dialog.tsx`、`message-attachments.tsx` 及对应单测。
+- **2026-08-26**：模型元数据编辑侧栏（/models/metadata）移除价格配置区块，改为跳转「系统设置 → 计费 → 模型定价」的链接（`MODEL_PRICING_SETTINGS_URL`）。原因：该区块通过 `/api/option/`（需 RootAuth）写入全局倍率配置，与计费设置页写入同一批 key，但对非 root 管理员读写均静默失效，且不支持 `CreateCacheRatio` 与表达式计费，易造成"配置不生效"的误解。表单 schema 剔除 7 个价格字段并导出 `modelFormSchema` 供测试；新增对应单测与 6 语言 i18n 文案。

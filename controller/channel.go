@@ -160,6 +160,7 @@ func GetAllChannels(c *gin.Context) {
 	for _, datum := range channelData {
 		clearChannelInfo(datum)
 	}
+	service.FillChannelAffinityCounts(channelData)
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
 	var results []struct {
@@ -366,6 +367,7 @@ func SearchChannels(c *gin.Context) {
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
 	}
+	service.FillChannelAffinityCounts(pagedData)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

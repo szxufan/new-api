@@ -5,8 +5,10 @@ import {
   getBalanceVariant,
   formatQuota,
   isTagAggregateRow,
+  aggregateChannelsByTag,
   type TagRow,
 } from './channel-utils'
+import type { Channel } from '../types'
 
 vi.mock('@/lib/currency', () => ({
   formatCurrencyFromUSD: (value: number) => `$${value.toFixed(2)}`,
@@ -147,5 +149,52 @@ describe('isTagAggregateRow', () => {
       children: null,
     } as any
     expect(isTagAggregateRow(channel)).toBe(false)
+  })
+})
+
+describe('aggregateChannelsByTag with affinity_count', () => {
+  it('should sum affinity_count across children of the same tag', () => {
+    const channels = [
+      {
+        id: 1,
+        tag: 't1',
+        group: 'default',
+        status: 1,
+        priority: 0,
+        weight: 1,
+        used_quota: 0,
+        response_time: 100,
+        affinity_count: 2,
+      },
+      {
+        id: 2,
+        tag: 't1',
+        group: 'default',
+        status: 1,
+        priority: 0,
+        weight: 1,
+        used_quota: 0,
+        response_time: 200,
+        affinity_count: 3,
+      },
+    ] as unknown as Channel[]
+
+    const rows = aggregateChannelsByTag(channels)
+    const tagRow = rows[0] as TagRow
+
+    expect(tagRow.children).toHaveLength(2)
+    expect(tagRow.affinity_count).toBe(5)
+  })
+
+  it('should treat missing affinity_count as 0', () => {
+    const channels = [
+      { id: 1, tag: 't1', group: 'default', status: 1 },
+      { id: 2, tag: 't1', group: 'default', status: 1, affinity_count: 4 },
+    ] as unknown as Channel[]
+
+    const rows = aggregateChannelsByTag(channels)
+    const tagRow = rows[0] as TagRow
+
+    expect(tagRow.affinity_count).toBe(4)
   })
 })

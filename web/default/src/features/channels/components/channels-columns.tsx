@@ -1118,6 +1118,51 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       enableSorting: false,
     },
 
+    // Affinity Count column — displays the number of active affinity cache
+    // entries pointing to this channel. Tag rows show the summed value.
+    {
+      accessorKey: 'affinity_count',
+      meta: { label: t('Affinity'), mobileHidden: true },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Affinity')} />
+      ),
+      cell: ({ row }) => {
+        const channel = row.original
+        const isTagRow = isTagAggregateRow(channel)
+        const count = channel.affinity_count || 0
+
+        if (count === 0) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+
+        return (
+          <TooltipProvider delay={100}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <StatusBadge
+                    label={String(count)}
+                    variant='neutral'
+                    size='sm'
+                    copyable={false}
+                  />
+                }
+              />
+              <TooltipContent side='top'>
+                {isTagRow
+                  ? t(
+                      'Total active affinity entries across channels with this tag'
+                    )
+                  : t('Active affinity cache entries pointing to this channel')}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+      size: 90,
+      enableSorting: false,
+    },
+
     // Used Quota column — displays consumed quota with tooltip and currency suffix.
     // Split from the former combined "Used / Remaining" column. Supports sorting by raw value.
     {

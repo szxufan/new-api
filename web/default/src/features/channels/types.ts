@@ -56,6 +56,7 @@ export const channelSchema = z.object({
   group: z.string().default('default'),
   group_blacklist: z.string().nullish(), // 用户分组黑名单，逗号分隔
   used_quota: z.number().default(0),
+  affinity_count: z.number().default(0), // 当前亲和性缓存条目数（后端列表接口回填）
   model_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
