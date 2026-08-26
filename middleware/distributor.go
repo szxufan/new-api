@@ -328,6 +328,26 @@ func getJSONStringValue(result gjson.Result, field string) (string, error) {
 	return result.String(), nil
 }
 
+// resolveVideoRelayMode 解析视频任务相关路径对应的 relay mode：
+// - POST → RelayModeVideoSubmit（创建异步任务）
+// - GET → RelayModeVideoFetchByID（查询任务）
+// remix（/v1/videos/{id}/remix）也属于提交动作 → RelayModeVideoSubmit。
+// 非视频任务路径返回 RelayModeUnknown。
+func resolveVideoRelayMode(method, path string) int {
+	if strings.Contains(path, "/v1/videos/") && strings.HasSuffix(path, "/remix") {
+		return relayconstant.RelayModeVideoSubmit
+	}
+	if strings.Contains(path, "/v1/videos") || strings.Contains(path, "/pg/videos") || strings.Contains(path, "/v1/video/generations") {
+		if method == http.MethodPost {
+			return relayconstant.RelayModeVideoSubmit
+		}
+		if method == http.MethodGet {
+			return relayconstant.RelayModeVideoFetchByID
+		}
+	}
+	return relayconstant.RelayModeUnknown
+}
+
 func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
@@ -371,19 +391,16 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 		c.Set("platform", string(constant.TaskPlatformSuno))
 		c.Set("relay_mode", relayMode)
-	} else if strings.Contains(c.Request.URL.Path, "/v1/videos/") && strings.HasSuffix(c.Request.URL.Path, "/remix") {
-		relayMode := relayconstant.RelayModeVideoSubmit
-		c.Set("relay_mode", relayMode)
-		shouldSelectChannel = false
-	} else if strings.Contains(c.Request.URL.Path, "/v1/videos") {
-		//curl https://api.openai.com/v1/videos \
-		//  -H "Authorization: Bearer $OPENAI_API_KEY" \
-		//  -F "model=sora-2" \
-		//  -F "prompt=A calico cat playing a piano on stage"
-		//	-F input_reference="@image.jpg"
-		relayMode := relayconstant.RelayModeUnknown
-		if c.Request.Method == http.MethodPost {
-			relayMode = relayconstant.RelayModeVideoSubmit
+	} else if relayMode := resolveVideoRelayMode(c.Request.Method, c.Request.URL.Path); relayMode != relayconstant.RelayModeUnknown {
+		// 视频任务（/v1/videos、/pg/videos、/v1/video/generations）：
+		// - POST → RelayModeVideoSubmit（创建异步任务）
+		// - GET → RelayModeVideoFetchByID（查询任务，从原任务推导模型并锁定渠道）
+		if relayMode == relayconstant.RelayModeVideoSubmit && !strings.Contains(c.Request.URL.Path, "/remix") {
+			// curl https://api.openai.com/v1/videos \
+			//   -H "Authorization: Bearer $OPENAI_API_KEY" \
+			//   -F "model=sora-2" \
+			//   -F "prompt=A calico cat playing a piano on stage"
+			//   -F input_reference="@image.jpg"
 			req, err := getModelFromRequest(c)
 			if err != nil {
 				return nil, false, err
@@ -391,29 +408,14 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			if req != nil {
 				modelRequest.Model = req.Model
 			}
-		} else if c.Request.Method == http.MethodGet {
-			relayMode = relayconstant.RelayModeVideoFetchByID
+		} else {
+			// remix（锁定原任务渠道）或任务查询：不需要选择渠道
 			shouldSelectChannel = false
-			modelRequest.Model = getTaskOriginModelName(c)
+			if relayMode == relayconstant.RelayModeVideoFetchByID {
+				modelRequest.Model = getTaskOriginModelName(c)
+			}
 		}
 		c.Set("relay_mode", relayMode)
-	} else if strings.Contains(c.Request.URL.Path, "/v1/video/generations") {
-		relayMode := relayconstant.RelayModeUnknown
-		if c.Request.Method == http.MethodPost {
-			req, err := getModelFromRequest(c)
-			if err != nil {
-				return nil, false, err
-			}
-			modelRequest.Model = req.Model
-			relayMode = relayconstant.RelayModeVideoSubmit
-		} else if c.Request.Method == http.MethodGet {
-			relayMode = relayconstant.RelayModeVideoFetchByID
-			shouldSelectChannel = false
-			modelRequest.Model = getTaskOriginModelName(c)
-		}
-		if _, ok := c.Get("relay_mode"); !ok {
-			c.Set("relay_mode", relayMode)
-		}
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models/") || strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
 		// Gemini API 路径处理: /v1beta/models/gemini-2.0-flash:generateContent
 		relayMode := relayconstant.RelayModeGemini

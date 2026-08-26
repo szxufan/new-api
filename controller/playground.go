@@ -60,5 +60,15 @@ func Playground(c *gin.Context) {
 		relayFormat = types.RelayFormatOpenAIImage
 	}
 
+	// 视频任务模式（/pg/videos）：异步任务，走 RelayTask / RelayTaskFetch 流程
+	if relayInfo.RelayMode == relayconstant.RelayModeVideoSubmit {
+		RelayTask(c)
+		return
+	}
+	if relayInfo.RelayMode == relayconstant.RelayModeVideoFetchByID {
+		RelayTaskFetch(c)
+		return
+	}
+
 	Relay(c, relayFormat)
 }

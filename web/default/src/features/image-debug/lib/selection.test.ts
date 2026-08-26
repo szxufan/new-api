@@ -27,6 +27,10 @@ describe('getModeEndpoints', () => {
   it('图生图模式返回 image-edit 端点', () => {
     expect(getModeEndpoints('edits')).toEqual(['image-edit'])
   })
+
+  it('视频模式返回 openai-video 端点', () => {
+    expect(getModeEndpoints('video')).toEqual(['openai-video'])
+  })
 })
 
 describe('resolveSelection', () => {

@@ -16,20 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { DebugMode } from '../types'
-
-/** 按模式返回需要过滤的端点类型：文生图/图生图 → image-generation/image-edit；视频 → openai-video */
-export function getModeEndpoints(mode: DebugMode): string[] {
-  if (mode === 'video') return ['openai-video']
-  return mode === 'edits' ? ['image-edit'] : ['image-generation']
-}
-
-/** 当前选中值不在选项中时回退到第一个选项；选项为空时返回 fallback */
-export function resolveSelection(
-  selected: string,
-  options: { value: string }[],
-  fallback: string
-): string {
-  if (options.some((option) => option.value === selected)) return selected
-  return options[0]?.value ?? fallback
+/** 将文件读取为 Base64 dataURL（用于视频调试的图生视频输入） */
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }

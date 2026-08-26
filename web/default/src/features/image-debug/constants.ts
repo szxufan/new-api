@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const API_ENDPOINTS = {
   IMAGES_GENERATIONS: '/pg/images/generations',
   IMAGES_EDITS: '/pg/images/edits',
+  VIDEOS: '/pg/videos',
   USER_MODELS: '/api/user/models',
   USER_GROUPS: '/api/user/self/groups',
 } as const
@@ -62,3 +63,35 @@ export const DEFAULT_RESPONSE_FORMAT = 'url'
 export const N_MIN = 1
 export const N_MAX = 10
 export const PROMPT_MAX_LENGTH = 4000
+
+// ============================================================================
+// 视频调试常量
+// ============================================================================
+
+/** 万相3.0 等支持自定义宽高比；'' 表示 adaptive（模型自动推荐） */
+export const VIDEO_RATIOS = [
+  { label: 'Adaptive', value: '' },
+  { label: '16:9', value: '16:9' },
+  { label: '9:16', value: '9:16' },
+  { label: '1:1', value: '1:1' },
+  { label: '4:3', value: '4:3' },
+  { label: '3:4', value: '3:4' },
+] as const
+
+export const VIDEO_RESOLUTIONS = [
+  { label: '480P', value: '480P' },
+  { label: '720P', value: '720P' },
+  { label: '1080P', value: '1080P' },
+] as const
+
+export const DEFAULT_VIDEO_RATIO = ''
+export const DEFAULT_VIDEO_RESOLUTION = '1080P'
+export const DEFAULT_VIDEO_DURATION = 5
+export const VIDEO_DURATION_MIN = 2
+export const VIDEO_DURATION_MAX = 30
+/** -1 表示智能时长（模型自动推荐） */
+export const VIDEO_DURATION_SMART = -1
+/** 允许上传的图片数量上限 */
+export const VIDEO_IMAGE_MAX = 3
+/** 任务轮询间隔（毫秒） */
+export const VIDEO_POLL_INTERVAL_MS = 3000

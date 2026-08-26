@@ -21,9 +21,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { editImage, generateImage, getUserGroups, getUserModels } from './api'
 import { ImageDebugForm } from './components/image-debug-form'
 import { ImageResult } from './components/image-result'
+import { VideoDebugTab } from './components/video-debug-tab'
 import { getImageSrc } from './lib/image-utils'
 import {
   DEFAULT_GROUP,
@@ -60,6 +62,7 @@ function createDefaultState(): ImageDebugFormState {
 
 export function ImageDebugPage() {
   const { t } = useTranslation()
+  const [pageTab, setPageTab] = useState<'image' | 'video'>('image')
   const [state, setState] = useState<ImageDebugFormState>(createDefaultState)
   const [images, setImages] = useState<ImageData[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -150,51 +153,71 @@ export function ImageDebugPage() {
 
   return (
     <div className='mx-auto flex size-full max-w-6xl flex-col gap-4 p-4'>
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
         <h1 className='text-xl font-semibold'>{t('Image Debug')}</h1>
-        <p className='text-muted-foreground text-sm'>
-          {t('Test text-to-image and image-to-image endpoints.')}
-        </p>
+        <Tabs
+          value={pageTab}
+          onValueChange={(value) => setPageTab(value as 'image' | 'video')}
+        >
+          <TabsList>
+            <TabsTrigger value='image'>{t('Image')}</TabsTrigger>
+            <TabsTrigger value='video'>{t('Video')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      <div className='grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2'>
-        <Card className='min-h-0'>
-          <CardHeader>
-            <CardTitle>{t('Request')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className='max-h-[calc(100vh-220px)] pr-3'>
-              <ImageDebugForm
-                state={state}
-                models={models}
-                groups={groups}
-                isModelLoading={isLoadingModels}
-                isSubmitting={isSubmitting}
-                onStateChange={handleStateChange}
-                onModeChange={handleModeChange}
-                onSubmit={handleSubmit}
-                onStop={handleStop}
-              />
-            </ScrollArea>
-          </CardContent>
-        </Card>
+      {pageTab === 'video' ? (
+        <>
+          <p className='text-muted-foreground text-sm'>
+            {t('Test video generation endpoints (async task, poll for result).')}
+          </p>
+          <VideoDebugTab />
+        </>
+      ) : (
+        <>
+          <p className='text-muted-foreground text-sm'>
+            {t('Test text-to-image and image-to-image endpoints.')}
+          </p>
+          <div className='grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2'>
+            <Card className='min-h-0'>
+              <CardHeader>
+                <CardTitle>{t('Request')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className='max-h-[calc(100vh-220px)] pr-3'>
+                  <ImageDebugForm
+                    state={state}
+                    models={models}
+                    groups={groups}
+                    isModelLoading={isLoadingModels}
+                    isSubmitting={isSubmitting}
+                    onStateChange={handleStateChange}
+                    onModeChange={handleModeChange}
+                    onSubmit={handleSubmit}
+                    onStop={handleStop}
+                  />
+                </ScrollArea>
+              </CardContent>
+            </Card>
 
-        <Card className='min-h-0'>
-          <CardHeader>
-            <CardTitle>{t('Result')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className='max-h-[calc(100vh-220px)] pr-3'>
-              <ImageResult
-                images={images}
-                isLoading={isSubmitting}
-                error={error}
-                onDownload={(image, index) => handleDownload(image, index)}
-              />
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      </div>
+            <Card className='min-h-0'>
+              <CardHeader>
+                <CardTitle>{t('Result')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className='max-h-[calc(100vh-220px)] pr-3'>
+                  <ImageResult
+                    images={images}
+                    isLoading={isSubmitting}
+                    error={error}
+                    onDownload={(image, index) => handleDownload(image, index)}
+                  />
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   )
 }

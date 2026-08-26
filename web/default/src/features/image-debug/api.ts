@@ -23,6 +23,7 @@ import type {
   ImageRequest,
   ImageResponse,
   ModelOption,
+  VideoResponse,
 } from './types'
 
 /**
@@ -42,6 +43,27 @@ export async function generateImage(
  */
 export async function editImage(formData: FormData): Promise<ImageResponse> {
   const res = await api.post(API_ENDPOINTS.IMAGES_EDITS, formData, {
+    skipErrorHandler: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * 创建视频生成任务 — POST /pg/videos（JSON）
+ * 返回任务信息（含 task_id/id），通过 fetchVideo 轮询结果
+ */
+export async function createVideo(payload: Record<string, unknown>): Promise<VideoResponse> {
+  const res = await api.post(API_ENDPOINTS.VIDEOS, payload, {
+    skipErrorHandler: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * 查询视频任务状态 — GET /pg/videos/:task_id
+ */
+export async function fetchVideo(taskId: string): Promise<VideoResponse> {
+  const res = await api.get(`${API_ENDPOINTS.VIDEOS}/${taskId}`, {
     skipErrorHandler: true,
   } as Record<string, unknown>)
   return res.data

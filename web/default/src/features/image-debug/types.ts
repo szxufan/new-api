@@ -48,6 +48,9 @@ export interface ImageResponse {
 
 export type ImageMode = 'generations' | 'edits'
 
+/** 调试页模式：图像（文生图/图生图）或视频（异步任务） */
+export type DebugMode = ImageMode | 'video'
+
 export interface ModelOption {
   label: string
   value: string
@@ -74,4 +77,52 @@ export interface ImageDebugFormState {
   watermark: boolean
   /** 高级参数 JSON 文本（透传到 extra.parameters） */
   extraParameters: string
+}
+
+// ============================================================================
+// 视频调试（异步视频生成任务）
+// ============================================================================
+
+export type VideoStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'unknown'
+
+/** 与后端 dto.OpenAIVideo 对应（POST /pg/videos 创建、GET /pg/videos/:task_id 查询） */
+export interface VideoResponse {
+  id: string
+  task_id?: string
+  object?: string
+  model?: string
+  status: VideoStatus
+  progress?: number
+  created_at?: number
+  completed_at?: number
+  seconds?: string
+  size?: string
+  error?: {
+    message?: string
+    code?: string
+  }
+  /** 任务完成后的视频地址等元数据 */
+  metadata?: {
+    url?: string
+  }
+}
+
+/** 视频调试表单状态（图片以 Base64 dataURL 保存在内存） */
+export interface VideoDebugFormState {
+  model: string
+  group: string
+  prompt: string
+  /** 上传图片的 dataURL 列表：0 张 = 文生视频；1 张 = 首帧生视频；多张 = 参考生视频 */
+  images: string[]
+  /** 宽高比：''(adaptive) / 16:9 / 9:16 / 1:1 / 4:3 / 3:4 */
+  ratio: string
+  /** 分辨率：480P / 720P / 1080P */
+  resolution: string
+  /** 时长（秒）：2-30，-1 表示智能时长 */
+  duration: number
 }
