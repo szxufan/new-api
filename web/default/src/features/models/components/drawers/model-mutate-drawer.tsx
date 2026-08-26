@@ -601,6 +601,12 @@ export function ModelMutateDrawer({
           )
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['system-options'] })
+          // 编辑模型后移除该模型详情缓存，避免再次打开编辑侧栏时展示旧配置
+          if (isEditing && currentRow?.id != null) {
+            queryClient.removeQueries({
+              queryKey: modelsQueryKeys.detail(currentRow.id),
+            })
+          }
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
