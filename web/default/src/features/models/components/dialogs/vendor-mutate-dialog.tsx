@@ -106,6 +106,12 @@ export function VendorMutateDialog({
         )
         queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() })
         queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+        // 编辑 vendor 后移除详情缓存，防止再次编辑时展示旧配置
+        if (isEdit && currentVendor?.id != null) {
+          queryClient.removeQueries({
+            queryKey: vendorsQueryKeys.detail(currentVendor.id),
+          })
+        }
         onOpenChange(false)
       } else {
         toast.error(response.message || 'Operation failed')

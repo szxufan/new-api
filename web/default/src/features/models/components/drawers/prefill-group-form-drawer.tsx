@@ -164,6 +164,12 @@ export function PrefillGroupFormDrawer({
         queryClient.invalidateQueries({
           queryKey: prefillGroupsQueryKeys.lists(),
         })
+        // 编辑 prefill group 后移除详情缓存，防止再次编辑时展示旧配置
+        if (isEdit && currentGroup?.id != null) {
+          queryClient.removeQueries({
+            queryKey: prefillGroupsQueryKeys.detail(currentGroup.id),
+          })
+        }
         onClose()
       } else {
         toast.error(response.message || 'Operation failed')

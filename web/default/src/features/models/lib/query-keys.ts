@@ -48,6 +48,8 @@ export const prefillGroupsQueryKeys = {
   all: ['prefill-groups'] as const,
   lists: () => [...prefillGroupsQueryKeys.all, 'list'] as const,
   list: (type?: string) => [...prefillGroupsQueryKeys.lists(), type] as const,
+  detail: (id: number) =>
+    [...prefillGroupsQueryKeys.all, 'detail', id] as const,
 }
 
 /**
