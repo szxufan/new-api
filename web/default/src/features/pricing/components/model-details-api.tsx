@@ -64,7 +64,7 @@ import type { PricingModel } from '../types'
 // types the model actually supports. This keeps copy-pasted code accurate and
 // provider-shaped (OpenAI vs Anthropic vs Gemini, etc.).
 
-type Lang = 'curl' | 'python' | 'typescript' | 'javascript'
+export type Lang = 'curl' | 'python' | 'typescript' | 'javascript'
 
 const LANG_LABELS: Record<Lang, string> = {
   curl: 'cURL',
@@ -80,7 +80,7 @@ const LANG_HIGHLIGHT: Record<Lang, BundledLanguage> = {
   javascript: 'javascript',
 }
 
-type SampleContext = {
+export type SampleContext = {
   baseUrl: string
   apiKeyEnv: string
   modelName: string
@@ -522,7 +522,81 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
-function buildSample(
+function buildImageEditSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+  const prompt = 'A serene koi pond at sunset, ukiyo-e style.'
+  const imageFile = './input.png'
+
+  if (lang === 'curl') {
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -F model="${ctx.modelName}" \\`,
+      `  -F image=@${imageFile} \\`,
+      `  -F "prompt=${prompt}" \\`,
+      `  -F n=1`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'from openai import OpenAI',
+      '',
+      `client = OpenAI(base_url="${ctx.baseUrl}/v1", api_key="<YOUR_API_KEY>")`,
+      '',
+      'response = client.images.edit(',
+      `    model="${ctx.modelName}",`,
+      `    image=open("${imageFile}", "rb"),`,
+      `    prompt="${prompt}",`,
+      `    size="1024x1024",`,
+      '    n=1,',
+      ')',
+      '',
+      'print(response.data[0].url)',
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `import OpenAI from 'openai'`,
+      `import fs from 'node:fs'`,
+      '',
+      `const client = new OpenAI({`,
+      `  baseURL: '${ctx.baseUrl}/v1',`,
+      `  apiKey: process.env.${ctx.apiKeyEnv},`,
+      `})`,
+      '',
+      `const response = await client.images.edit({`,
+      `  model: '${ctx.modelName}',`,
+      `  image: fs.readFileSync('${imageFile}'),`,
+      `  prompt: '${prompt}',`,
+      `  size: '1024x1024',`,
+      `  n: 1,`,
+      `})`,
+      '',
+      `console.log(response.data[0].url)`,
+    ].join('\n')
+  }
+  return [
+    `const formData = new FormData()`,
+    `formData.append('model', '${ctx.modelName}')`,
+    `formData.append('image', await (await fetch('${imageFile}')).blob(), 'input.png')`,
+    `formData.append('prompt', '${prompt}')`,
+    `formData.append('size', '1024x1024')`,
+    `formData.append('n', '1')`,
+    '',
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `  },`,
+    `  body: formData,`,
+    `})`,
+    '',
+    `const data = await response.json()`,
+    `console.log(data.data[0].url)`,
+  ].join('\n')
+}
+
+export function buildSample(
   lang: Lang,
   endpointType: string,
   ctx: SampleContext
@@ -532,6 +606,7 @@ function buildSample(
   if (endpointType === 'embeddings') return buildEmbeddingSample(lang, ctx)
   if (endpointType === 'jina-rerank') return buildRerankSample(lang, ctx)
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
+  if (endpointType === 'image-edit') return buildImageEditSample(lang, ctx)
   return buildChatSample(lang, ctx)
 }
 
