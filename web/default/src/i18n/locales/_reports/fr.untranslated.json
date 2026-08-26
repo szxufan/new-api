@@ -1,11 +1,4 @@
 {
-  "2-30 seconds, or -1 for smart duration.": "2-30 seconds, or -1 for smart duration.",
-  "Describe the video you want to generate...": "Describe the video you want to generate...",
-  "Failed to read image file": "Failed to read image file",
-  "No result yet. Configure the form and submit to generate a video.": "No result yet. Configure the form and submit to generate a video.",
-  "One image for image-to-video, multiple images for reference-based generation.": "One image for image-to-video, multiple images for reference-based generation.",
-  "You can upload up to {{count}} images.": "You can upload up to {{count}} images.",
-  "Your browser does not support the video tag.": "Your browser does not support the video tag.",
   "acknowledge the related legal risks": "acknowledge the related legal risks",
   "Confirm and enable": "Confirm and enable",
   "Creates a Pancake product in the saved store using this plan’s title and price. Requires Waffo Pancake to be fully configured in Payment settings first.": "Creates a Pancake product in the saved store using this plan’s title and price. Requires Waffo Pancake to be fully configured in Payment settings first.",

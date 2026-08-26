@@ -31,6 +31,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
+import type { ComboboxInputOption } from '@/components/ui/combobox-input'
 import {
   Field,
   FieldContent,
@@ -115,6 +117,12 @@ type ModelPricingSheetProps = {
   onCancel?: () => void
   editData?: ModelRatioData | null
   selectedTargetCount?: number
+  /**
+   * Suggested model names (channel models without pricing yet) shown in the
+   * name field dropdown when adding a new model. Free-text input is always
+   * allowed regardless.
+   */
+  modelNameOptions?: ComboboxInputOption[]
 }
 
 type ModelPricingEditorPanelProps = Omit<
@@ -378,6 +386,7 @@ export function ModelPricingSheet({
   onCancel,
   editData,
   selectedTargetCount = 0,
+  modelNameOptions,
 }: ModelPricingSheetProps) {
   const { t } = useTranslation()
   const title = editData ? t('Edit model pricing') : t('Add model pricing')
@@ -394,6 +403,7 @@ export function ModelPricingSheet({
           onSave={onSave}
           editData={editData}
           selectedTargetCount={selectedTargetCount}
+          modelNameOptions={modelNameOptions}
           onCancel={() => {
             onCancel?.()
             onOpenChange(false)
@@ -411,6 +421,7 @@ export function ModelPricingEditorPanel({
   selectedTargetCount = 0,
   onCancel,
   className,
+  modelNameOptions = [],
 }: ModelPricingEditorPanelProps) {
   const { t } = useTranslation()
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
@@ -805,11 +816,18 @@ export function ModelPricingEditorPanel({
                   <FormItem>
                     <FormLabel>{t('Model name')}</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder={t('gpt-4')}
-                        {...field}
-                        disabled={isEditMode}
-                      />
+                      {isEditMode ? (
+                        <Input placeholder={t('gpt-4')} {...field} disabled />
+                      ) : (
+                        <Combobox
+                          options={modelNameOptions}
+                          value={field.value}
+                          onValueChange={(value) => field.onChange(value ?? '')}
+                          placeholder={t('gpt-4')}
+                          emptyText={t('No matching models')}
+                          allowCustomValue
+                        />
+                      )}
                     </FormControl>
                     <FormDescription>
                       {t('The exact model identifier as used in API requests.')}

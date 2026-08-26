@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useMemo, memo, useCallback, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   type ColumnDef,
   type ColumnFiltersState,
@@ -55,11 +56,13 @@ import {
   DataTablePagination,
 } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
+import { getEnabledModels } from '@/features/channels/api'
 import {
   combineBillingExpr,
   splitBillingExprAndRequestRules,
 } from '@/features/pricing/lib/billing-expr'
 import { safeJsonParse } from '../utils/json-parser'
+import { buildModelNameOptions } from './model-name-options'
 import {
   ModelPricingEditorPanel,
   ModelPricingSheet,
@@ -411,6 +414,22 @@ export const ModelRatioVisualEditor = memo(
         ),
       [models]
     )
+
+    // Models configured in enabled channels (incl. enabled virtual models),
+    // used as name suggestions when adding pricing for a new model.
+    const { data: enabledModelsData } = useQuery({
+      queryKey: ['channel_models_enabled'],
+      queryFn: getEnabledModels,
+      staleTime: 5 * 60 * 1000,
+    })
+
+    const modelNameOptions = useMemo(() => {
+      const pricedModelNames = new Set(models.map((model) => model.name))
+      return buildModelNameOptions(
+        enabledModelsData?.success ? enabledModelsData.data : undefined,
+        pricedModelNames
+      )
+    }, [models, enabledModelsData])
 
     const handleEdit = useCallback(
       (model: ModelRow) => {
@@ -981,6 +1000,7 @@ export const ModelRatioVisualEditor = memo(
                 onCancel={handleCancel}
                 editData={editData}
                 selectedTargetCount={selectedTargetCount}
+                modelNameOptions={modelNameOptions}
                 className='sticky top-4 h-[calc(100vh-8rem)] min-h-[620px]'
               />
             ) : (
@@ -1019,6 +1039,7 @@ export const ModelRatioVisualEditor = memo(
             onCancel={handleCancel}
             editData={editData}
             selectedTargetCount={selectedTargetCount}
+            modelNameOptions={modelNameOptions}
           />
         )}
       </div>
