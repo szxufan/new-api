@@ -28,10 +28,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { ModelSelector, GroupSelector } from '@/components/model-group-selector'
 import {
@@ -43,11 +40,8 @@ import {
   VIDEO_RESOLUTIONS,
 } from '../constants'
 import { fileToDataUrl } from '../lib/file-utils'
-import type {
-  GroupOption,
-  ModelOption,
-  VideoDebugFormState,
-} from '../types'
+import type { GroupOption, ModelOption, VideoDebugFormState } from '../types'
+import { PromptOptimizer } from './prompt-optimizer'
 
 interface VideoDebugFormProps {
   state: VideoDebugFormState
@@ -88,7 +82,9 @@ export function VideoDebugForm({
     }
     const files = Array.from(fileList).slice(0, remaining)
     try {
-      const dataUrls = await Promise.all(files.map((file) => fileToDataUrl(file)))
+      const dataUrls = await Promise.all(
+        files.map((file) => fileToDataUrl(file))
+      )
       onStateChange({ images: [...state.images, ...dataUrls] })
     } catch {
       setFileError(t('Failed to read image file'))
@@ -124,7 +120,9 @@ export function VideoDebugForm({
       <div className='space-y-2'>
         <Label>{t('Input Images (optional)')}</Label>
         <div className='text-muted-foreground text-xs'>
-          {t('One image for image-to-video, multiple images for reference-based generation.')}
+          {t(
+            'One image for image-to-video, multiple images for reference-based generation.'
+          )}
         </div>
         <div className='border-border flex min-h-24 flex-wrap items-center gap-2 rounded-lg border border-dashed p-3'>
           {state.images.length === 0 && (
@@ -178,7 +176,16 @@ export function VideoDebugForm({
 
       {/* Prompt */}
       <div className='space-y-2'>
-        <Label htmlFor='video-debug-prompt'>{t('Prompt')}</Label>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <Label htmlFor='video-debug-prompt'>{t('Prompt')}</Label>
+          <PromptOptimizer
+            type='video'
+            prompt={state.prompt}
+            group={state.group}
+            disabled={isSubmitting}
+            onOptimized={(prompt) => onStateChange({ prompt })}
+          />
+        </div>
         <Textarea
           id='video-debug-prompt'
           value={state.prompt}
@@ -201,7 +208,10 @@ export function VideoDebugForm({
             disabled={isSubmitting}
           >
             {VIDEO_RATIOS.map((ratio) => (
-              <NativeSelectOption key={ratio.value || 'adaptive'} value={ratio.value}>
+              <NativeSelectOption
+                key={ratio.value || 'adaptive'}
+                value={ratio.value}
+              >
                 {ratio.label === 'Adaptive' ? t('Adaptive') : ratio.value}
               </NativeSelectOption>
             ))}
@@ -217,7 +227,10 @@ export function VideoDebugForm({
             disabled={isSubmitting}
           >
             {VIDEO_RESOLUTIONS.map((resolution) => (
-              <NativeSelectOption key={resolution.value} value={resolution.value}>
+              <NativeSelectOption
+                key={resolution.value}
+                value={resolution.value}
+              >
                 {resolution.value}
               </NativeSelectOption>
             ))}

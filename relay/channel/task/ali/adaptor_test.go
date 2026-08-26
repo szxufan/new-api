@@ -3,6 +3,9 @@ package ali
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -459,5 +462,120 @@ func TestProcessAliOtherRatios_Wan3(t *testing.T) {
 				t.Errorf("ratio mismatch: got %v, want %v", val, tt.expectedValue)
 			}
 		})
+	}
+}
+
+// ============================
+// ConvertToOpenAIVideo：状态与 URL 必须取数据库实时字段
+// （创建时保存的 task.Data 仅含 PENDING 且无 video_url）
+// ============================
+
+func TestConvertToOpenAIVideo_Success(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_test_001",
+		Status:     model.TaskStatusSuccess,
+		Progress:   "100%",
+		CreatedAt:  1000,
+		UpdatedAt:  2000,
+		Properties: model.Properties{OriginModelName: "wan3.0-video"},
+	}
+	task.PrivateData.ResultURL = "https://example.com/result.mp4"
+
+	adaptor := &TaskAdaptor{}
+	body, err := adaptor.ConvertToOpenAIVideo(task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var openAIResp dto.OpenAIVideo
+	if err := common.Unmarshal(body, &openAIResp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if openAIResp.ID != "task_test_001" {
+		t.Errorf("id mismatch: got %q", openAIResp.ID)
+	}
+	if openAIResp.Status != dto.VideoStatusCompleted {
+		t.Errorf("status mismatch: got %q, want %q", openAIResp.Status, dto.VideoStatusCompleted)
+	}
+	url, _ := openAIResp.Metadata["url"].(string)
+	if url != "https://example.com/result.mp4" {
+		t.Errorf("metadata url mismatch: got %q", url)
+	}
+}
+
+func TestConvertToOpenAIVideo_InProgress(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_test_002",
+		Status:     model.TaskStatusInProgress,
+		Progress:   "45%",
+		Properties: model.Properties{OriginModelName: "wan3.0-video"},
+	}
+
+	adaptor := &TaskAdaptor{}
+	body, err := adaptor.ConvertToOpenAIVideo(task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var openAIResp dto.OpenAIVideo
+	if err := common.Unmarshal(body, &openAIResp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if openAIResp.Status != dto.VideoStatusInProgress {
+		t.Errorf("status mismatch: got %q, want %q", openAIResp.Status, dto.VideoStatusInProgress)
+	}
+	if openAIResp.Progress != 45 {
+		t.Errorf("progress mismatch: got %d, want 45", openAIResp.Progress)
+	}
+}
+
+func TestConvertToOpenAIVideo_Queued(t *testing.T) {
+	// 创建时仅保存 PENDING 响应；即使 task.Data 里是 PENDING，
+	// 状态也必须取数据库实时字段（此时为 SUBMITTED → queued）
+	task := &model.Task{
+		TaskID:   "task_test_003",
+		Status:   model.TaskStatusSubmitted,
+		Data:     []byte(`{"output":{"task_status":"PENDING","task_id":"upstream-001"},"request_id":"r1"}`),
+		Properties: model.Properties{OriginModelName: "wan3.0-video"},
+	}
+
+	adaptor := &TaskAdaptor{}
+	body, err := adaptor.ConvertToOpenAIVideo(task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var openAIResp dto.OpenAIVideo
+	if err := common.Unmarshal(body, &openAIResp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if openAIResp.Status != dto.VideoStatusQueued {
+		t.Errorf("status mismatch: got %q, want %q", openAIResp.Status, dto.VideoStatusQueued)
+	}
+}
+
+func TestConvertToOpenAIVideo_Failed(t *testing.T) {
+	task := &model.Task{
+		TaskID:     "task_test_004",
+		Status:     model.TaskStatusFailure,
+		FailReason: "task failed, code: InvalidParameter",
+		Properties: model.Properties{OriginModelName: "wan3.0-video"},
+	}
+
+	adaptor := &TaskAdaptor{}
+	body, err := adaptor.ConvertToOpenAIVideo(task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var openAIResp dto.OpenAIVideo
+	if err := common.Unmarshal(body, &openAIResp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if openAIResp.Status != dto.VideoStatusFailed {
+		t.Errorf("status mismatch: got %q, want %q", openAIResp.Status, dto.VideoStatusFailed)
+	}
+	if openAIResp.Error == nil || openAIResp.Error.Message == "" {
+		t.Errorf("error message should be set from FailReason, got %+v", openAIResp.Error)
 	}
 }

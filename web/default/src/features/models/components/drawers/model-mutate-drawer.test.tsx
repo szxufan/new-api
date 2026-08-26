@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, it, expect } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
-import { modelsQueryKeys } from '../../lib'
+import { modelsQueryKeys, mergeEndpointTemplate } from '../../lib'
+import { ENDPOINT_TEMPLATES } from '../../constants'
 import {
   MODEL_PRICING_SETTINGS_URL,
   modelFormSchema,
@@ -88,5 +89,79 @@ describe('模型编辑侧栏价格配置移除', () => {
     ]) {
       expect(shapeKeys).toContain(field)
     }
+  })
+})
+
+describe('端点模板填充为追加语义', () => {
+  it('已有端点配置时，加载模板应保留原有端点', () => {
+    const current = JSON.stringify({
+      openai: ENDPOINT_TEMPLATES['openai'],
+    })
+    const merged = mergeEndpointTemplate(
+      current,
+      'anthropic',
+      ENDPOINT_TEMPLATES['anthropic']
+    )
+    expect(merged).not.toBeNull()
+    const parsed = JSON.parse(merged!)
+    // 原有端点保留，新模板追加
+    expect(parsed['openai']).toEqual(ENDPOINT_TEMPLATES['openai'])
+    expect(parsed['anthropic']).toEqual(ENDPOINT_TEMPLATES['anthropic'])
+  })
+
+  it('配置为空时，加载模板应只包含所选模板', () => {
+    const merged = mergeEndpointTemplate(
+      '',
+      'openai',
+      ENDPOINT_TEMPLATES['openai']
+    )
+    expect(JSON.parse(merged!)).toEqual({
+      openai: ENDPOINT_TEMPLATES['openai'],
+    })
+    // undefined / 纯空白同样视为空
+    expect(JSON.parse(mergeEndpointTemplate(undefined, 'openai', ENDPOINT_TEMPLATES['openai'])!)).toEqual({
+      openai: ENDPOINT_TEMPLATES['openai'],
+    })
+    expect(JSON.parse(mergeEndpointTemplate('   ', 'openai', ENDPOINT_TEMPLATES['openai'])!)).toEqual({
+      openai: ENDPOINT_TEMPLATES['openai'],
+    })
+  })
+
+  it('同名端点已存在时，模板覆盖该键但保留其他键', () => {
+    const current = JSON.stringify({
+      openai: { path: '/custom/path', method: 'GET' },
+      anthropic: ENDPOINT_TEMPLATES['anthropic'],
+    })
+    const merged = mergeEndpointTemplate(
+      current,
+      'openai',
+      ENDPOINT_TEMPLATES['openai']
+    )
+    const parsed = JSON.parse(merged!)
+    expect(parsed['openai']).toEqual(ENDPOINT_TEMPLATES['openai'])
+    expect(parsed['anthropic']).toEqual(ENDPOINT_TEMPLATES['anthropic'])
+  })
+
+  it('已有自定义端点配置（非模板键）时不应丢失', () => {
+    const custom = { path: '/v1/custom', method: 'PUT', extra: 1 }
+    const current = JSON.stringify({ custom })
+    const merged = mergeEndpointTemplate(
+      current,
+      'embeddings',
+      ENDPOINT_TEMPLATES['embeddings']
+    )
+    const parsed = JSON.parse(merged!)
+    expect(parsed['custom']).toEqual(custom)
+    expect(parsed['embeddings']).toEqual(ENDPOINT_TEMPLATES['embeddings'])
+  })
+
+  it('已有内容不是合法 JSON 对象时，返回 null 以避免静默丢弃用户输入', () => {
+    // 非法 JSON
+    expect(mergeEndpointTemplate('{invalid', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    // JSON 数组
+    expect(mergeEndpointTemplate('["openai"]', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    // JSON 标量
+    expect(mergeEndpointTemplate('"openai"', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    expect(mergeEndpointTemplate('null', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
   })
 })

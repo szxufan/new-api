@@ -760,32 +760,40 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
-	var aliResp AliVideoResponse
-	if err := common.Unmarshal(task.Data, &aliResp); err != nil {
-		return nil, errors.Wrap(err, "unmarshal ali response failed")
-	}
-
 	openAIResp := dto.NewOpenAIVideo()
 	openAIResp.ID = task.TaskID
-	openAIResp.Status = convertAliStatus(aliResp.Output.TaskStatus)
+	// 状态取数据库实时字段（后台轮询器会持续更新），
+	// 不能依赖 task.Data 中保存的创建响应（仅含 PENDING 且无 video_url）
+	openAIResp.Status = task.Status.ToVideoStatus()
 	openAIResp.Model = task.Properties.OriginModelName
 	openAIResp.SetProgressStr(task.Progress)
 	openAIResp.CreatedAt = task.CreatedAt
 	openAIResp.CompletedAt = task.UpdatedAt
 
-	// 设置视频URL（核心字段）
-	openAIResp.SetMetadata("url", aliResp.Output.VideoURL)
+	// 视频 URL 由后台轮询成功后写入 PrivateData.ResultURL
+	openAIResp.SetMetadata("url", task.GetResultURL())
 
-	// 错误处理
-	if aliResp.Code != "" {
-		openAIResp.Error = &dto.OpenAIVideoError{
-			Code:    aliResp.Code,
-			Message: aliResp.Message,
+	// 失败信息：优先使用轮询写入的 FailReason，其次解析任务数据中的错误
+	if task.Status == model.TaskStatusFailure {
+		if task.FailReason != "" {
+			openAIResp.Error = &dto.OpenAIVideoError{
+				Code:    "task_failed",
+				Message: task.FailReason,
+			}
+			return common.Marshal(openAIResp)
 		}
-	} else if aliResp.Output.Code != "" {
-		openAIResp.Error = &dto.OpenAIVideoError{
-			Code:    aliResp.Output.Code,
-			Message: aliResp.Output.Message,
+		var aliResp AliVideoResponse
+		if err := common.Unmarshal(task.Data, &aliResp); err == nil {
+			code, message := aliResp.Code, aliResp.Message
+			if code == "" {
+				code, message = aliResp.Output.Code, aliResp.Output.Message
+			}
+			if message != "" {
+				openAIResp.Error = &dto.OpenAIVideoError{
+					Code:    code,
+					Message: message,
+				}
+			}
 		}
 	}
 

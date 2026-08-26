@@ -23,10 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from '@/components/ui/native-select'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { ModelSelector, GroupSelector } from '@/components/model-group-selector'
@@ -44,6 +41,7 @@ import type {
   ImageMode,
   ModelOption,
 } from '../types'
+import { PromptOptimizer } from './prompt-optimizer'
 
 interface ImageDebugFormProps {
   state: ImageDebugFormState
@@ -76,8 +74,7 @@ export function ImageDebugForm({
 
   const isEdits = state.mode === 'edits'
   const canSubmit =
-    state.prompt.trim().length > 0 &&
-    (isEdits ? files.length > 0 : true)
+    state.prompt.trim().length > 0 && (isEdits ? files.length > 0 : true)
 
   const handleFilesSelected = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
@@ -101,9 +98,7 @@ export function ImageDebugForm({
         onValueChange={(value) => onModeChange(value as ImageMode)}
       >
         <TabsList>
-          <TabsTrigger value='generations'>
-            {t('Text to Image')}
-          </TabsTrigger>
+          <TabsTrigger value='generations'>{t('Text to Image')}</TabsTrigger>
           <TabsTrigger value='edits'>{t('Image to Image')}</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -180,7 +175,16 @@ export function ImageDebugForm({
 
       {/* Prompt */}
       <div className='space-y-2'>
-        <Label htmlFor='image-debug-prompt'>{t('Prompt')}</Label>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <Label htmlFor='image-debug-prompt'>{t('Prompt')}</Label>
+          <PromptOptimizer
+            type='image'
+            prompt={state.prompt}
+            group={state.group}
+            disabled={isSubmitting}
+            onOptimized={(prompt) => onStateChange({ prompt })}
+          />
+        </div>
         <Textarea
           id='image-debug-prompt'
           value={state.prompt}
@@ -217,9 +221,7 @@ export function ImageDebugForm({
             min={N_MIN}
             max={N_MAX}
             value={state.n}
-            onChange={(e) =>
-              onStateChange({ n: Number(e.target.value) || 1 })
-            }
+            onChange={(e) => onStateChange({ n: Number(e.target.value) || 1 })}
             disabled={isSubmitting}
           />
         </div>
@@ -261,9 +263,7 @@ export function ImageDebugForm({
           <NativeSelect
             className='w-full'
             value={state.responseFormat}
-            onChange={(e) =>
-              onStateChange({ responseFormat: e.target.value })
-            }
+            onChange={(e) => onStateChange({ responseFormat: e.target.value })}
             disabled={isSubmitting}
           >
             {RESPONSE_FORMATS.map((f) => (
@@ -314,7 +314,11 @@ export function ImageDebugForm({
             {t('Stop')}
           </Button>
         ) : (
-          <Button type='button' onClick={() => onSubmit(files)} disabled={!canSubmit}>
+          <Button
+            type='button'
+            onClick={() => onSubmit(files)}
+            disabled={!canSubmit}
+          >
             <SendIcon className='size-4' aria-hidden='true' />
             {isEdits ? t('Edit Image') : t('Generate Image')}
           </Button>

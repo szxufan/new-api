@@ -23,6 +23,8 @@ import type {
   ImageRequest,
   ImageResponse,
   ModelOption,
+  OptimizePromptRequest,
+  OptimizePromptResponse,
   VideoResponse,
 } from './types'
 
@@ -52,7 +54,9 @@ export async function editImage(formData: FormData): Promise<ImageResponse> {
  * 创建视频生成任务 — POST /pg/videos（JSON）
  * 返回任务信息（含 task_id/id），通过 fetchVideo 轮询结果
  */
-export async function createVideo(payload: Record<string, unknown>): Promise<VideoResponse> {
+export async function createVideo(
+  payload: Record<string, unknown>
+): Promise<VideoResponse> {
   const res = await api.post(API_ENDPOINTS.VIDEOS, payload, {
     skipErrorHandler: true,
   } as Record<string, unknown>)
@@ -64,6 +68,19 @@ export async function createVideo(payload: Record<string, unknown>): Promise<Vid
  */
 export async function fetchVideo(taskId: string): Promise<VideoResponse> {
   const res = await api.get(`${API_ENDPOINTS.VIDEOS}/${taskId}`, {
+    skipErrorHandler: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * 提示词 AI 优化 — POST /pg/chat/completions（JSON，非流式）
+ * 以用户选择的文本模型对提示词进行润色，走 playground 常规计费
+ */
+export async function optimizePrompt(
+  payload: OptimizePromptRequest
+): Promise<OptimizePromptResponse> {
+  const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
     skipErrorHandler: true,
   } as Record<string, unknown>)
   return res.data

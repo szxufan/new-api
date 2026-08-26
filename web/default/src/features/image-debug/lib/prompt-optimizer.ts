@@ -1,0 +1,92 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import {
+  IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
+  VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
+} from '../constants'
+import type {
+  OptimizePromptRequest,
+  OptimizePromptResponse,
+  PromptOptimizeType,
+} from '../types'
+
+/**
+ * 构建提示词优化请求体 — POST /pg/chat/completions（非流式）。
+ * group 非空时携带，缺省由后端使用会话默认分组。
+ */
+export function buildOptimizePayload(options: {
+  prompt: string
+  type: PromptOptimizeType
+  model: string
+  group: string
+}): OptimizePromptRequest {
+  const systemPrompt =
+    options.type === 'video'
+      ? VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT
+      : IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT
+  const payload: OptimizePromptRequest = {
+    model: options.model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: options.prompt },
+    ],
+    stream: false,
+  }
+  if (options.group.trim() !== '') {
+    payload.group = options.group
+  }
+  return payload
+}
+
+/** 剥离 markdown 代码块围栏（``` 或 ```markdown 等） */
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim()
+  const fenceMatch = trimmed.match(/^```[\w-]*\n?([\s\S]*?)\n?```$/)
+  return fenceMatch ? fenceMatch[1].trim() : trimmed
+}
+
+/**
+ * 从优化响应中提取优化后的提示词；缺失或为空时返回 null。
+ */
+export function extractOptimizedPrompt(
+  response: OptimizePromptResponse
+): string | null {
+  const content = response.choices?.[0]?.message?.content?.trim()
+  if (!content) return null
+  const optimized = stripCodeFence(content)
+  return optimized.length > 0 ? optimized : null
+}
+
+/**
+ * 提取优化请求失败的错误文案（与页面现有错误提取模式一致）。
+ */
+export function getOptimizeErrorMessage(
+  err: unknown,
+  fallback: string
+): string {
+  const axiosError = err as
+    | { response?: { data?: { error?: { message?: string } } } }
+    | null
+    | undefined
+  return (
+    axiosError?.response?.data?.error?.message ||
+    (err instanceof Error ? err.message : fallback) ||
+    fallback
+  )
+}

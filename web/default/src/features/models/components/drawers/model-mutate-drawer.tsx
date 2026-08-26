@@ -61,7 +61,12 @@ import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
 import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
-import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
+import {
+  modelsQueryKeys,
+  vendorsQueryKeys,
+  parseModelTags,
+  mergeEndpointTemplate,
+} from '../../lib'
 import type { Model } from '../../types'
 
 // 模型计费价格统一在「系统设置 → 计费 → 模型定价」中管理。
@@ -213,10 +218,18 @@ export function ModelMutateDrawer({
 
   const handleFillEndpointTemplate = (templateKey: string) => {
     const template = ENDPOINT_TEMPLATES[templateKey]
-    if (template) {
-      const templateJson = JSON.stringify({ [templateKey]: template }, null, 2)
-      form.setValue('endpoints', templateJson)
+    if (!template) return
+    // 追加而非替换：保留已配置的端点，仅合并所选模板
+    const merged = mergeEndpointTemplate(
+      form.getValues('endpoints'),
+      templateKey,
+      template
+    )
+    if (merged === null) {
+      toast.error(t('Invalid JSON format'))
+      return
     }
+    form.setValue('endpoints', merged)
   }
 
   return (

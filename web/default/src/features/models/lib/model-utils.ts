@@ -96,6 +96,46 @@ export function parseEndpoints(
 }
 
 /**
+ * Merge an endpoint template into an existing endpoints JSON string.
+ *
+ * Append semantics: previously configured endpoint entries are preserved and
+ * the selected template is added on top. If an entry with the same key already
+ * exists, it is overwritten by the template (the user explicitly requested it).
+ *
+ * @param currentEndpoints - current JSON string in the form field (may be empty)
+ * @param templateKey - endpoint type key, e.g. 'openai'
+ * @param template - endpoint template value, e.g. { path, method }
+ * @returns merged JSON string, or `null` when `currentEndpoints` is non-empty
+ *          but not a valid JSON object (caller must not silently discard it)
+ */
+export function mergeEndpointTemplate(
+  currentEndpoints: string | undefined,
+  templateKey: string,
+  template: Record<string, unknown>
+): string | null {
+  const trimmed = currentEndpoints?.trim() ?? ''
+  if (trimmed === '') {
+    return JSON.stringify({ [templateKey]: template }, null, 2)
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null
+  }
+
+  const merged = {
+    ...(parsed as Record<string, unknown>),
+    [templateKey]: template,
+  }
+  return JSON.stringify(merged, null, 2)
+}
+
+/**
  * Format endpoints to display
  */
 export function formatEndpointsDisplay(

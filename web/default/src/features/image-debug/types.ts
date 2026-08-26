@@ -126,3 +126,28 @@ export interface VideoDebugFormState {
   /** 时长（秒）：2-30，-1 表示智能时长 */
   duration: number
 }
+
+// ============================================================================
+// 提示词 AI 优化（POST /pg/chat/completions，非流式）
+// ============================================================================
+
+/** 待优化的媒体类型 */
+export type PromptOptimizeType = 'image' | 'video'
+
+export interface OptimizePromptMessage {
+  role: 'system' | 'user'
+  content: string
+}
+
+export interface OptimizePromptRequest {
+  model: string
+  /** 使用分组；缺省时由后端使用会话默认分组 */
+  group?: string
+  messages: OptimizePromptMessage[]
+  stream: false
+}
+
+export interface OptimizePromptResponse {
+  choices?: { message?: { content?: string } }[]
+  error?: { message?: string }
+}

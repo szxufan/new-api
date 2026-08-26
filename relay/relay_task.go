@@ -376,7 +376,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		return
 	}
 
-	isOpenAIVideoAPI := strings.HasPrefix(c.Request.RequestURI, "/v1/videos/")
+	isOpenAIVideoAPI := isOpenAIVideoAPIPath(c.Request.RequestURI)
 
 	// Gemini/Vertex 支持实时查询：用户 fetch 时直接从上游拉取最新状态
 	if realtimeResp := tryRealtimeFetch(originTask, isOpenAIVideoAPI); len(realtimeResp) > 0 {
@@ -536,6 +536,14 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 	default:
 		return "processing"
 	}
+}
+
+// isOpenAIVideoAPIPath 判断请求路径是否应返回 OpenAI 兼容视频任务格式
+// （queued/in_progress/completed/failed + metadata.url 结构）：
+// 标准 API `/v1/videos/{task_id}` 与前端调试端点 `/pg/videos/{task_id}`。
+func isOpenAIVideoAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/videos/") ||
+		strings.HasPrefix(path, "/pg/videos/")
 }
 
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
