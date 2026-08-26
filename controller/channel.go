@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -89,6 +90,54 @@ func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm
 	return query
 }
 
+// sortChannelsByAffinityCount 按亲和性计数（升/降序）稳定排序渠道列表。
+// 亲和性计数为运行期计算值，需在 service.FillChannelAffinityCounts 之后调用。
+func sortChannelsByAffinityCount(channels []*model.Channel, desc bool) {
+	sort.SliceStable(channels, func(i, j int) bool {
+		if desc {
+			return channels[i].AffinityCount > channels[j].AffinityCount
+		}
+		return channels[i].AffinityCount < channels[j].AffinityCount
+	})
+}
+
+// tagChannelRange 记录 Tag 模式下某个标签的渠道在聚合列表中的切片范围
+type tagChannelRange struct {
+	tag   string
+	start int
+	end   int
+	total int64
+}
+
+// applyTagAffinityOrder 对按 Tag 顺序收集的渠道列表，按每个 Tag 组的亲和性计数合计重新排序。
+// ranges 需按收集顺序传入；排序稳定，合计相同时保持原有 Tag 顺序。
+func applyTagAffinityOrder(channels []*model.Channel, ranges []tagChannelRange, desc bool) {
+	if len(ranges) < 2 {
+		return
+	}
+	for i := range ranges {
+		var total int64
+		for j := ranges[i].start; j < ranges[i].end; j++ {
+			total += channels[j].AffinityCount
+		}
+		ranges[i].total = total
+	}
+	sort.SliceStable(ranges, func(i, j int) bool {
+		if ranges[i].total == ranges[j].total {
+			return false
+		}
+		if desc {
+			return ranges[i].total > ranges[j].total
+		}
+		return ranges[i].total < ranges[j].total
+	})
+	reordered := make([]*model.Channel, 0, len(channels))
+	for _, r := range ranges {
+		reordered = append(reordered, channels[r.start:r.end]...)
+	}
+	copy(channels, reordered)
+}
+
 func GetAllChannels(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	channelData := make([]*model.Channel, 0)
@@ -109,6 +158,7 @@ func GetAllChannels(c *gin.Context) {
 	}
 
 	var total int64
+	var tagRanges []tagChannelRange
 
 	if enableTagMode {
 		tags, err := model.GetPaginatedChannelTags(buildChannelListQuery(groupFilter, statusFilter, typeFilter), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
@@ -136,6 +186,11 @@ func GetAllChannels(c *gin.Context) {
 				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取标签渠道失败，请稍后重试"})
 				return
 			}
+			tagRanges = append(tagRanges, tagChannelRange{
+				tag:   *tag,
+				start: len(channelData),
+				end:   len(channelData) + len(tagChannels),
+			})
 			channelData = append(channelData, tagChannels...)
 		}
 	} else {
@@ -145,15 +200,27 @@ func GetAllChannels(c *gin.Context) {
 			return
 		}
 
-		err := sortOptions.Apply(buildChannelListQuery(groupFilter, statusFilter, typeFilter)).
-			Limit(pageInfo.GetPageSize()).
-			Offset(pageInfo.GetStartIdx()).
-			Omit("key").
-			Find(&channelData).Error
-		if err != nil {
-			common.SysError("failed to get channels: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道列表失败，请稍后重试"})
-			return
+		if sortOptions.SortByAffinityCount {
+			// 亲和性计数非数据库列：全量查询后在内存中排序，再手动分页
+			err := buildChannelListQuery(groupFilter, statusFilter, typeFilter).
+				Omit("key").
+				Find(&channelData).Error
+			if err != nil {
+				common.SysError("failed to get channels: " + err.Error())
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道列表失败，请稍后重试"})
+				return
+			}
+		} else {
+			err := sortOptions.Apply(buildChannelListQuery(groupFilter, statusFilter, typeFilter)).
+				Limit(pageInfo.GetPageSize()).
+				Offset(pageInfo.GetStartIdx()).
+				Omit("key").
+				Find(&channelData).Error
+			if err != nil {
+				common.SysError("failed to get channels: " + err.Error())
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取渠道列表失败，请稍后重试"})
+				return
+			}
 		}
 	}
 
@@ -161,6 +228,26 @@ func GetAllChannels(c *gin.Context) {
 		clearChannelInfo(datum)
 	}
 	service.FillChannelAffinityCounts(channelData)
+
+	if sortOptions.SortByAffinityCount {
+		desc := sortOptions.SortOrder != "asc"
+		if enableTagMode {
+			// 按每个 Tag 组的亲和性计数合计重排 Tag 顺序
+			applyTagAffinityOrder(channelData, tagRanges, desc)
+		} else {
+			// 内存排序后手动分页
+			sortChannelsByAffinityCount(channelData, desc)
+			startIdx := pageInfo.GetStartIdx()
+			endIdx := startIdx + pageInfo.GetPageSize()
+			if endIdx > len(channelData) {
+				endIdx = len(channelData)
+			}
+			if startIdx > endIdx {
+				startIdx = endIdx
+			}
+			channelData = channelData[startIdx:endIdx]
+		}
+	}
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
 	var results []struct {
@@ -268,6 +355,7 @@ func SearchChannels(c *gin.Context) {
 	sortOptions := model.NewChannelSortOptions(c.Query("sort_by"), c.Query("sort_order"), idSort)
 	enableTagMode, _ := strconv.ParseBool(c.Query("tag_mode"))
 	channelData := make([]*model.Channel, 0)
+	var tagRanges []tagChannelRange
 	if enableTagMode {
 		tags, err := model.SearchTags(keyword, group, modelKeyword, idSort)
 		if err != nil {
@@ -290,6 +378,11 @@ func SearchChannels(c *gin.Context) {
 					})
 					return
 				}
+				tagRanges = append(tagRanges, tagChannelRange{
+					tag:   *tag,
+					start: len(channelData),
+					end:   len(channelData) + len(tagChannels),
+				})
 				channelData = append(channelData, tagChannels...)
 			}
 		}
@@ -352,6 +445,18 @@ func SearchChannels(c *gin.Context) {
 		pageSize = 20
 	}
 
+	if sortOptions.SortByAffinityCount {
+		// 亲和性计数非数据库列：全量填充计数后在内存中排序
+		service.FillChannelAffinityCounts(channelData)
+		desc := sortOptions.SortOrder != "asc"
+		if enableTagMode {
+			// 按每个 Tag 组的亲和性计数合计重排 Tag 顺序
+			applyTagAffinityOrder(channelData, tagRanges, desc)
+		} else {
+			sortChannelsByAffinityCount(channelData, desc)
+		}
+	}
+
 	total := len(channelData)
 	startIdx := (page - 1) * pageSize
 	if startIdx > total {
@@ -367,7 +472,9 @@ func SearchChannels(c *gin.Context) {
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
 	}
-	service.FillChannelAffinityCounts(pagedData)
+	if !sortOptions.SortByAffinityCount {
+		service.FillChannelAffinityCounts(pagedData)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

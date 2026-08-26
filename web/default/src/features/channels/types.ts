@@ -248,6 +248,7 @@ export type ChannelSortBy =
   | 'balance'
   | 'response_time'
   | 'test_time'
+  | 'affinity_count'
 
 export type ChannelSortOrder = 'asc' | 'desc'
 

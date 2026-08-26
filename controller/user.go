@@ -524,6 +524,9 @@ func generateDefaultSidebarConfig(userRole int) string {
 	return string(configBytes)
 }
 
+// GetUserModels 返回当前用户可用的模型列表。
+// 支持可选查询参数 endpoint（逗号分隔的端点类型，如 image-generation）：
+// 传入时仅返回「支持该端点类型」的模型；未传时返回全部可用模型。
 func GetUserModels(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -542,6 +545,10 @@ func GetUserModels(c *gin.Context) {
 				models = append(models, g)
 			}
 		}
+	}
+	// 可选端点过滤：?endpoint=image-generation（逗号分隔多值）；未传时返回全部
+	if want := parseEndpointTypes(c); len(want) > 0 {
+		models = filterModelsByEndpoints(models, want)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

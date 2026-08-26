@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,6 +35,7 @@ import {
   DEFAULT_STYLE,
 } from './constants'
 import { buildEditFormData, buildImagePayload } from './lib/payload'
+import { getModeEndpoints, resolveSelection } from './lib/selection'
 import type {
   ImageData,
   ImageDebugFormState,
@@ -64,19 +65,37 @@ export function ImageDebugPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // 按当前模式过滤：文生图 → image-generation；图生图 → image-edit
+  const endpoints = getModeEndpoints(state.mode)
+
   const { data: models = [], isLoading: isLoadingModels } = useQuery({
-    queryKey: ['image-debug-models'],
-    queryFn: getUserModels,
+    queryKey: ['image-debug-models', endpoints],
+    queryFn: () => getUserModels(endpoints),
   })
 
   const { data: groups = [] } = useQuery({
-    queryKey: ['image-debug-groups'],
-    queryFn: getUserGroups,
+    queryKey: ['image-debug-groups', endpoints],
+    queryFn: () => getUserGroups(endpoints),
   })
 
   const handleStateChange = useCallback((patch: Partial<ImageDebugFormState>) => {
     setState((prev) => ({ ...prev, ...patch }))
   }, [])
+
+  // 过滤结果变化后，当前选中值可能失效：自动修正到第一个有效选项
+  useEffect(() => {
+    const resolved = resolveSelection(state.model, models, state.model)
+    if (resolved !== state.model) {
+      setState((prev) => ({ ...prev, model: resolved }))
+    }
+  }, [models, state.model])
+
+  useEffect(() => {
+    const resolved = resolveSelection(state.group, groups, state.group)
+    if (resolved !== state.group) {
+      setState((prev) => ({ ...prev, group: resolved }))
+    }
+  }, [groups, state.group])
 
   const handleModeChange = (mode: ImageMode) => {
     setState((prev) => ({ ...prev, mode }))

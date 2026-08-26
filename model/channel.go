@@ -84,6 +84,10 @@ type ChannelSortOptions struct {
 	SortBy    string
 	SortOrder string
 	IDSort    bool
+	// SortByAffinityCount 表示按渠道亲和性计数排序。
+	// 亲和性计数是运行期计算值（内存/Redis），不是数据库列，
+	// 无法走 SQL 排序，由调用方在填充计数后内存排序。
+	SortByAffinityCount bool
 }
 
 var channelSortColumns = map[string]string{
@@ -98,7 +102,8 @@ var channelSortColumns = map[string]string{
 func NewChannelSortOptions(sortBy string, sortOrder string, idSort bool) ChannelSortOptions {
 	normalizedSortBy := strings.ToLower(strings.TrimSpace(sortBy))
 	normalizedSortOrder := strings.ToLower(strings.TrimSpace(sortOrder))
-	if _, ok := channelSortColumns[normalizedSortBy]; !ok {
+	sortByAffinityCount := normalizedSortBy == "affinity_count"
+	if _, ok := channelSortColumns[normalizedSortBy]; !ok && !sortByAffinityCount {
 		normalizedSortBy = ""
 		normalizedSortOrder = ""
 	} else if normalizedSortOrder != "asc" {
@@ -106,13 +111,18 @@ func NewChannelSortOptions(sortBy string, sortOrder string, idSort bool) Channel
 	}
 
 	return ChannelSortOptions{
-		SortBy:    normalizedSortBy,
-		SortOrder: normalizedSortOrder,
-		IDSort:    idSort,
+		SortBy:              normalizedSortBy,
+		SortOrder:           normalizedSortOrder,
+		IDSort:              idSort,
+		SortByAffinityCount: sortByAffinityCount,
 	}
 }
 
 func (options ChannelSortOptions) Apply(query *gorm.DB) *gorm.DB {
+	if options.SortByAffinityCount {
+		// 亲和性计数非数据库列，不产生 SQL 排序，由调用方内存排序
+		return query
+	}
 	if columnName, ok := channelSortColumns[options.SortBy]; ok {
 		return query.Order(clause.OrderByColumn{
 			Column: clause.Column{Name: columnName},

@@ -1160,7 +1160,6 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
         )
       },
       size: 90,
-      enableSorting: false,
     },
 
     // Used Quota column — displays consumed quota with tooltip and currency suffix.

@@ -48,10 +48,15 @@ export async function editImage(formData: FormData): Promise<ImageResponse> {
 }
 
 /**
- * 获取用户可用模型
+ * 获取用户可用模型。
+ * @param endpoints 可选；按端点类型过滤（如 image-generation），空数组表示不过滤
  */
-export async function getUserModels(): Promise<ModelOption[]> {
-  const res = await api.get(API_ENDPOINTS.USER_MODELS)
+export async function getUserModels(
+  endpoints: string[] = []
+): Promise<ModelOption[]> {
+  const params =
+    endpoints.length > 0 ? { endpoint: endpoints.join(',') } : undefined
+  const res = await api.get(API_ENDPOINTS.USER_MODELS, { params })
   const { data } = res
 
   if (!data.success || !Array.isArray(data.data)) {
@@ -65,10 +70,15 @@ export async function getUserModels(): Promise<ModelOption[]> {
 }
 
 /**
- * 获取用户分组
+ * 获取用户分组。
+ * @param endpoints 可选；仅返回包含支持对应端点模型的分组，空数组表示不过滤
  */
-export async function getUserGroups(): Promise<GroupOption[]> {
-  const res = await api.get(API_ENDPOINTS.USER_GROUPS)
+export async function getUserGroups(
+  endpoints: string[] = []
+): Promise<GroupOption[]> {
+  const params =
+    endpoints.length > 0 ? { endpoint: endpoints.join(',') } : undefined
+  const res = await api.get(API_ENDPOINTS.USER_GROUPS, { params })
   const { data } = res
 
   if (!data.success || !data.data) {

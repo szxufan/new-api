@@ -23,22 +23,26 @@ func GetGroups(c *gin.Context) {
 	})
 }
 
+// GetUserGroups 返回当前用户可用的分组列表。
+// 支持可选查询参数 endpoint（逗号分隔的端点类型，如 image-generation）：
+// 传入时仅返回「包含至少一个支持该端点类型模型」的分组；未传时返回全部可用分组。
 func GetUserGroups(c *gin.Context) {
 	usableGroups := make(map[string]map[string]interface{})
 	userGroup := ""
 	userId := c.GetInt("id")
 	userGroup, _ = model.GetUserGroup(userId, false)
 	userUsableGroups := service.GetUserUsableGroups(userGroup)
+	want := parseEndpointTypes(c)
 	for groupName, _ := range ratio_setting.GetGroupRatioCopy() {
 		// UserUsableGroups contains the groups that the user can use
-		if desc, ok := userUsableGroups[groupName]; ok {
+		if desc, ok := userUsableGroups[groupName]; ok && groupContainsSupportedEnabledModel(groupName, want) {
 			usableGroups[groupName] = map[string]interface{}{
 				"ratio": service.GetUserGroupRatio(userGroup, groupName),
 				"desc":  desc,
 			}
 		}
 	}
-	if _, ok := userUsableGroups["auto"]; ok {
+	if _, ok := userUsableGroups["auto"]; ok && groupContainsSupportedEnabledModel("auto", want) {
 		usableGroups["auto"] = map[string]interface{}{
 			"ratio": "自动",
 			"desc":  setting.GetUsableGroupDescription("auto"),
