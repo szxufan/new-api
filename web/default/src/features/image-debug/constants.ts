@@ -37,6 +37,10 @@ export const API_ENDPOINTS = {
  */
 export const TEXT_MODEL_ENDPOINTS = ['openai'] as const
 
+/** 优化模型选择持久化键：上次使用的模型保存到 localStorage，再次进入时作为默认选择 */
+export const PROMPT_OPTIMIZE_MODEL_STORAGE_KEY =
+  'image-debug-prompt-optimize-model'
+
 /** 图像生成提示词优化指令 */
 export const IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are an expert prompt engineer for AI image generation models. Enhance the user's image prompt while preserving its core subject, intent and key details. Enrich it with concrete visual detail such as composition, lighting, color palette, style, atmosphere, and quality indicators where appropriate. Keep the same language as the original prompt. Output ONLY the optimized prompt text: no explanations, no quotes, no markdown code blocks, no prefix. Aim for a concise but vivid prompt under 200 words.`
 

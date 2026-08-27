@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
+  PROMPT_OPTIMIZE_MODEL_STORAGE_KEY,
   VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
 } from '../constants'
 import type {
@@ -38,6 +39,36 @@ export function sortModelOptions(options: ModelOption[]): ModelOption[] {
       numeric: true,
     })
   )
+}
+
+/** 读取上次使用的优化模型（localStorage）；读取失败或不存在时返回空字符串 */
+export function getStoredOptimizeModel(): string {
+  try {
+    return window.localStorage.getItem(PROMPT_OPTIMIZE_MODEL_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/** 保存本次选择的优化模型到 localStorage；写入失败时静默忽略 */
+export function saveStoredOptimizeModel(model: string): void {
+  try {
+    window.localStorage.setItem(PROMPT_OPTIMIZE_MODEL_STORAGE_KEY, model)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 解析实际选中的优化模型：上次存储的模型仍在候选列表中则使用它，
+ * 否则回退到候选第一个；候选为空时返回空字符串。
+ */
+export function resolveStoredModel(
+  stored: string,
+  models: ModelOption[]
+): string {
+  if (models.some((option) => option.value === stored)) return stored
+  return models[0]?.value ?? ''
 }
 
 /**

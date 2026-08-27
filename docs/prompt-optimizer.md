@@ -22,8 +22,8 @@
   - `constants.ts`：新增 `CHAT_COMPLETIONS` 端点、`TEXT_MODEL_ENDPOINTS` 端点过滤与图像/视频优化系统提示词常量
   - `types.ts`：`PromptOptimizeType` / `OptimizePromptRequest` / `OptimizePromptResponse` 等类型
   - `api.ts`：`optimizePrompt(payload)` 请求封装
-  - `lib/prompt-optimizer.ts`：`buildOptimizePayload`（构建请求体）/ `extractOptimizedPrompt`（解析响应，剥离 markdown 代码块围栏）/ `getOptimizeErrorMessage`（错误文案提取）/ `sortModelOptions`（候选排序），纯函数，见 `lib/prompt-optimizer.test.ts`
-  - `components/prompt-optimizer.tsx`：共享 UI 组件（模型下拉 + 优化按钮），图片/视频表单复用；模型候选通过 `GET /api/user/models?endpoint=openai` 获取（仅保留支持 OpenAI 聊天端点的文本模型，排除图片/视频/精选/向量化等非文本模型），并按名称不区分大小写排序；两个 Tab 共用同一 queryKey 缓存
+  - `lib/prompt-optimizer.ts`：`buildOptimizePayload`（构建请求体）/ `extractOptimizedPrompt`（解析响应，剥离 markdown 代码块围栏）/ `getOptimizeErrorMessage`（错误文案提取）/ `sortModelOptions`（候选排序）/ `getStoredOptimizeModel`/`saveStoredOptimizeModel`/`resolveStoredModel`（模型记忆持久化），纯函数，见 `lib/prompt-optimizer.test.ts`
+  - `components/prompt-optimizer.tsx`：共享 UI 组件（模型下拉 + 优化按钮），图片/视频表单复用；模型候选通过 `GET /api/user/models?endpoint=openai` 获取（仅保留支持 OpenAI 聊天端点的文本模型，排除图片/视频/精选/向量化等非文本模型），并按名称不区分大小写排序；上次选择的模型保存在 localStorage（键 `image-debug-prompt-optimize-model`），再次进入页面时作为默认选择；两个 Tab 共用同一 queryKey 缓存
 
 ## 使用说明
 
@@ -35,6 +35,7 @@
 ## 注意事项
 
 - 优化模型候选仅包含支持 OpenAI 聊天端点（`endpoint=openai`）的文本模型，图片/视频/精选/向量化等模型不会出现在列表中；列表按名称不区分大小写排序。
+- 上次使用的优化模型会保存在浏览器 localStorage（键 `image-debug-prompt-optimize-model`），再次进入页面时作为默认选择；若该模型已不可用（如被移除），自动回退到候选列表第一个。
 - 优化调用复用表单当前选择的分组；若该分组下选择的文本模型没有可用渠道，后端会返回错误并展示在 toast 中，此时可切换分组或更换模型。
 - 优化模型候选默认取列表中第一个，未选择时自动回退到第一个。
 - 优化请求不携带任何图片内容，仅对提示词文本进行润色。

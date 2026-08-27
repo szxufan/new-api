@@ -30,6 +30,9 @@ import {
   buildOptimizePayload,
   extractOptimizedPrompt,
   getOptimizeErrorMessage,
+  getStoredOptimizeModel,
+  resolveStoredModel,
+  saveStoredOptimizeModel,
   sortModelOptions,
 } from '../lib/prompt-optimizer'
 import type { PromptOptimizeType } from '../types'
@@ -55,7 +58,10 @@ interface PromptOptimizerProps {
  */
 export function PromptOptimizer(props: PromptOptimizerProps) {
   const { t } = useTranslation()
-  const [optimizeModel, setOptimizeModel] = useState('')
+  // 上次使用的模型作为默认选择（localStorage 持久化）
+  const [optimizeModel, setOptimizeModel] = useState(() =>
+    getStoredOptimizeModel()
+  )
   const [isOptimizing, setIsOptimizing] = useState(false)
 
   const { data: models = [], isLoading: isModelLoading } = useQuery({
@@ -65,9 +71,13 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
       sortModelOptions(await getUserModels([...TEXT_MODEL_ENDPOINTS])),
   })
 
-  // 未选择时回退到第一个可用模型
-  const selectedModel =
-    optimizeModel || (models.length > 0 ? models[0].value : '')
+  // 候选加载后：存储的模型仍在列表中则沿用，否则回退到第一个可用模型
+  const selectedModel = resolveStoredModel(optimizeModel, models)
+
+  const handleModelChange = (value: string) => {
+    setOptimizeModel(value)
+    saveStoredOptimizeModel(value)
+  }
 
   const handleOptimize = async () => {
     if (props.disabled || isOptimizing) return
@@ -118,7 +128,7 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
         size='sm'
         aria-label={t('Optimization model')}
         value={selectedModel}
-        onChange={(e) => setOptimizeModel(e.target.value)}
+        onChange={(e) => handleModelChange(e.target.value)}
         disabled={props.disabled || isOptimizing || isModelLoading}
         className={cn('max-w-44', models.length === 0 && 'hidden')}
       >

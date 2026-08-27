@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
+  PROMPT_OPTIMIZE_MODEL_STORAGE_KEY,
   VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
 } from '../constants'
 import type { OptimizePromptResponse } from '../types'
@@ -26,8 +27,61 @@ import {
   buildOptimizePayload,
   extractOptimizedPrompt,
   getOptimizeErrorMessage,
+  getStoredOptimizeModel,
+  resolveStoredModel,
+  saveStoredOptimizeModel,
   sortModelOptions,
 } from './prompt-optimizer'
+
+describe('getStoredOptimizeModel / saveStoredOptimizeModel', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('未保存时返回空字符串', () => {
+    expect(getStoredOptimizeModel()).toBe('')
+  })
+
+  it('保存后可读取到相同值', () => {
+    saveStoredOptimizeModel('gpt-4o')
+    expect(window.localStorage.getItem(PROMPT_OPTIMIZE_MODEL_STORAGE_KEY)).toBe(
+      'gpt-4o'
+    )
+    expect(getStoredOptimizeModel()).toBe('gpt-4o')
+  })
+
+  it('再次保存会覆盖旧值', () => {
+    saveStoredOptimizeModel('gpt-4o')
+    saveStoredOptimizeModel('claude-3-5-sonnet')
+    expect(getStoredOptimizeModel()).toBe('claude-3-5-sonnet')
+  })
+})
+
+describe('resolveStoredModel', () => {
+  const models = [
+    { label: 'claude-3-5-sonnet', value: 'claude-3-5-sonnet' },
+    { label: 'gpt-4o', value: 'gpt-4o' },
+  ]
+
+  it('存储的模型仍在候选列表中时返回存储值', () => {
+    expect(resolveStoredModel('gpt-4o', models)).toBe('gpt-4o')
+  })
+
+  it('存储的模型不在候选列表中时回退到第一个', () => {
+    expect(resolveStoredModel('removed-model', models)).toBe(
+      'claude-3-5-sonnet'
+    )
+  })
+
+  it('候选为空时返回空字符串', () => {
+    expect(resolveStoredModel('gpt-4o', [])).toBe('')
+    expect(resolveStoredModel('', [])).toBe('')
+  })
+
+  it('存储值为空时回退到第一个', () => {
+    expect(resolveStoredModel('', models)).toBe('claude-3-5-sonnet')
+  })
+})
 
 describe('sortModelOptions', () => {
   it('按名称不区分大小写、自然数字序升序排列', () => {
