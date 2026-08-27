@@ -2,6 +2,7 @@ package ali
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -729,6 +730,31 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	var aliResp AliVideoResponse
 	if err := common.Unmarshal(respBody, &aliResp); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
+	}
+
+	// 兼容中转信封：真实阿里响应可能嵌套在 data 字段中
+	// （data 可能是完整阿里响应，也可能仅是 output 对象）
+	if aliResp.Output.TaskStatus == "" {
+		var wrapper struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := common.Unmarshal(respBody, &wrapper); err == nil && len(wrapper.Data) > 0 {
+			var inner AliVideoResponse
+			if err := common.Unmarshal(wrapper.Data, &inner); err == nil && inner.Output.TaskStatus != "" {
+				aliResp = inner
+			} else {
+				var innerOutput AliVideoOutput
+				if err := common.Unmarshal(wrapper.Data, &innerOutput); err == nil && innerOutput.TaskStatus != "" {
+					aliResp.Output = innerOutput
+				}
+			}
+		}
+	}
+
+	// task_status 为空：通常是中转错误信封（仅有 code/message），返回错误让本轮轮询重试，
+	// 而不是把任务状态回退为 Queued；轮询记录会由调用方持久化供排障。
+	if aliResp.Output.TaskStatus == "" {
+		return nil, fmt.Errorf("empty task_status in ali response, code=%s, message=%s", aliResp.Code, aliResp.Message)
 	}
 
 	taskResult := relaycommon.TaskInfo{

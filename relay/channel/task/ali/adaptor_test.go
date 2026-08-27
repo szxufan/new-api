@@ -630,3 +630,55 @@ func TestParseTaskResultFailedWithNumericCode(t *testing.T) {
 		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusFailure)
 	}
 }
+
+func TestParseTaskResultUnwrapsDataEnvelopeFullResponse(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	// 中转信封：data 内为完整阿里响应，code 为数字
+	body := []byte(`{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"request_id": "r-1",
+			"output": {"task_id": "t-1", "task_status": "SUCCEEDED", "video_url": "https://example.com/v.mp4"},
+			"usage": {"duration": 5, "video_count": 1, "SR": 720}
+		}
+	}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult should unwrap data envelope, got error: %v", err)
+	}
+	if result.Status != model.TaskStatusSuccess {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusSuccess)
+	}
+	if result.Url != "https://example.com/v.mp4" {
+		t.Errorf("url mismatch: got %q", result.Url)
+	}
+}
+
+func TestParseTaskResultUnwrapsDataEnvelopeOutputOnly(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	// 中转信封：data 内仅为 output 对象
+	body := []byte(`{
+		"code": 0,
+		"data": {"task_id": "t-2", "task_status": "RUNNING"}
+	}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult should unwrap data envelope (output only), got error: %v", err)
+	}
+	if result.Status != model.TaskStatusInProgress {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusInProgress)
+	}
+}
+
+func TestParseTaskResultErrorEnvelopeReturnsError(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	// 中转错误信封：无 task_status，仅有数字 code —— 应返回错误触发重试，而非回退状态
+	body := []byte(`{"code": 429, "message": "too many requests"}`)
+
+	if _, err := adaptor.ParseTaskResult(body); err == nil {
+		t.Fatal("ParseTaskResult should return error for envelope without task_status")
+	}
+}
