@@ -50,6 +50,18 @@ type TaskDto struct {
 	Properties any             `json:"properties"`
 	Username   string          `json:"username,omitempty"`
 	Data       json.RawMessage `json:"data"`
+	// PollRecord 最后一次后端轮询上游的请求与响应，仅管理员任务列表接口填充
+	PollRecord *TaskPollRecord `json:"poll_record,omitempty"`
+}
+
+// TaskPollRecord 最后一次后端轮询上游的请求与响应记录（与 model.TaskPollRecord 同形）
+type TaskPollRecord struct {
+	Time       int64           `json:"time"`                  // 轮询时间（unix 秒）
+	Method     string          `json:"method,omitempty"`      // HTTP 方法（GET/POST）
+	URL        string          `json:"url,omitempty"`         // 实际请求的上游 URL
+	StatusCode int             `json:"status_code,omitempty"` // 上游 HTTP 状态码
+	Request    json.RawMessage `json:"request,omitempty"`     // 轮询请求体
+	Response   json.RawMessage `json:"response,omitempty"`    // 上游响应体（已脱敏/截断）
 }
 
 type FetchReq struct {

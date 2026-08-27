@@ -88,7 +88,27 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 				task.Username = user.Username
 			}
 		}
-		result[i] = relay.TaskModel2Dto(task)
+		taskDto := relay.TaskModel2Dto(task)
+		if fillUser {
+			// 轮询记录含上游请求细节，仅管理员列表接口下发
+			taskDto.PollRecord = pollRecordToDto(&task.PollRecord)
+		}
+		result[i] = taskDto
 	}
 	return result
+}
+
+// pollRecordToDto 将 model 层轮询记录转换为 DTO；空记录返回 nil（序列化时省略）
+func pollRecordToDto(record *model.TaskPollRecord) *dto.TaskPollRecord {
+	if record == nil || record.IsEmpty() {
+		return nil
+	}
+	return &dto.TaskPollRecord{
+		Time:       record.Time,
+		Method:     record.Method,
+		URL:        record.URL,
+		StatusCode: record.StatusCode,
+		Request:    record.Request,
+		Response:   record.Response,
+	}
 }

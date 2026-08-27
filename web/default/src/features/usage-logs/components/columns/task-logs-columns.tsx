@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Music } from 'lucide-react'
+import { Eye, Music } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DataTableColumnHeader } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
+import { parseTaskDataArray } from '../../lib/download'
 import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import type { TaskLog } from '../../types'
 import {
@@ -35,6 +36,7 @@ import {
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { TaskDetailsDialog } from '../dialogs/task-details-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
@@ -42,24 +44,11 @@ import {
   createProgressColumn,
 } from './column-helpers'
 
-function parseTaskData(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data
-  if (typeof data === 'string') {
-    try {
-      const parsed = JSON.parse(data)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
-  }
-  return []
-}
-
 function AudioPreviewCell({ log }: { log: TaskLog }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const clips = useMemo(() => {
-    const data = parseTaskData(log.data)
+    const data = parseTaskDataArray(log.data)
     return data.filter(
       (c) =>
         c && typeof c === 'object' && (c as Record<string, unknown>).audio_url
@@ -231,11 +220,14 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
         const failReason = row.getValue('fail_reason') as string
         const status = log.status
         const [dialogOpen, setDialogOpen] = useState(false)
+        const [detailsOpen, setDetailsOpen] = useState(false)
+
+        let content: ReactNode = null
 
         const isSunoSuccess =
           log.platform === 'suno' && status === TASK_STATUS.SUCCESS
         if (isSunoSuccess) {
-          const data = parseTaskData(log.data)
+          const data = parseTaskDataArray(log.data)
           if (
             data.some(
               (c) =>
@@ -244,55 +236,73 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
                 (c as Record<string, unknown>).audio_url
             )
           ) {
-            return <AudioPreviewCell log={log} />
+            content = <AudioPreviewCell log={log} />
           }
         }
 
-        const isVideoTask =
-          log.action === TASK_ACTIONS.GENERATE ||
-          log.action === TASK_ACTIONS.TEXT_GENERATE ||
-          log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
-          log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
-          log.action === TASK_ACTIONS.REMIX_GENERATE
-        const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
+        if (content === null) {
+          const isVideoTask =
+            log.action === TASK_ACTIONS.GENERATE ||
+            log.action === TASK_ACTIONS.TEXT_GENERATE ||
+            log.action === TASK_ACTIONS.FIRST_TAIL_GENERATE ||
+            log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
+            log.action === TASK_ACTIONS.REMIX_GENERATE
+          const isSuccess = status === TASK_STATUS.SUCCESS
+          const isUrl = failReason?.startsWith('http')
 
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
-          return (
-            <a
-              href={videoUrl}
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-foreground text-xs hover:underline'
-            >
-              {t('Click to preview video')}
-            </a>
-          )
-        }
-
-        if (!failReason) {
-          return <span className='text-muted-foreground/60 text-xs'>-</span>
+          if (isSuccess && isVideoTask && isUrl) {
+            const videoUrl = `/v1/videos/${log.task_id}/content`
+            content = (
+              <a
+                href={videoUrl}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='text-foreground text-xs hover:underline'
+              >
+                {t('Click to preview video')}
+              </a>
+            )
+          } else if (failReason) {
+            content = (
+              <>
+                <button
+                  type='button'
+                  className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+                  onClick={() => setDialogOpen(true)}
+                  title={t('Click to view full error message')}
+                >
+                  <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
+                    {failReason}
+                  </span>
+                </button>
+                <FailReasonDialog
+                  failReason={failReason}
+                  open={dialogOpen}
+                  onOpenChange={setDialogOpen}
+                />
+              </>
+            )
+          }
         }
 
         return (
-          <>
+          <div className='flex items-center gap-1.5'>
+            {content}
             <button
               type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view full error message')}
+              className='text-muted-foreground hover:text-foreground shrink-0'
+              onClick={() => setDetailsOpen(true)}
+              title={t('Click to view task details')}
             >
-              <span className='truncate leading-snug text-red-600 group-hover:underline dark:text-red-400'>
-                {failReason}
-              </span>
+              <Eye className='size-3.5' />
             </button>
-            <FailReasonDialog
-              failReason={failReason}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
+            <TaskDetailsDialog
+              log={log}
+              isAdmin={isAdmin}
+              open={detailsOpen}
+              onOpenChange={setDetailsOpen}
             />
-          </>
+          </div>
         )
       },
       meta: { label: t('Details') },

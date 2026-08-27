@@ -220,9 +220,30 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 		return err
 	}
 
-	for _, responseItem := range responseItems.Data {
-		task := taskM[responseItem.TaskID]
-		if !taskNeedsUpdate(task, responseItem) {
+	itemByTaskID := make(map[string]dto.SunoDataResponse, len(responseItems.Data))
+	for _, item := range responseItems.Data {
+		itemByTaskID[item.TaskID] = item
+	}
+
+	for _, upstreamID := range taskIds {
+		task := taskM[upstreamID]
+		if task == nil {
+			continue
+		}
+		responseItem, hasItem := itemByTaskID[upstreamID]
+
+		// 记录本次轮询的请求与响应：无论任务字段是否变化都覆盖写，保证"最后一次轮询"最新
+		var responsePayload []byte
+		if hasItem {
+			responsePayload, _ = common.Marshal(responseItem)
+		}
+		task.PollRecord = *newPollRecord(resp, map[string]any{"ids": taskIds}, responsePayload)
+
+		if !hasItem || !taskNeedsUpdate(task, responseItem) {
+			// 仅轮询记录变化，也需要持久化
+			if err := task.Update(); err != nil {
+				common.SysLog("UpdateSunoTask poll record error: " + err.Error())
+			}
 			continue
 		}
 
@@ -374,6 +395,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
 
+	// 记录本次轮询的请求与响应（最后一次轮询证据，仅管理员可见）
+	redactedBody := redactVideoResponseBody(responseBody)
+	pollRecord := newPollRecord(resp, map[string]any{
+		"task_id": task.GetUpstreamTaskID(),
+		"action":  task.Action,
+	}, redactedBody)
+
 	snap := task.Snapshot()
 
 	taskResult := &relaycommon.TaskInfo{}
@@ -392,7 +420,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
-	task.Data = redactVideoResponseBody(responseBody)
+	task.Data = redactedBody
+	task.PollRecord = *pollRecord
 
 	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
@@ -405,7 +434,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			if openaiError != nil {
 				// 返回规范的 OpenAI 错误格式，提取错误信息，判断错误是否为任务失败
 				if openaiError.Code == "429" {
-					// 429 错误通常表示请求过多或速率限制，暂时不认为是任务失败，保持原状态等待下一轮轮询
+					// 429 错误通常表示请求过多或速率限制，暂时不认为是任务失败，保持原状态等待下一轮轮询。
+					// 提前返回不会走下方统一更新逻辑，这里单独持久化本次轮询记录。
+					if err := model.TaskBulkUpdateByID([]int64{task.ID}, map[string]any{"poll_record": pollRecord}); err != nil {
+						logger.LogError(ctx, fmt.Sprintf("failed to persist poll record for task %s: %s", taskId, err.Error()))
+					}
 					return nil
 				}
 
@@ -499,6 +532,45 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	return nil
+}
+
+// maxPollRecordPayloadBytes 轮询记录中请求体/响应体的最大存储字节数
+const maxPollRecordPayloadBytes = 64 * 1024
+
+// pollPayloadTruncatedSuffix 超长载荷截断后追加的标记
+const pollPayloadTruncatedSuffix = "...(truncated)"
+
+// truncatePollPayload 截断超长的轮询载荷，保留前 maxPollRecordPayloadBytes 字节并追加截断标记
+func truncatePollPayload(b []byte) []byte {
+	if len(b) <= maxPollRecordPayloadBytes {
+		return b
+	}
+	truncated := make([]byte, 0, maxPollRecordPayloadBytes+len(pollPayloadTruncatedSuffix))
+	truncated = append(truncated, b[:maxPollRecordPayloadBytes]...)
+	truncated = append(truncated, pollPayloadTruncatedSuffix...)
+	return truncated
+}
+
+// newPollRecord 从上游响应构造轮询记录。
+// 请求方法与 URL 取自 resp.Request（产生该响应的实际请求；若发生重定向则为最后一次请求）。
+func newPollRecord(resp *http.Response, request any, response []byte) *model.TaskPollRecord {
+	record := &model.TaskPollRecord{
+		Time:     time.Now().Unix(),
+		Response: truncatePollPayload(response),
+	}
+	if request != nil {
+		if requestBytes, err := common.Marshal(request); err == nil {
+			record.Request = truncatePollPayload(requestBytes)
+		}
+	}
+	if resp != nil {
+		record.StatusCode = resp.StatusCode
+		if resp.Request != nil && resp.Request.URL != nil {
+			record.Method = resp.Request.Method
+			record.URL = resp.Request.URL.String()
+		}
+	}
+	return record
 }
 
 func redactVideoResponseBody(body []byte) []byte {

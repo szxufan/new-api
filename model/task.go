@@ -63,6 +63,8 @@ type Task struct {
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
+	// 最后一次后端轮询上游的请求与响应记录，仅管理员接口下发（见 controller.tasksToDto）
+	PollRecord TaskPollRecord `json:"poll_record,omitempty" gorm:"column:poll_record;type:json"`
 }
 
 func (t *Task) SetData(data any) {
@@ -154,6 +156,49 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return common.Marshal(p)
+}
+
+// TaskPollRecord 记录最后一次后端轮询上游的请求与响应。
+// 由 service.TaskPollingLoop 每轮轮询覆盖写入，仅通过管理员任务列表接口下发。
+type TaskPollRecord struct {
+	Time       int64           `json:"time"`                  // 轮询时间（unix 秒）
+	Method     string          `json:"method,omitempty"`      // HTTP 方法（GET/POST）
+	URL        string          `json:"url,omitempty"`         // 实际请求的上游 URL
+	StatusCode int             `json:"status_code,omitempty"` // 上游 HTTP 状态码
+	Request    json.RawMessage `json:"request,omitempty"`     // 轮询请求体
+	Response   json.RawMessage `json:"response,omitempty"`    // 上游响应体（已脱敏/截断）
+}
+
+func (p *TaskPollRecord) Scan(val interface{}) error {
+	bytesValue, _ := val.([]byte)
+	if len(bytesValue) == 0 {
+		*p = TaskPollRecord{}
+		return nil
+	}
+	return common.Unmarshal(bytesValue, p)
+}
+
+func (p TaskPollRecord) Value() (driver.Value, error) {
+	if p.IsEmpty() {
+		return nil, nil
+	}
+	return common.Marshal(p)
+}
+
+// IsEmpty 判断是否为空记录（从未轮询过）
+func (p TaskPollRecord) IsEmpty() bool {
+	return p.Time == 0 && p.Method == "" && p.URL == "" &&
+		p.StatusCode == 0 && len(p.Request) == 0 && len(p.Response) == 0
+}
+
+// EqualPollRecord 比较两条轮询记录是否一致（含请求/响应原始字节）
+func EqualPollRecord(a, b TaskPollRecord) bool {
+	return a.Time == b.Time &&
+		a.Method == b.Method &&
+		a.URL == b.URL &&
+		a.StatusCode == b.StatusCode &&
+		bytes.Equal(a.Request, b.Request) &&
+		bytes.Equal(a.Response, b.Response)
 }
 
 // SyncTaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -371,6 +416,7 @@ type taskSnapshot struct {
 	FailReason string
 	ResultURL  string
 	Data       json.RawMessage
+	PollRecord TaskPollRecord
 }
 
 func (s taskSnapshot) Equal(other taskSnapshot) bool {
@@ -380,7 +426,8 @@ func (s taskSnapshot) Equal(other taskSnapshot) bool {
 		s.FinishTime == other.FinishTime &&
 		s.FailReason == other.FailReason &&
 		s.ResultURL == other.ResultURL &&
-		bytes.Equal(s.Data, other.Data)
+		bytes.Equal(s.Data, other.Data) &&
+		EqualPollRecord(s.PollRecord, other.PollRecord)
 }
 
 func (t *Task) Snapshot() taskSnapshot {
@@ -392,6 +439,7 @@ func (t *Task) Snapshot() taskSnapshot {
 		FailReason: t.FailReason,
 		ResultURL:  t.PrivateData.ResultURL,
 		Data:       t.Data,
+		PollRecord: t.PollRecord,
 	}
 }
 

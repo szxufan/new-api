@@ -247,16 +247,40 @@ export interface TaskLog {
   task_id: string
   action: string // MUSIC, LYRICS, GENERATE, TEXT_GENERATE, etc.
   channel_id: number
+  quota?: number
   submit_time: number // seconds
+  start_time?: number // seconds
   finish_time?: number // seconds
   progress?: string
   progress_message_en?: string
   data?: string // JSON string
   fail_reason?: string
+  result_url?: string
+  properties?: TaskLogProperties
+  // 最后一次后端轮询上游的请求与响应，仅管理员接口下发
+  poll_record?: TaskPollRecord
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
   created_at?: number
   updated_at?: number
+}
+
+export interface TaskLogProperties {
+  input?: string
+  upstream_model_name?: string
+  origin_model_name?: string
+}
+
+/**
+ * Last backend poll record against the upstream provider (admin-only field)
+ */
+export interface TaskPollRecord {
+  time?: number // unix seconds
+  method?: string // HTTP method (GET/POST)
+  url?: string // upstream request URL
+  status_code?: number // upstream HTTP status code
+  request?: unknown // poll request body
+  response?: unknown // upstream response body (redacted/truncated)
 }
 
 // ============================================================================

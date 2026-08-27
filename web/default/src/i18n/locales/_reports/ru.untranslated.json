@@ -18,6 +18,7 @@
   "AZURE_OPENAI_ENDPOINT *": "AZURE_OPENAI_ENDPOINT *",
   "Baidu V2": "Baidu V2",
   "Base input and output token prices for this tier.": "Base input and output token prices for this tier.",
+  "Base64 JSON": "Base64 JSON",
   "Bind a Pancake store + product": "Bind a Pancake store + product",
   "Bound product:": "Bound product:",
   "Bound store:": "Bound store:",
@@ -187,6 +188,5 @@
   "You have legally obtained authorization for the connected model APIs, accounts, keys, and quotas.": "You have legally obtained authorization for the connected model APIs, accounts, keys, and quotas.",
   "You understand and independently bear legal responsibility arising from deployment, operation, and charging behavior.": "You understand and independently bear legal responsibility arising from deployment, operation, and charging behavior.",
   "You understand this compliance reminder is only for risk notice and does not constitute legal advice, a compliance review conclusion, or a guarantee of the legality of your use of this system; you should consult professional legal or compliance advisors based on your actual business scenario.": "You understand this compliance reminder is only for risk notice and does not constitute legal advice, a compliance review conclusion, or a guarantee of the legality of your use of this system; you should consult professional legal or compliance advisors based on your actual business scenario.",
-  "Zhipu V4": "Zhipu V4",
-  "Base64 JSON": "Base64 JSON"
+  "Zhipu V4": "Zhipu V4"
 }
