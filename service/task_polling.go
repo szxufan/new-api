@@ -89,6 +89,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 
 // TaskPollingLoop 主轮询循环，每 15 秒检查一次未完成的任务
 func TaskPollingLoop() {
+	common.SysLog("任务进度轮询启动, " + pollingBuildMarker)
 	for {
 		time.Sleep(time.Duration(15) * time.Second)
 		common.SysLog("任务进度轮询开始")
@@ -417,9 +418,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
-		// 解析失败同样持久化轮询记录，便于管理员在详情弹窗查看上游原始响应排障
+		// 解析失败同样持久化轮询记录，便于管理员在详情弹窗查看上游原始响应排障；
+		// 错误日志附带上游响应原文（截断 2KB），便于直接定位字段类型不兼容等问题。
 		persistPollRecordOnly(ctx, task, pollRecord)
-		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		return fmt.Errorf("parseTaskResult failed for task %s: %w, response: %s", taskId, err, truncateForLog(responseBody))
 	}
 
 	task.Data = redactedBody
@@ -540,6 +542,17 @@ const maxPollRecordPayloadBytes = 64 * 1024
 
 // pollPayloadTruncatedSuffix 超长载荷截断后追加的标记
 const pollPayloadTruncatedSuffix = "...(truncated)"
+
+// pollingBuildMarker 轮询构建标记，启动时打印到系统日志，用于确认线上实际运行的轮询代码版本
+const pollingBuildMarker = "poll-build=2026-08-27-ali-lenient-v2"
+
+// truncateForLog 将响应体截断到 2KB 以内用于错误日志，避免日志爆炸
+func truncateForLog(b []byte) string {
+	if len(b) <= 2048 {
+		return string(b)
+	}
+	return string(b[:2048]) + "...(truncated)"
+}
 
 // truncatePollPayload 截断超长的轮询载荷，保留前 maxPollRecordPayloadBytes 字节并追加截断标记
 func truncatePollPayload(b []byte) []byte {

@@ -682,3 +682,41 @@ func TestParseTaskResultErrorEnvelopeReturnsError(t *testing.T) {
 		t.Fatal("ParseTaskResult should return error for envelope without task_status")
 	}
 }
+
+// TestParseTaskResultExactUpstreamBody 回归测试：2026-08-27 真实上游响应原文
+// （usage 含多个数字字段），曾因 string 字段声明导致 unmarshal 失败、任务卡死。
+func TestParseTaskResultExactUpstreamBody(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	body := []byte(`{
+  "output": {
+    "end_time": "2026-08-27 16:02:09.980",
+    "orig_prompt": "一个可爱的小宝宝开心地滚来滚去，小手小脚自然挥动，表情天真愉悦。镜头从低角度缓慢环绕跟拍，捕捉宝宝连续翻滚的动作与衣物褶皱变化。",
+    "scheduled_time": "2026-08-27 15:59:59.335",
+    "submit_time": "2026-08-27 15:59:59.299",
+    "task_id": "fdd50dcc-7411-4a20-969c-f1e5f7d334c6",
+    "task_status": "SUCCEEDED",
+    "video_url": "https://dashscope-a717.oss-accelerate.aliyuncs.com/1d/1e/20260827/e4b11e52/fdd50dcc-7411-4a20-969c-f1e5f7d334c6.mp4?Expires=1787904126&OSSAccessKeyId=LTAI5tPxpiCM2hjmWrFXrym1&Signature=psCcNS9Tz3Ftwz8vUmbhRzYIJ%2Bo%3D"
+  },
+  "request_id": "f989289b-2844-9865-8e52-61d63c454cae",
+  "usage": {
+    "SR": 1080,
+    "duration": 10,
+    "fps": 30,
+    "input_video_duration": 0,
+    "output_video_duration": 10,
+    "ratio": "3368:3409",
+    "video_count": 1
+  }
+}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult failed on exact upstream body: %v", err)
+	}
+	if result.Status != model.TaskStatusSuccess {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusSuccess)
+	}
+	if result.Url == "" {
+		t.Error("url should be set from video_url")
+	}
+}
