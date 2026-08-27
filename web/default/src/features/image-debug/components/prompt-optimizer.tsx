@@ -25,10 +25,12 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { getUserModels, optimizePrompt } from '../api'
+import { TEXT_MODEL_ENDPOINTS } from '../constants'
 import {
   buildOptimizePayload,
   extractOptimizedPrompt,
   getOptimizeErrorMessage,
+  sortModelOptions,
 } from '../lib/prompt-optimizer'
 import type { PromptOptimizeType } from '../types'
 
@@ -58,7 +60,9 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
 
   const { data: models = [], isLoading: isModelLoading } = useQuery({
     queryKey: TEXT_MODELS_QUERY_KEY,
-    queryFn: () => getUserModels(),
+    // 仅保留支持 OpenAI 聊天端点的文本模型，并按名称排序
+    queryFn: async () =>
+      sortModelOptions(await getUserModels([...TEXT_MODEL_ENDPOINTS])),
   })
 
   // 未选择时回退到第一个可用模型

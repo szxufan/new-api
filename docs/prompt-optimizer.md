@@ -19,11 +19,11 @@
   - 分组：请求体携带表单当前选择的分组（`group` 字段），后端经 `GroupInUserUsableGroups` 校验后使用
   - 计费：走 playground 常规计费流程（预扣费 + 结算），消费日志 `token_name` 显示为 `playground-<分组>`
 - 前端文件（`web/default/src/features/image-debug/`）：
-  - `constants.ts`：新增 `CHAT_COMPLETIONS` 端点与图像/视频优化系统提示词常量
+  - `constants.ts`：新增 `CHAT_COMPLETIONS` 端点、`TEXT_MODEL_ENDPOINTS` 端点过滤与图像/视频优化系统提示词常量
   - `types.ts`：`PromptOptimizeType` / `OptimizePromptRequest` / `OptimizePromptResponse` 等类型
   - `api.ts`：`optimizePrompt(payload)` 请求封装
-  - `lib/prompt-optimizer.ts`：`buildOptimizePayload`（构建请求体）/ `extractOptimizedPrompt`（解析响应，剥离 markdown 代码块围栏）/ `getOptimizeErrorMessage`（错误文案提取），纯函数，见 `lib/prompt-optimizer.test.ts`
-  - `components/prompt-optimizer.tsx`：共享 UI 组件（模型下拉 + 优化按钮），图片/视频表单复用；模型列表通过 `GET /api/user/models`（不过滤端点）获取，两个 Tab 共用同一 queryKey 缓存
+  - `lib/prompt-optimizer.ts`：`buildOptimizePayload`（构建请求体）/ `extractOptimizedPrompt`（解析响应，剥离 markdown 代码块围栏）/ `getOptimizeErrorMessage`（错误文案提取）/ `sortModelOptions`（候选排序），纯函数，见 `lib/prompt-optimizer.test.ts`
+  - `components/prompt-optimizer.tsx`：共享 UI 组件（模型下拉 + 优化按钮），图片/视频表单复用；模型候选通过 `GET /api/user/models?endpoint=openai` 获取（仅保留支持 OpenAI 聊天端点的文本模型，排除图片/视频/精选/向量化等非文本模型），并按名称不区分大小写排序；两个 Tab 共用同一 queryKey 缓存
 
 ## 使用说明
 
@@ -34,7 +34,8 @@
 
 ## 注意事项
 
+- 优化模型候选仅包含支持 OpenAI 聊天端点（`endpoint=openai`）的文本模型，图片/视频/精选/向量化等模型不会出现在列表中；列表按名称不区分大小写排序。
 - 优化调用复用表单当前选择的分组；若该分组下选择的文本模型没有可用渠道，后端会返回错误并展示在 toast 中，此时可切换分组或更换模型。
-- 优化模型列表默认取用户全部可用模型中的第一个，未选择时自动回退到第一个。
+- 优化模型候选默认取列表中第一个，未选择时自动回退到第一个。
 - 优化请求不携带任何图片内容，仅对提示词文本进行润色。
 - 系统提示词要求模型保持与原提示词相同的语言输出，仅输出优化后文本（无解释、无代码块）。

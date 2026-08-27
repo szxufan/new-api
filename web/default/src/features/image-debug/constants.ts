@@ -30,6 +30,13 @@ export const API_ENDPOINTS = {
 // 提示词 AI 优化（经 /pg/chat/completions 调用文本模型润色提示词）
 // ============================================================================
 
+/**
+ * 优化模型候选的端点过滤：仅保留支持 OpenAI 聊天端点（chat/completions）的模型，
+ * 排除图片生成 / 视频生成 / 精选 / 向量化等非文本模型。
+ * 后端 GetEndpointTypesByChannelType 保证 Anthropic / Gemini 等对话渠道均支持 openai 端点。
+ */
+export const TEXT_MODEL_ENDPOINTS = ['openai'] as const
+
 /** 图像生成提示词优化指令 */
 export const IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are an expert prompt engineer for AI image generation models. Enhance the user's image prompt while preserving its core subject, intent and key details. Enrich it with concrete visual detail such as composition, lighting, color palette, style, atmosphere, and quality indicators where appropriate. Keep the same language as the original prompt. Output ONLY the optimized prompt text: no explanations, no quotes, no markdown code blocks, no prefix. Aim for a concise but vivid prompt under 200 words.`
 

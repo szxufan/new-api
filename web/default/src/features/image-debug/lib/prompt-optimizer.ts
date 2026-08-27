@@ -21,10 +21,24 @@ import {
   VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT,
 } from '../constants'
 import type {
+  ModelOption,
   OptimizePromptRequest,
   OptimizePromptResponse,
   PromptOptimizeType,
 } from '../types'
+
+/**
+ * 模型候选排序：不区分大小写、按名称（含自然数字序）升序排列。
+ * 返回新数组，不修改入参。
+ */
+export function sortModelOptions(options: ModelOption[]): ModelOption[] {
+  return [...options].sort((a, b) =>
+    a.value.localeCompare(b.value, undefined, {
+      sensitivity: 'base',
+      numeric: true,
+    })
+  )
+}
 
 /**
  * 构建提示词优化请求体 — POST /pg/chat/completions（非流式）。

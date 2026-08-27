@@ -26,7 +26,42 @@ import {
   buildOptimizePayload,
   extractOptimizedPrompt,
   getOptimizeErrorMessage,
+  sortModelOptions,
 } from './prompt-optimizer'
+
+describe('sortModelOptions', () => {
+  it('按名称不区分大小写、自然数字序升序排列', () => {
+    const options = [
+      { label: 'gpt-4o', value: 'gpt-4o' },
+      { label: 'GPT-4', value: 'GPT-4' },
+      { label: 'claude-3-5-sonnet', value: 'claude-3-5-sonnet' },
+      { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
+      { label: 'gpt-4-1106', value: 'gpt-4-1106' },
+    ]
+    const result = sortModelOptions(options)
+    expect(result.map((o) => o.value)).toEqual([
+      'claude-3-5-sonnet',
+      'GPT-4',
+      'gpt-4-1106',
+      'gpt-4o',
+      'gpt-4o-mini',
+    ])
+  })
+
+  it('返回新数组，不修改入参', () => {
+    const options = [
+      { label: 'b', value: 'b' },
+      { label: 'a', value: 'a' },
+    ]
+    const result = sortModelOptions(options)
+    expect(result).not.toBe(options)
+    expect(options.map((o) => o.value)).toEqual(['b', 'a'])
+  })
+
+  it('空数组返回空数组', () => {
+    expect(sortModelOptions([])).toEqual([])
+  })
+})
 
 describe('buildOptimizePayload', () => {
   it('image 类型使用图像系统提示词，video 类型使用视频系统提示词', () => {
