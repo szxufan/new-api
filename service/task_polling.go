@@ -544,7 +544,7 @@ const maxPollRecordPayloadBytes = 64 * 1024
 const pollPayloadTruncatedSuffix = "...(truncated)"
 
 // pollingBuildMarker 轮询构建标记，启动时打印到系统日志，用于确认线上实际运行的轮询代码版本
-const pollingBuildMarker = "poll-build=2026-08-27-ali-lenient-v2"
+const pollingBuildMarker = "poll-build=2026-08-27-ali-float-v3"
 
 // truncateForLog 将响应体截断到 2KB 以内用于错误日志，避免日志爆炸
 func truncateForLog(b []byte) string {

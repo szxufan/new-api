@@ -46,6 +46,8 @@
 - `relay/channel/task/ali/adaptor.go`
   - `AliVideoResponse` / `AliVideoOutput` 标量字段统一改用 `dto.StringValue`（兼容字符串与数字），避免上游/中转以数字形式返回 `code`、时间等字段时 `ParseTaskResult` 失败导致任务卡死至超时。
   - `ParseTaskResult` 兼容中转信封：`task_status` 为空时尝试从 `data` 字段解包（`data` 可为完整阿里响应或仅 `output` 对象）；解包后仍为空（如仅有数字 `code` 的错误信封）则返回错误触发下一轮重试，而不是把任务状态回退为 Queued。
+- `dto/values.go`
+  - `dto.IntValue` 增加浮点兼容：上游以 `10.0` 形式返回整数字段（如阿里 `usage.duration`）时截断为整数，而不是报 `cannot unmarshal number into Go value of type string`（此前浮点会落入 string 分支报错，导致任务卡死至超时）；同时兼容字符串形式浮点数（`"10.0"`）。
 
 ### 前端（`web/default/src/features/usage-logs/`）
 

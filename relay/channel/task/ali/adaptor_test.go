@@ -684,30 +684,12 @@ func TestParseTaskResultErrorEnvelopeReturnsError(t *testing.T) {
 }
 
 // TestParseTaskResultExactUpstreamBody 回归测试：2026-08-27 真实上游响应原文
-// （usage 含多个数字字段），曾因 string 字段声明导致 unmarshal 失败、任务卡死。
+// （逐字节复制自线上轮询日志）。注意 usage.duration / output_video_duration
+// 为浮点数 10.0——dto.IntValue 不支持浮点时曾报
+// "cannot unmarshal number into Go value of type string"，导致任务卡死。
 func TestParseTaskResultExactUpstreamBody(t *testing.T) {
 	adaptor := &TaskAdaptor{}
-	body := []byte(`{
-  "output": {
-    "end_time": "2026-08-27 16:02:09.980",
-    "orig_prompt": "一个可爱的小宝宝开心地滚来滚去，小手小脚自然挥动，表情天真愉悦。镜头从低角度缓慢环绕跟拍，捕捉宝宝连续翻滚的动作与衣物褶皱变化。",
-    "scheduled_time": "2026-08-27 15:59:59.335",
-    "submit_time": "2026-08-27 15:59:59.299",
-    "task_id": "fdd50dcc-7411-4a20-969c-f1e5f7d334c6",
-    "task_status": "SUCCEEDED",
-    "video_url": "https://dashscope-a717.oss-accelerate.aliyuncs.com/1d/1e/20260827/e4b11e52/fdd50dcc-7411-4a20-969c-f1e5f7d334c6.mp4?Expires=1787904126&OSSAccessKeyId=LTAI5tPxpiCM2hjmWrFXrym1&Signature=psCcNS9Tz3Ftwz8vUmbhRzYIJ%2Bo%3D"
-  },
-  "request_id": "f989289b-2844-9865-8e52-61d63c454cae",
-  "usage": {
-    "SR": 1080,
-    "duration": 10,
-    "fps": 30,
-    "input_video_duration": 0,
-    "output_video_duration": 10,
-    "ratio": "3368:3409",
-    "video_count": 1
-  }
-}`)
+	body := []byte(`{"request_id":"70d7aa51-f4ea-944e-a930-198edaab9be3","output":{"task_id":"fdd50dcc-7411-4a20-969c-f1e5f7d334c6","task_status":"SUCCEEDED","submit_time":"2026-08-27 15:59:59.299","scheduled_time":"2026-08-27 15:59:59.335","end_time":"2026-08-27 16:02:09.980","orig_prompt":"一个可爱的小宝宝开心地滚来滚去，小手小脚自然挥动，表情天真愉悦。镜头从低角度缓慢环绕跟拍，捕捉宝宝连续翻滚的动作与衣物褶皱变化。","video_url":"https://dashscope-a717.oss-accelerate.aliyuncs.com/1d/1e/20260827/e4b11e52/fdd50dcc-7411-4a20-969c-f1e5f7d334c6.mp4?Expires=1787904126&OSSAccessKeyId=LTAI5tPxpiCM2hjmWrFXrym1&Signature=psCcNS9Tz3Ftwz8vUmbhRzYIJ%2Bo%3D"},"usage":{"duration":10.0,"input_video_duration":0,"output_video_duration":10.0,"fps":30,"video_count":1,"SR":1080,"ratio":"3368:3409"}}`)
 
 	result, err := adaptor.ParseTaskResult(body)
 	if err != nil {
@@ -718,5 +700,20 @@ func TestParseTaskResultExactUpstreamBody(t *testing.T) {
 	}
 	if result.Url == "" {
 		t.Error("url should be set from video_url")
+	}
+
+	// usage 浮点字段应被 dto.IntValue 正确截断为整数
+	var aliResp AliVideoResponse
+	if err := common.Unmarshal(body, &aliResp); err != nil {
+		t.Fatalf("unmarshal AliVideoResponse failed: %v", err)
+	}
+	if aliResp.Usage == nil {
+		t.Fatal("usage should be parsed")
+	}
+	if int(aliResp.Usage.Duration) != 10 {
+		t.Errorf("usage.duration mismatch: got %d, want 10", int(aliResp.Usage.Duration))
+	}
+	if int(aliResp.Usage.SR) != 1080 {
+		t.Errorf("usage.SR mismatch: got %d, want 1080", int(aliResp.Usage.SR))
 	}
 }

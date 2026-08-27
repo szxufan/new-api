@@ -35,11 +35,22 @@ func (i *IntValue) UnmarshalJSON(b []byte) error {
 		*i = IntValue(n)
 		return nil
 	}
+	// 兼容浮点数（如上游返回 10.0）：截断为整数
+	var f float64
+	if err := json.Unmarshal(b, &f); err == nil {
+		*i = IntValue(f)
+		return nil
+	}
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
 	}
-	v, err := strconv.Atoi(s)
+	if v, err := strconv.Atoi(s); err == nil {
+		*i = IntValue(v)
+		return nil
+	}
+	// 兼容字符串形式的浮点数（如 "10.0"）
+	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return err
 	}
