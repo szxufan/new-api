@@ -417,6 +417,8 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Reason = t.FailReason
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+		// 解析失败同样持久化轮询记录，便于管理员在详情弹窗查看上游原始响应排障
+		persistPollRecordOnly(ctx, task, pollRecord)
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
 	}
 
@@ -436,9 +438,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				if openaiError.Code == "429" {
 					// 429 错误通常表示请求过多或速率限制，暂时不认为是任务失败，保持原状态等待下一轮轮询。
 					// 提前返回不会走下方统一更新逻辑，这里单独持久化本次轮询记录。
-					if err := model.TaskBulkUpdateByID([]int64{task.ID}, map[string]any{"poll_record": pollRecord}); err != nil {
-						logger.LogError(ctx, fmt.Sprintf("failed to persist poll record for task %s: %s", taskId, err.Error()))
-					}
+					persistPollRecordOnly(ctx, task, pollRecord)
 					return nil
 				}
 
@@ -497,6 +497,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			shouldRefund = true
 		}
 	default:
+		persistPollRecordOnly(ctx, task, pollRecord)
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)
 	}
 	if taskResult.Progress != "" {
@@ -571,6 +572,14 @@ func newPollRecord(resp *http.Response, request any, response []byte) *model.Tas
 		}
 	}
 	return record
+}
+
+// persistPollRecordOnly 在提前返回路径（解析失败、未知状态、429 等）单独持久化轮询记录，
+// 保证轮询异常时管理员仍能在详情弹窗追溯上游原始请求/响应。
+func persistPollRecordOnly(ctx context.Context, task *model.Task, record *model.TaskPollRecord) {
+	if err := model.TaskBulkUpdateByID([]int64{task.ID}, map[string]any{"poll_record": record}); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("failed to persist poll record for task %s: %s", task.TaskID, err.Error()))
+	}
 }
 
 func redactVideoResponseBody(body []byte) []byte {

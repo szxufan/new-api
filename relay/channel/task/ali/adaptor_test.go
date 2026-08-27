@@ -579,3 +579,54 @@ func TestConvertToOpenAIVideo_Failed(t *testing.T) {
 		t.Errorf("error message should be set from FailReason, got %+v", openAIResp.Error)
 	}
 }
+
+// ============================
+// ParseTaskResult：兼容上游以数字形式返回字符串字段
+// （中转/上游格式差异曾导致 unmarshal 失败、任务卡死）
+// ============================
+
+func TestParseTaskResultNumericStringFields(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	body := []byte(`{
+		"request_id": 123456,
+		"code": 0,
+		"message": 0,
+		"output": {
+			"task_id": 987654,
+			"task_status": "SUCCEEDED",
+			"submit_time": 1756281599,
+			"end_time": 1756281600,
+			"video_url": "https://example.com/v.mp4"
+		},
+		"usage": {"duration": 5, "video_count": 1, "SR": 720}
+	}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult should tolerate numeric string fields, got error: %v", err)
+	}
+	if result.Status != model.TaskStatusSuccess {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusSuccess)
+	}
+	if result.Url != "https://example.com/v.mp4" {
+		t.Errorf("url mismatch: got %q", result.Url)
+	}
+}
+
+func TestParseTaskResultFailedWithNumericCode(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	body := []byte(`{
+		"request_id": 1,
+		"code": 400,
+		"message": 10086,
+		"output": {"task_id": 555, "task_status": "FAILED", "code": 400, "message": 10086}
+	}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult should tolerate numeric code/message, got error: %v", err)
+	}
+	if result.Status != model.TaskStatusFailure {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusFailure)
+	}
+}

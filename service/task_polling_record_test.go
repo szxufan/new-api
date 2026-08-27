@@ -20,14 +20,20 @@ package service
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestTruncatePollPayloadWithinLimit(t *testing.T) {
@@ -100,4 +106,51 @@ func TestNewPollRecordTruncatesLargePayloads(t *testing.T) {
 	record := newPollRecord(resp, nil, largeResponse)
 	assert.Len(t, record.Response, maxPollRecordPayloadBytes+len(pollPayloadTruncatedSuffix))
 	assert.True(t, strings.HasSuffix(string(record.Response), pollPayloadTruncatedSuffix))
+}
+
+// parseFailAdaptor 解析永远失败的轮询适配器 mock，
+// 用于验证解析失败提前返回路径仍会持久化轮询记录。
+type parseFailAdaptor struct{}
+
+func (parseFailAdaptor) Init(info *relaycommon.RelayInfo) {}
+
+func (parseFailAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/tasks/up-1", nil)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Request:    req,
+		Body:       io.NopCloser(strings.NewReader(`{"code":400,"message":"bad request"}`)),
+	}, nil
+}
+
+func (parseFailAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
+	return nil, errors.New("unmarshal task result failed: json: cannot unmarshal number into Go value of type string")
+}
+
+func (parseFailAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int {
+	return 0
+}
+
+func TestUpdateVideoSingleTaskPersistsPollRecordOnParseFailure(t *testing.T) {
+	require.NoError(t, model.DB.Session(&gorm.Session{}).Exec("DELETE FROM tasks").Error)
+
+	task := &model.Task{
+		TaskID: "public-poll-1",
+		Status: model.TaskStatusInProgress,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+
+	ch := &model.Channel{Type: 1, Key: "test-key"}
+	err := updateVideoSingleTask(context.Background(), parseFailAdaptor{}, ch, "up-1", map[string]*model.Task{"up-1": task})
+	require.Error(t, err)
+
+	var got model.Task
+	require.NoError(t, model.DB.First(&got, "id = ?", task.ID).Error)
+	require.NotEmpty(t, got.PollRecord.Response, "解析失败时也应持久化轮询记录")
+	assert.Contains(t, string(got.PollRecord.Response), `"code":400`)
+	assert.Equal(t, http.StatusOK, got.PollRecord.StatusCode)
+	assert.Equal(t, http.MethodGet, got.PollRecord.Method)
 }

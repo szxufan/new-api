@@ -66,26 +66,28 @@ type AliVideoParameters struct {
 }
 
 // AliVideoResponse 阿里通义万相响应
+// 注意：上游（含中转）响应中 code/时间等字段可能以数字形式返回，
+// 标量字段统一使用 dto.StringValue 兼容字符串与数字，避免解析失败导致任务卡死。
 type AliVideoResponse struct {
-	Output    AliVideoOutput `json:"output"`
-	RequestID string         `json:"request_id"`
-	Code      string         `json:"code,omitempty"`
-	Message   string         `json:"message,omitempty"`
-	Usage     *AliUsage      `json:"usage,omitempty"`
+	Output    AliVideoOutput  `json:"output"`
+	RequestID dto.StringValue `json:"request_id"`
+	Code      dto.StringValue `json:"code,omitempty"`
+	Message   dto.StringValue `json:"message,omitempty"`
+	Usage     *AliUsage       `json:"usage,omitempty"`
 }
 
 // AliVideoOutput 输出信息
 type AliVideoOutput struct {
-	TaskID        string `json:"task_id"`
-	TaskStatus    string `json:"task_status"`
-	SubmitTime    string `json:"submit_time,omitempty"`
-	ScheduledTime string `json:"scheduled_time,omitempty"`
-	EndTime       string `json:"end_time,omitempty"`
-	OrigPrompt    string `json:"orig_prompt,omitempty"`
-	ActualPrompt  string `json:"actual_prompt,omitempty"`
-	VideoURL      string `json:"video_url,omitempty"`
-	Code          string `json:"code,omitempty"`
-	Message       string `json:"message,omitempty"`
+	TaskID        dto.StringValue `json:"task_id"`
+	TaskStatus    dto.StringValue `json:"task_status"`
+	SubmitTime    dto.StringValue `json:"submit_time,omitempty"`
+	ScheduledTime dto.StringValue `json:"scheduled_time,omitempty"`
+	EndTime       dto.StringValue `json:"end_time,omitempty"`
+	OrigPrompt    dto.StringValue `json:"orig_prompt,omitempty"`
+	ActualPrompt  dto.StringValue `json:"actual_prompt,omitempty"`
+	VideoURL      dto.StringValue `json:"video_url,omitempty"`
+	Code          dto.StringValue `json:"code,omitempty"`
+	Message       dto.StringValue `json:"message,omitempty"`
 }
 
 // AliUsage 使用统计
@@ -682,13 +684,13 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	if openAIResp.Model == "" && info != nil {
 		openAIResp.Model = info.OriginModelName
 	}
-	openAIResp.Status = convertAliStatus(aliResp.Output.TaskStatus)
+	openAIResp.Status = convertAliStatus(string(aliResp.Output.TaskStatus))
 	openAIResp.CreatedAt = common.GetTimestamp()
 
 	// 返回 OpenAI 格式
 	c.JSON(http.StatusOK, openAIResp)
 
-	return aliResp.Output.TaskID, responseBody, nil
+	return string(aliResp.Output.TaskID), responseBody, nil
 }
 
 // FetchTask 查询任务状态
@@ -742,11 +744,11 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "SUCCEEDED":
 		taskResult.Status = model.TaskStatusSuccess
 		// 阿里直接返回视频URL，不需要额外的代理端点
-		taskResult.Url = aliResp.Output.VideoURL
+		taskResult.Url = string(aliResp.Output.VideoURL)
 	case "FAILED", "CANCELED", "UNKNOWN":
 		taskResult.Status = model.TaskStatusFailure
 		if aliResp.Message != "" {
-			taskResult.Reason = aliResp.Message
+			taskResult.Reason = string(aliResp.Message)
 		} else if aliResp.Output.Message != "" {
 			taskResult.Reason = fmt.Sprintf("task failed, code: %s , message: %s", aliResp.Output.Code, aliResp.Output.Message)
 		} else {
@@ -784,9 +786,9 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 		}
 		var aliResp AliVideoResponse
 		if err := common.Unmarshal(task.Data, &aliResp); err == nil {
-			code, message := aliResp.Code, aliResp.Message
+			code, message := string(aliResp.Code), string(aliResp.Message)
 			if code == "" {
-				code, message = aliResp.Output.Code, aliResp.Output.Message
+				code, message = string(aliResp.Output.Code), string(aliResp.Output.Message)
 			}
 			if message != "" {
 				openAIResp.Error = &dto.OpenAIVideoError{

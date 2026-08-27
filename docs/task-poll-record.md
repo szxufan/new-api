@@ -38,11 +38,13 @@
   - `taskSnapshot` 纳入 `PollRecord`（`EqualPollRecord` 比较）：即使任务状态/进度无变化，轮询记录变化也会触发写库，保证记录始终反映最后一次轮询。
 - `service/task_polling.go`
   - `newPollRecord(resp, request, response)`：从 `resp.Request` 捕获方法与 URL，构造记录；请求/响应各自截断到 64KB（`maxPollRecordPayloadBytes`，超长追加 `...(truncated)`）；
-  - 视频路径 `updateVideoSingleTask`：每轮写入 `task.PollRecord`（响应为脱敏后的响应体）；上游返回 429 的提前返回分支单独以 `TaskBulkUpdateByID` 持久化该列；
+  - 视频路径 `updateVideoSingleTask`：每轮写入 `task.PollRecord`（响应为脱敏后的响应体）；所有提前返回路径（上游 429、`ParseTaskResult` 解析失败、未知状态）均通过 `persistPollRecordOnly` 单独持久化该列，保证轮询异常时管理员仍能看到上游原始响应；
   - Suno 路径 `updateSunoTasks`：遍历本渠道全部未完成任务（而非仅上游返回的条目），逐个写入记录并持久化；上游未返回的任务记录中响应为空。
 - `dto/task.go` / `controller/task.go`
   - `TaskDto` 新增 `poll_record`（指针，`omitempty`）；
   - 仅管理员列表接口 `GET /api/task/`（`tasksToDto(items, true)`）填充；`GET /api/task/self` 与 `/v1/videos/:task_id` 等 fetch 端点一律不含（`relay.TaskModel2Dto` 不映射该字段）。
+- `relay/channel/task/ali/adaptor.go`
+  - `AliVideoResponse` / `AliVideoOutput` 标量字段统一改用 `dto.StringValue`（兼容字符串与数字），避免上游/中转以数字形式返回 `code`、时间等字段时 `ParseTaskResult` 失败导致任务卡死至超时。
 
 ### 前端（`web/default/src/features/usage-logs/`）
 
@@ -54,7 +56,7 @@
 ## 已知限制
 
 - 轮询循环每 15 秒打印系统日志 `任务进度轮询开始` / `任务进度轮询完成, 未完成任务数: N`；单任务轮询明细（上游响应等）为 DEBUG 级别日志（需 `DEBUG=true`），成功路径在 SYS 级别静默。排查"轮询是否在干活"时以未完成数与 DEBUG 日志为准。
-- 轮询请求/响应仅在轮询循环成功发出 HTTP 请求并收到响应后落库；Suno 批量请求遇到非 200/解析失败等提前返回分支时，该轮不落记录（错误仅记日志）。
+- 轮询请求/响应在轮询循环成功发出 HTTP 请求并收到响应后落库；视频任务的解析失败/未知状态/429 等提前返回路径也会单独落库（但任务状态不更新）；Suno 批量请求遇到非 200/解析失败等提前返回分支时，该轮不落记录（错误仅记日志）。
 - 请求/响应各最大存储 64KB，超长截断。
 - 旧任务（功能上线前）无轮询记录，弹窗显示「暂无轮询记录」。
 - 用户主动 fetch（`tryRealtimeFetch`）不属于后端轮询，不写入轮询记录。
