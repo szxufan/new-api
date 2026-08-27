@@ -51,3 +51,25 @@ func TestShouldPassthroughUserAgent(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDefaultUserAgent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{name: "留空-回退内置", configured: "", want: BuiltinDefaultUserAgent},
+		{name: "纯空白-回退内置", configured: "   \n ", want: BuiltinDefaultUserAgent},
+		{name: "配置值-去除首尾空白", configured: " my-agent/2.1 ", want: "my-agent/2.1"},
+		{name: "配置值-原样返回", configured: "Go-http-client/2.0", want: "Go-http-client/2.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := &GeneralSetting{DefaultUserAgent: tt.configured}
+			require.Equal(t, tt.want, g.GetDefaultUserAgent())
+		})
+	}
+}

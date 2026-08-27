@@ -89,6 +89,7 @@ const schema = z.object({
     ping_interval_enabled: z.boolean(),
     ping_interval_seconds: z.coerce.number().min(1),
     user_agent_passthrough: z.string(),
+    default_user_agent: z.string(),
   }),
 })
 
@@ -102,6 +103,7 @@ type FlatGlobalModelSettings = {
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
   'general_setting.user_agent_passthrough': string
+  'general_setting.default_user_agent': string
 }
 
 const flattenGlobalValues = (
@@ -123,6 +125,8 @@ const flattenGlobalValues = (
     values.general_setting.ping_interval_seconds,
   'general_setting.user_agent_passthrough':
     values.general_setting.user_agent_passthrough,
+  'general_setting.default_user_agent':
+    values.general_setting.default_user_agent,
 })
 
 function normalizeJsonText(value: string, fallback: string) {
@@ -426,6 +430,29 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 <FormDescription>
                   {t(
                     'One fragment per line. If the incoming request User-Agent contains any fragment (case-insensitive), the original client UA is forwarded to upstream; otherwise the default upstream UA is used. Leave empty to disable.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='general_setting.default_user_agent'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Default Upstream User-Agent')}</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='hertz'
+                    {...field}
+                    onChange={(event) => field.onChange(event.target.value)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'User-Agent sent to upstream when no adapter-specific UA is set and the passthrough list does not match. Leave empty to use the built-in default (hertz).'
                   )}
                 </FormDescription>
                 <FormMessage />

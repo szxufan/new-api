@@ -63,6 +63,8 @@ const MODELS_SECTIONS = [
               settings['general_setting.ping_interval_seconds'],
             user_agent_passthrough:
               settings['general_setting.user_agent_passthrough'],
+            default_user_agent:
+              settings['general_setting.default_user_agent'],
           },
         }}
       />

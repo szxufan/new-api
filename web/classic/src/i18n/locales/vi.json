@@ -4225,6 +4225,8 @@
     "，": ", ",
     "、": ", ",
     "用户模型消耗排行": "Xếp hạng tiêu thụ mô hình",
-    "用户模型调用次数排行": "Xếp hạng số lượt gọi mô hình"
+    "用户模型调用次数排行": "Xếp hạng số lượt gọi mô hình",
+    "默认上游 User-Agent": "User-Agent mặc định tới upstream",
+    "未设置渠道专属 UA 且未命中 UA 透传名单时，向上游发送的 User-Agent。留空则使用内置默认值 hertz。": "User-Agent gửi tới upstream khi adapter không đặt UA riêng và yêu cầu không khớp danh sách chuyển tiếp. Để trống sẽ dùng giá trị mặc định tích hợp (hertz)."
   }
 }

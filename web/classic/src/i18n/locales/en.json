@@ -3837,6 +3837,8 @@
     "，": ", ",
     "、": ", ",
     "用户模型消耗排行": "User Model Consumption Ranking",
-    "用户模型调用次数排行": "User Model Call Count Ranking"
+    "用户模型调用次数排行": "User Model Call Count Ranking",
+    "默认上游 User-Agent": "Default Upstream User-Agent",
+    "未设置渠道专属 UA 且未命中 UA 透传名单时，向上游发送的 User-Agent。留空则使用内置默认值 hertz。": "User-Agent sent to upstream when no adapter-specific UA is set and the passthrough list does not match. Leave empty to use the built-in default (hertz)."
   }
 }

@@ -30,6 +30,7 @@ const defaultModelSettings: ModelSettings = {
   'general_setting.ping_interval_enabled': false,
   'general_setting.ping_interval_seconds': 60,
   'general_setting.user_agent_passthrough': '',
+  'general_setting.default_user_agent': '',
   'gemini.safety_settings': '',
   'gemini.version_settings': '',
   'gemini.supported_imagine_models': '',

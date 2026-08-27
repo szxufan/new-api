@@ -73,6 +73,7 @@ const defaultGlobalSettingInputs = {
   'general_setting.ping_interval_enabled': false,
   'general_setting.ping_interval_seconds': 60,
   'general_setting.user_agent_passthrough': '',
+  'general_setting.default_user_agent': '',
 };
 
 export default function SettingGlobalModel(props) {
@@ -427,6 +428,25 @@ export default function SettingGlobalModel(props) {
                         'general_setting.user_agent_passthrough': value,
                       })
                     }
+                  />
+                </Col>
+              </Row>
+              <Row style={{ marginTop: 10 }}>
+                <Col span={24}>
+                  <Form.Input
+                    label={t('默认上游 User-Agent')}
+                    field={'general_setting.default_user_agent'}
+                    placeholder='hertz'
+                    extraText={t(
+                      '未设置渠道专属 UA 且未命中 UA 透传名单时，向上游发送的 User-Agent。留空则使用内置默认值 hertz。',
+                    )}
+                    onChange={(value) =>
+                      setInputs({
+                        ...inputs,
+                        'general_setting.default_user_agent': value,
+                      })
+                    }
+                    showClear
                   />
                 </Col>
               </Row>

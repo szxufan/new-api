@@ -3691,6 +3691,8 @@
     "，": ", ",
     "、": ", ",
     "用户模型消耗排行": "Classement conso. modèle utilisateur",
-    "用户模型调用次数排行": "Classement appels modèle utilisateur"
+    "用户模型调用次数排行": "Classement appels modèle utilisateur",
+    "默认上游 User-Agent": "User-Agent en amont par défaut",
+    "未设置渠道专属 UA 且未命中 UA 透传名单时，向上游发送的 User-Agent。留空则使用内置默认值 hertz。": "User-Agent envoyé en amont lorsqu'aucun UA propre à l'adaptateur n'est défini et que la liste de transmission ne correspond pas. Laissez vide pour utiliser la valeur par défaut intégrée (hertz)."
   }
 }

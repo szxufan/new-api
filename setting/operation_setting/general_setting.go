@@ -14,6 +14,9 @@ const (
 	QuotaDisplayTypeCustom = "CUSTOM"
 )
 
+// BuiltinDefaultUserAgent 是未配置 default_user_agent 时使用的内置上游默认 User-Agent。
+const BuiltinDefaultUserAgent = "hertz"
+
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
@@ -28,6 +31,9 @@ type GeneralSetting struct {
 	// 入口请求 UA 含任一片段（子串匹配、忽略大小写）时，将原始 UA 透传给上游；
 	// 留空表示全部不透传，沿用默认 User-Agent。
 	UserAgentPassthrough string `json:"user_agent_passthrough"`
+	// 向上游发送请求时的默认 User-Agent；留空表示使用内置默认值（hertz）。
+	// 仅在渠道适配器未显式设置 UA 且入口 UA 未命中透传名单时生效。
+	DefaultUserAgent string `json:"default_user_agent"`
 }
 
 // 默认配置
@@ -126,4 +132,14 @@ func (g *GeneralSetting) ShouldPassthroughUserAgent(ua string) bool {
 		}
 	}
 	return false
+}
+
+// GetDefaultUserAgent 返回向上游发送的默认 User-Agent：
+// 配置值去除首尾空白后非空则使用配置值，否则回退内置 BuiltinDefaultUserAgent。
+func (g *GeneralSetting) GetDefaultUserAgent() string {
+	ua := strings.TrimSpace(g.DefaultUserAgent)
+	if ua == "" {
+		return BuiltinDefaultUserAgent
+	}
+	return ua
 }

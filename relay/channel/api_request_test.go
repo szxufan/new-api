@@ -195,8 +195,7 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 }
 
 func TestApplyDefaultUserAgent(t *testing.T) {
-	t.Parallel()
-
+	// 不使用 t.Parallel：本组用例会读写全局 generalSetting，需顺序执行避免互相污染。
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -204,10 +203,15 @@ func TestApplyDefaultUserAgent(t *testing.T) {
 
 	info := &relaycommon.RelayInfo{IsChannelTest: false}
 
+	setting := operation_setting.GetGeneralSetting()
+	prevDefault := setting.DefaultUserAgent
+	setting.DefaultUserAgent = ""
+	t.Cleanup(func() { setting.DefaultUserAgent = prevDefault })
+
 	// 未设置 UA 时写入默认值
 	headers := http.Header{}
 	applyDefaultUserAgent(ctx, info, &headers)
-	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, operation_setting.BuiltinDefaultUserAgent, headers.Get("User-Agent"))
 
 	// 适配器已显式设置 UA 时保留原值
 	headers = http.Header{}
@@ -217,14 +221,18 @@ func TestApplyDefaultUserAgent(t *testing.T) {
 }
 
 func TestApplyDefaultUserAgentPassthrough(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 
-	setGeneralSetting := func(list string) (restore func()) {
-		prev := operation_setting.GetGeneralSetting().UserAgentPassthrough
-		operation_setting.GetGeneralSetting().UserAgentPassthrough = list
-		return func() { operation_setting.GetGeneralSetting().UserAgentPassthrough = prev }
+	setGeneralSetting := func(list string, defaultUA string) (restore func()) {
+		setting := operation_setting.GetGeneralSetting()
+		prevList := setting.UserAgentPassthrough
+		prevDefault := setting.DefaultUserAgent
+		setting.UserAgentPassthrough = list
+		setting.DefaultUserAgent = defaultUA
+		return func() {
+			setting.UserAgentPassthrough = prevList
+			setting.DefaultUserAgent = prevDefault
+		}
 	}
 
 	newCtx := func(clientUA string) *gin.Context {
@@ -239,40 +247,54 @@ func TestApplyDefaultUserAgentPassthrough(t *testing.T) {
 
 	const clientUA = "codex-cli/1.0 (linux x86_64)"
 
-	// 命中名单 → 上游 UA 等于客户端原始 UA
-	restore := setGeneralSetting("codex\nclaude-cli")
+	// 命中名单 → 上游 UA 等于客户端原始 UA（默认 UA 配置不生效）
+	restore := setGeneralSetting("codex\nclaude-cli", "custom-upstream/1.0")
 	headers := http.Header{}
 	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
 	require.Equal(t, clientUA, headers.Get("User-Agent"))
 	restore()
 
-	// 名单未命中 → 默认 UA
-	restore = setGeneralSetting("claude-cli")
+	// 名单未命中 → 使用配置的默认 UA
+	restore = setGeneralSetting("claude-cli", "custom-upstream/1.0")
 	headers = http.Header{}
 	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
-	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, "custom-upstream/1.0", headers.Get("User-Agent"))
 	restore()
 
-	// 命中但为渠道测试请求 → 不透传，使用默认 UA
-	restore = setGeneralSetting("codex")
+	// 命中但为渠道测试请求 → 不透传，使用配置的默认 UA
+	restore = setGeneralSetting("codex", "custom-upstream/1.0")
 	headers = http.Header{}
 	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: true}, &headers)
-	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, "custom-upstream/1.0", headers.Get("User-Agent"))
 	restore()
 
-	// 客户端无 UA → 默认 UA（即使名单宽松）
-	restore = setGeneralSetting("codex")
+	// 客户端无 UA → 配置的默认 UA（即使名单宽松）
+	restore = setGeneralSetting("codex", "custom-upstream/1.0")
 	headers = http.Header{}
 	applyDefaultUserAgent(newCtx(""), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
-	require.Equal(t, defaultUpstreamUserAgent, headers.Get("User-Agent"))
+	require.Equal(t, "custom-upstream/1.0", headers.Get("User-Agent"))
 	restore()
 
-	// 请求头已有 UA（模拟适配器显式设置）→ 保持原值
-	restore = setGeneralSetting("codex")
+	// 请求头已有 UA（模拟适配器显式设置）→ 保持原值，配置的默认 UA 不覆盖
+	restore = setGeneralSetting("codex", "custom-upstream/1.0")
 	headers = http.Header{}
 	headers.Set("User-Agent", "kling-sdk/1.0")
 	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
 	require.Equal(t, "kling-sdk/1.0", headers.Get("User-Agent"))
+	restore()
+
+	// 默认 UA 留空 → 回退内置默认值
+	restore = setGeneralSetting("", "")
+	headers = http.Header{}
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, operation_setting.BuiltinDefaultUserAgent, headers.Get("User-Agent"))
+	restore()
+
+	// 默认 UA 仅空白 → 同样回退内置默认值
+	restore = setGeneralSetting("", "   ")
+	headers = http.Header{}
+	applyDefaultUserAgent(newCtx(clientUA), &relaycommon.RelayInfo{IsChannelTest: false}, &headers)
+	require.Equal(t, operation_setting.BuiltinDefaultUserAgent, headers.Get("User-Agent"))
 	restore()
 }
 

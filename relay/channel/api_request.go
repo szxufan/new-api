@@ -304,16 +304,13 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
-// defaultUpstreamUserAgent 是向上游渠道发送请求时的默认 User-Agent。
-// 优先级：渠道适配器显式设置的 UA > UA 透传名单命中（透传入口请求原始 UA）>
-// 默认值；渠道 Header Override 在其后应用，仍可覆盖。
-const defaultUpstreamUserAgent = "hertz"
-
 // applyDefaultUserAgent 在请求头未设置 User-Agent 时写入默认值，
 // 避免使用 Go 标准库的默认 UA（Go-http-client/1.1）。
 // 若全局配置 general_setting.user_agent_passthrough 名单命中入口请求的
 // User-Agent（子串匹配、忽略大小写），则将客户端原始 UA 透传给上游；
 // 渠道测试请求（IsChannelTest）不透传。
+// 兜底默认值取 general_setting.default_user_agent，留空回退内置 hertz。
+// 优先级：适配器显式 UA > 透传命中 > 默认 UA；Header Override 在其后应用，仍可覆盖。
 func applyDefaultUserAgent(c *gin.Context, info *common.RelayInfo, headers *http.Header) {
 	if headers.Get("User-Agent") != "" {
 		// 适配器显式设置的 UA 优先
@@ -328,7 +325,7 @@ func applyDefaultUserAgent(c *gin.Context, info *common.RelayInfo, headers *http
 		headers.Set("User-Agent", clientUA)
 		return
 	}
-	headers.Set("User-Agent", defaultUpstreamUserAgent)
+	headers.Set("User-Agent", operation_setting.GetGeneralSetting().GetDefaultUserAgent())
 }
 
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {

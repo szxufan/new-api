@@ -144,6 +144,7 @@ export type ModelSettings = {
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
   'general_setting.user_agent_passthrough': string
+  'general_setting.default_user_agent': string
   'gemini.safety_settings': string
   'gemini.version_settings': string
   'gemini.supported_imagine_models': string
