@@ -50,7 +50,7 @@ type TaskDto struct {
 	Properties any             `json:"properties"`
 	Username   string          `json:"username,omitempty"`
 	Data       json.RawMessage `json:"data"`
-	// PollRecord 最后一次后端轮询上游的请求与响应，仅管理员任务列表接口填充
+	// PollRecord 最后一次后端轮询上游的请求与响应，仅任务提交者本人可见
 	PollRecord *TaskPollRecord `json:"poll_record,omitempty"`
 }
 

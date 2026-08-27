@@ -38,7 +38,7 @@ func GetAllTask(c *gin.Context) {
 	items := model.TaskGetAllTasks(pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
 	total := model.TaskCountAllTasks(queryParams)
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(tasksToDto(items, true))
+	pageInfo.SetItems(tasksToDto(items, true, c.GetInt("id")))
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -62,11 +62,11 @@ func GetUserTask(c *gin.Context) {
 	items := model.TaskGetAllUserTask(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), queryParams)
 	total := model.TaskCountAllUserTask(userId, queryParams)
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(tasksToDto(items, false))
+	pageInfo.SetItems(tasksToDto(items, false, userId))
 	common.ApiSuccess(c, pageInfo)
 }
 
-func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
+func tasksToDto(tasks []*model.Task, fillUser bool, requesterId int) []*dto.TaskDto {
 	var userIdMap map[int]*model.UserBase
 	if fillUser {
 		userIdMap = make(map[int]*model.UserBase)
@@ -89,9 +89,15 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		taskDto := relay.TaskModel2Dto(task)
-		if fillUser {
-			// 轮询记录含上游请求细节，仅管理员列表接口下发
-			taskDto.PollRecord = pollRecordToDto(&task.PollRecord)
+		// 轮询记录含上游请求 URL、请求体与响应原文（可能包含签名 URL、提示词等敏感信息），
+		// 仅任务提交者本人可见（管理员查看他人任务时同样不下发）
+		if task.UserId == requesterId {
+			if record := pollRecordToDto(&task.PollRecord); record != nil {
+				taskDto.PollRecord = record
+			} else {
+				// 本人任务但暂无轮询记录：下发空对象，前端据此区分"无权限"与"暂无记录"
+				taskDto.PollRecord = &dto.TaskPollRecord{}
+			}
 		}
 		result[i] = taskDto
 	}

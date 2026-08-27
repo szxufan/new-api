@@ -228,12 +228,13 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
               </div>
             ) : null}
 
-            {isAdmin && (
+            {/* 轮询记录含敏感信息，后端仅对任务提交者本人下发 poll_record */}
+            {pollRecord != null && (
               <div className='space-y-2'>
                 <Label className='text-sm font-semibold'>
                   {t('Last Upstream Poll')}
                 </Label>
-                {pollRecord && pollRecord.time ? (
+                {pollRecord.time ? (
                   <div className='space-y-2'>
                     <DetailRow label={t('Poll Time')}>
                       <span className='font-mono text-xs tabular-nums'>
