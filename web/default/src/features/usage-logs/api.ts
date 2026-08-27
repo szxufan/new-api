@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { buildApiPath, buildStatsPath } from './lib/api-path'
 import { buildQueryParams } from './lib/utils'
 import type {
   GetLogsParams,
@@ -31,10 +32,6 @@ import type {
 // ============================================================================
 // Generic API Helpers
 // ============================================================================
-
-function buildApiPath(endpoint: string, isAdmin: boolean): string {
-  return isAdmin ? endpoint : `${endpoint}self`
-}
 
 async function fetchLogs<T>(
   endpoint: string,
@@ -60,9 +57,7 @@ async function fetchLogStats<T>(
   const queryParams = buildQueryParams(
     params as unknown as Record<string, unknown>
   )
-  const path = isAdmin
-    ? `${endpoint}stat`
-    : `${endpoint}self/stat`
+  const path = buildStatsPath(endpoint, isAdmin)
   const res = await api.get(`${path}?${queryParams}`)
   return res.data
 }
@@ -100,7 +95,7 @@ export const getAllMidjourneyLogs = (params: GetMidjourneyLogsParams) =>
   fetchLogs('/api/mj/', params, true)
 
 export const getUserMidjourneyLogs = (params: GetMidjourneyLogsParams) =>
-  fetchLogs('/api/mj', params, false)
+  fetchLogs('/api/mj/', params, false)
 
 // ============================================================================
 // Task Logs API
@@ -110,4 +105,4 @@ export const getAllTaskLogs = (params: GetTaskLogsParams) =>
   fetchLogs('/api/task/', params, true)
 
 export const getUserTaskLogs = (params: GetTaskLogsParams) =>
-  fetchLogs('/api/task', params, false)
+  fetchLogs('/api/task/', params, false)
