@@ -335,10 +335,10 @@ func TestComposeTieredTextQuotaKeepsToolCallSurcharges(t *testing.T) {
 		},
 		ResponsesUsageInfo: &relaycommon.ResponsesUsageInfo{
 			BuiltInTools: map[string]*relaycommon.BuildInToolInfo{
-				dto.BuildInToolWebSearchPreview: &relaycommon.BuildInToolInfo{
+				dto.BuildInToolWebSearchPreview: {
 					CallCount: 1,
 				},
-				dto.BuildInToolFileSearch: &relaycommon.BuildInToolInfo{
+				dto.BuildInToolFileSearch: {
 					CallCount: 2,
 				},
 			},

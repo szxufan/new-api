@@ -3,7 +3,6 @@ package service
 import (
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/require"
@@ -175,33 +174,5 @@ func TestStreamResponseOpenAI2Claude_FirstChunkToolCallRecordsID(t *testing.T) {
 	if info2.ClaudeConvertInfo.SeenToolIDs != nil {
 		_, hasEmptyKey := info2.ClaudeConvertInfo.SeenToolIDs[""]
 		require.False(t, hasEmptyKey, "empty tool ID should not be recorded in SeenToolIDs")
-	}
-}
-
-// 辅助函数：创建带有 tool_calls 的 OpenAI 流式响应
-func newToolCallChunk(id, name, arguments string) *dto.ChatCompletionsStreamResponse {
-	return &dto.ChatCompletionsStreamResponse{
-		Id:      "chatcmpl-test",
-		Object:  "chat.completion.chunk",
-		Model:   "gpt-4",
-		Created: common.GetTimestamp(),
-		Choices: []dto.ChatCompletionsStreamResponseChoice{
-			{
-				Index: 0,
-				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
-					Role: "assistant",
-					ToolCalls: []dto.ToolCallResponse{
-						{
-							ID:   id,
-							Type: "function",
-							Function: dto.FunctionResponse{
-								Name:      name,
-								Arguments: arguments,
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 }

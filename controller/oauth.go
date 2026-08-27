@@ -196,7 +196,7 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider) {
 }
 
 // findOrCreateOAuthUser finds existing user or creates new user
-func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session) (*model.User, error) {
+func findOrCreateOAuthUser(_ *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session) (*model.User, error) {
 	user := &model.User{}
 
 	// Check if user already exists with new ID

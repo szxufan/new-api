@@ -92,7 +92,7 @@ func DeleteVirtualModel(c *gin.Context) {
 
 // warnVirtualModelPricing 虚拟模型未配置价格时打印告警
 // （未配置价格的虚拟模型在 ListModels 中对普通用户不可见，且预扣/结算按默认回退倍率可能失真）
-func warnVirtualModelPricing(c *gin.Context, vm *model.VirtualModel) {
+func warnVirtualModelPricing(_ *gin.Context, vm *model.VirtualModel) {
 	if !helper.HasModelBillingConfig(vm.Name) {
 		common.SysLog("virtual model " + vm.Name + " has no billing config (model ratio), please configure its price in 运营-模型价格")
 	}

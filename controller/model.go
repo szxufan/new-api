@@ -80,7 +80,7 @@ func init() {
 			OwnedBy: minimax.ChannelName,
 		})
 	}
-	for modelName, _ := range constant.MidjourneyModel2Action {
+	for modelName := range constant.MidjourneyModel2Action {
 		openAIModels = append(openAIModels, dto.OpenAIModels{
 			Id:      modelName,
 			Object:  "model",
@@ -236,7 +236,7 @@ func ListModels(c *gin.Context, modelType int) {
 		} else {
 			tokenModelLimit = map[string]bool{}
 		}
-		for allowModel, _ := range tokenModelLimit {
+		for allowModel := range tokenModelLimit {
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(allowModel) {
 					continue

@@ -216,5 +216,4 @@ func GitHubBind(c *gin.Context) {
 		"success": true,
 		"message": "bind",
 	})
-	return
 }

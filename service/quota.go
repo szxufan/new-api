@@ -482,14 +482,15 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 				notifyType = dto.NotifyTypeEmail
 			}
 
-			if notifyType == dto.NotifyTypeBark {
+			switch notifyType {
+			case dto.NotifyTypeBark:
 				// Bark推送使用简短文本，不支持HTML
 				content = "{{value}}，剩余额度：{{value}}，请及时充值"
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
-			} else if notifyType == dto.NotifyTypeGotify {
+			case dto.NotifyTypeGotify:
 				content = "{{value}}，当前剩余额度为 {{value}}，请及时充值。"
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota)}
-			} else {
+			default:
 				// 默认内容格式，适用于Email和Webhook（支持HTML）
 				content = "{{value}}，当前剩余额度为 {{value}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{value}}'>{{value}}</a>"
 				values = []interface{}{prompt, logger.FormatQuota(relayInfo.UserQuota), topUpLink, topUpLink}
@@ -534,13 +535,14 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 			notifyType = dto.NotifyTypeEmail
 		}
 
-		if notifyType == dto.NotifyTypeBark {
+		switch notifyType {
+		case dto.NotifyTypeBark:
 			content = "{{value}}，剩余额度：{{value}}，请及时充值"
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
-		} else if notifyType == dto.NotifyTypeGotify {
+		case dto.NotifyTypeGotify:
 			content = "{{value}}，当前剩余额度为 {{value}}，请及时充值。"
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining))}
-		} else {
+		default:
 			content = "{{value}}，当前剩余额度为 {{value}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{value}}'>{{value}}</a>"
 			values = []interface{}{prompt, logger.FormatQuota(int(remaining)), topUpLink, topUpLink}
 		}

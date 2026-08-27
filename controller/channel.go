@@ -270,7 +270,6 @@ func GetAllChannels(c *gin.Context) {
 		"page_size":   pageInfo.GetPageSize(),
 		"type_counts": typeCounts,
 	})
-	return
 }
 
 func buildFetchModelsHeaders(channel *model.Channel, key string) (http.Header, error) {
@@ -485,7 +484,6 @@ func SearchChannels(c *gin.Context) {
 			"type_counts": typeCounts,
 		},
 	})
-	return
 }
 
 func GetChannel(c *gin.Context) {
@@ -526,7 +524,6 @@ func GetChannel(c *gin.Context) {
 		"data":              channel,
 		"fallback_channels": fallbackInfos,
 	})
-	return
 }
 
 // GetChannelKey 获取渠道密钥（需要通过安全验证中间件）
@@ -920,7 +917,6 @@ func AddChannel(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func DeleteChannel(c *gin.Context) {
@@ -938,7 +934,6 @@ func DeleteChannel(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 // RateLimitChannelRequest 手动限流请求
@@ -1049,7 +1044,6 @@ func DeleteDisabledChannel(c *gin.Context) {
 		"message": "",
 		"data":    rows,
 	})
-	return
 }
 
 type ChannelTag struct {
@@ -1084,7 +1078,6 @@ func DisableTagChannels(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func EnableTagChannels(c *gin.Context) {
@@ -1107,7 +1100,6 @@ func EnableTagChannels(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func EditTagChannels(c *gin.Context) {
@@ -1136,7 +1128,7 @@ func EditTagChannels(c *gin.Context) {
 			})
 			return
 		}
-		channelTag.ParamOverride = common.GetPointer[string](trimmed)
+		channelTag.ParamOverride = common.GetPointer(trimmed)
 	}
 	if channelTag.HeaderOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.HeaderOverride)
@@ -1147,7 +1139,7 @@ func EditTagChannels(c *gin.Context) {
 			})
 			return
 		}
-		channelTag.HeaderOverride = common.GetPointer[string](trimmed)
+		channelTag.HeaderOverride = common.GetPointer(trimmed)
 	}
 	err = model.EditChannelByTag(channelTag.Tag, channelTag.NewTag, channelTag.ModelMapping, channelTag.Models, channelTag.Groups, channelTag.Priority, channelTag.Weight, channelTag.ParamOverride, channelTag.HeaderOverride)
 	if err != nil {
@@ -1159,7 +1151,6 @@ func EditTagChannels(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 type ChannelBatch struct {
@@ -1190,7 +1181,6 @@ func DeleteChannelBatch(c *gin.Context) {
 		"message": "",
 		"data":    len(channelBatch.Ids),
 	})
-	return
 }
 
 type PatchChannel struct {
@@ -1342,7 +1332,6 @@ func UpdateChannel(c *gin.Context) {
 		"message": "",
 		"data":    channel,
 	})
-	return
 }
 
 func FetchModels(c *gin.Context) {
@@ -1486,7 +1475,6 @@ func BatchSetChannelTag(c *gin.Context) {
 		"message": "",
 		"data":    len(channelBatch.Ids),
 	})
-	return
 }
 
 func GetTagModels(c *gin.Context) {
@@ -1527,7 +1515,6 @@ func GetTagModels(c *gin.Context) {
 		"message": "",
 		"data":    longestModels,
 	})
-	return
 }
 
 // CopyChannel handles cloning an existing channel with its key.

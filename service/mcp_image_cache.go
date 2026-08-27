@@ -34,7 +34,7 @@ var (
 
 func getMCPImageCache() *cachex.HybridCache[MCPImageEntry] {
 	mcpImageCacheOnce.Do(func() {
-		mcpImageCache = cachex.NewHybridCache[MCPImageEntry](cachex.HybridCacheConfig[MCPImageEntry]{
+		mcpImageCache = cachex.NewHybridCache(cachex.HybridCacheConfig[MCPImageEntry]{
 			Namespace: cachex.Namespace(mcpImageCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

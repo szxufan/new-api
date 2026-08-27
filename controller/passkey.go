@@ -270,9 +270,9 @@ func PasskeyLoginFinish(c *gin.Context) {
 
 	handler := func(rawID, userHandle []byte) (webauthnlib.User, error) {
 		// 首先通过凭证ID查找用户
-		credential, err := model.GetPasskeyByCredentialID(rawID)
-		if err != nil {
-			return nil, fmt.Errorf("未找到 Passkey 凭证: %w", err)
+		credential, lookupErr := model.GetPasskeyByCredentialID(rawID)
+		if lookupErr != nil {
+			return nil, fmt.Errorf("未找到 Passkey 凭证: %w", lookupErr)
 		}
 
 		// 通过凭证获取用户
@@ -335,7 +335,6 @@ func PasskeyLoginFinish(c *gin.Context) {
 	}
 
 	setupLogin(modelUser, c)
-	return
 }
 
 func AdminResetPasskey(c *gin.Context) {

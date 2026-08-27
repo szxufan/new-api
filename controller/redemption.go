@@ -23,7 +23,6 @@ func GetAllRedemptions(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)
-	return
 }
 
 func SearchRedemptions(c *gin.Context) {
@@ -37,7 +36,6 @@ func SearchRedemptions(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(redemptions)
 	common.ApiSuccess(c, pageInfo)
-	return
 }
 
 func GetRedemption(c *gin.Context) {
@@ -56,7 +54,6 @@ func GetRedemption(c *gin.Context) {
 		"message": "",
 		"data":    redemption,
 	})
-	return
 }
 
 func AddRedemption(c *gin.Context) {
@@ -115,7 +112,6 @@ func AddRedemption(c *gin.Context) {
 		"message": "",
 		"data":    keys,
 	})
-	return
 }
 
 func DeleteRedemption(c *gin.Context) {
@@ -129,7 +125,6 @@ func DeleteRedemption(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func UpdateRedemption(c *gin.Context) {
@@ -168,7 +163,6 @@ func UpdateRedemption(c *gin.Context) {
 		"message": "",
 		"data":    cleanRedemption,
 	})
-	return
 }
 
 func DeleteInvalidRedemption(c *gin.Context) {
@@ -182,7 +176,6 @@ func DeleteInvalidRedemption(c *gin.Context) {
 		"message": "",
 		"data":    rows,
 	})
-	return
 }
 
 func validateExpiredTime(c *gin.Context, expired int64) (bool, string) {

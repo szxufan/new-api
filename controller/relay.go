@@ -726,7 +726,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 
 // recordFinalErrorLog 在重试循环全部结束后，统一记录一条合并的错误日志。
 // 该日志包含重试次数和重试耗时，替代之前每次渠道失败都记录一条错误日志的行为。
-func recordFinalErrorLog(c *gin.Context, relayInfo *relaycommon.RelayInfo, err *types.NewAPIError) {
+func recordFinalErrorLog(c *gin.Context, _ *relaycommon.RelayInfo, err *types.NewAPIError) {
 	if !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
 		return
 	}
@@ -1055,7 +1055,7 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 	c.JSON(taskErr.StatusCode, taskErr)
 }
 
-func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError, retryTimes int) bool {
+func shouldRetryTaskRelay(c *gin.Context, _ int, taskErr *dto.TaskError, retryTimes int) bool {
 	if taskErr == nil {
 		return false
 	}

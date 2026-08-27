@@ -224,5 +224,4 @@ func OidcBind(c *gin.Context) {
 		"success": true,
 		"message": "bind",
 	})
-	return
 }

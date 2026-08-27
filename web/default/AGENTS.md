@@ -123,6 +123,7 @@
 
 - 以 Tailwind 工具类为主，动态类名用 `cn()` 合并；非动态场景避免内联样式。
 - 响应式采用移动优先与 Tailwind 断点（`sm:`、`md:`、`lg:` 等）；主题与暗色用 CSS 变量与 `dark:`，自定义样式集中在 `src/styles/`，组件内尽量少写自定义 CSS。
+- **禁止把 px 任意值改写成 spacing 刻度类**：`styles/theme-presets.css` 的 `[data-theme-scale='sm'|'lg']` 会把 `--spacing` 覆盖为 `0.225rem` / `0.28rem`，而 Tailwind v4 的 `max-w-50`、`p-4` 等刻度类是 `calc(var(--spacing) * N)`。因此 `max-w-[200px]`（绝对 200px）与 `max-w-50`（默认 200px、紧凑 180px、宽松 224px）**并不等价**。Tailwind 语言服务提出的「can be written as …」建议在本项目属于误报，需保留原 px 写法；确有需要随密度缩放时，才显式使用刻度类。
 
 ### 3.11 文件组织
 
@@ -185,3 +186,4 @@
 - **2026-08-26**：优化模型选择支持记忆：上次使用的优化模型保存到浏览器 localStorage（键 `image-debug-prompt-optimize-model`，`PROMPT_OPTIMIZE_MODEL_STORAGE_KEY` 常量），再次进入 /image-debug 时作为默认选择；候选加载后校验存储值仍在列表中，失效则回退第一个（`getStoredOptimizeModel`/`saveStoredOptimizeModel`/`resolveStoredModel` 纯函数 + 单测）。
 - **2026-08-27**：/usage-logs/task 任务日志新增详情弹窗与结果下载：Details 列新增眼睛图标入口，所有人可打开任务详情弹窗（基础信息 + 输入 + 失败原因；渠道/用户行仅管理员）；管理员额外可见「最后一次上游轮询」区块（后端新增 `poll_record` 字段记录每轮轮询的方法/URL/状态码/请求体/响应体，仅 `GET /api/task/` 管理员接口下发）；弹窗内「下载生成结果」按钮仅对本人提交的 SUCCESS 任务显示（Suno 下载 `audio_url` 音频，其余走 `/v1/videos/:task_id/content` 代理，fetch→blob 失败回退新标签页）。新增 `task-details-dialog.tsx`、`lib/download.ts`（`resolveTaskDownloads`/`canDownloadTaskResult`/`extFromContentType` 纯函数 + 单测）；`TaskLog` 类型补充 `result_url`/`properties`/`poll_record`/`quota`/`start_time` 字段；i18n 六语言新增 11 个文案。
 - **2026-08-27**：修复非管理员访问 /usage-logs/task（及 /usage-logs/drawing）报 404：`api.ts` 中 `getUserTaskLogs`/`getUserMidjourneyLogs` 传入的 endpoint 缺少尾斜杠，与 `self` 拼接后变成 `/api/taskself`、`/api/mjself`，命中不到后端 `GET /api/task/self`、`GET /api/mj/self` 路由。抽出 `lib/api-path.ts`（`withTrailingSlash`/`buildApiPath`/`buildStatsPath` 纯函数 + 单测）统一做尾斜杠规范化，`fetchLogStats` 的 `stat` 拼接也改为复用该 helper，避免同类问题复发。
+- **2026-08-27**：清理后端 linter 告警（staticcheck S1023/S1009/S1028、gopls infertypeargs/simplifyrange/simplifycompositelit/QF1003、unusedfunc/unusedparams），删除 6 个无引用函数与 2 个废弃常量，`mcp_server.go` 的 `logger.LogError(nil, …)` 改为传 `ctx` 以恢复日志的 request_id 关联。角色与 MJ 动作两处 if/else→switch 改写补了 `controller/user_permissions_test.go`、`service/midjourney_cover_action_test.go` 锁定行为。前端 3 处 Tailwind「可改用 spacing 刻度」建议经核实为误报（见 3.10），予以保留原 px 写法。

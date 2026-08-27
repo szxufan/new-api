@@ -100,16 +100,17 @@ func CoverPlusActionToNormalAction(midjRequest *dto.MidjourneyRequest) *dto.Midj
 		midjRequest.Action = constant.MjActionUpscale
 	} else if strings.Contains(action, "variation") {
 		midjRequest.Index = 1
-		if action == "variation" {
+		switch action {
+		case "variation":
 			index, err := strconv.Atoi(splits[3])
 			if err != nil {
 				return MidjourneyErrorWrapper(constant.MjRequestError, "index_parse_failed")
 			}
 			midjRequest.Index = index
 			midjRequest.Action = constant.MjActionVariation
-		} else if action == "low_variation" {
+		case "low_variation":
 			midjRequest.Action = constant.MjActionLowVariation
-		} else if action == "high_variation" {
+		case "high_variation":
 			midjRequest.Action = constant.MjActionHighVariation
 		}
 	} else if strings.Contains(action, "pan") {

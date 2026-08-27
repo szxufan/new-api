@@ -99,7 +99,7 @@ func getChannelAffinityCache() *cachex.HybridCache[int] {
 			defaultTTLSeconds = 3600
 		}
 
-		channelAffinityCache = cachex.NewHybridCache[int](cachex.HybridCacheConfig[int]{
+		channelAffinityCache = cachex.NewHybridCache(cachex.HybridCacheConfig[int]{
 			Namespace: cachex.Namespace(channelAffinityCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {
@@ -1249,7 +1249,7 @@ func getChannelAffinityUsageCacheStatsCache() *cachex.HybridCache[ChannelAffinit
 			}
 		}
 
-		channelAffinityUsageCacheStatsCache = cachex.NewHybridCache[ChannelAffinityUsageCacheCounters](cachex.HybridCacheConfig[ChannelAffinityUsageCacheCounters]{
+		channelAffinityUsageCacheStatsCache = cachex.NewHybridCache(cachex.HybridCacheConfig[ChannelAffinityUsageCacheCounters]{
 			Namespace: cachex.Namespace(channelAffinityUsageCacheStatsNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

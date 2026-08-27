@@ -133,7 +133,7 @@ func TaskPollingLoop() {
 
 			DispatchPlatformUpdate(platform, taskChannelM, taskM)
 		}
-		common.SysLog("任务进度轮询完成")
+		common.SysLog(fmt.Sprintf("任务进度轮询完成, 未完成任务数: %d", len(allTasks)))
 	}
 }
 

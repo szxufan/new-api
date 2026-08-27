@@ -178,5 +178,4 @@ func WeChatBind(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }

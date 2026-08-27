@@ -75,7 +75,7 @@ func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp
 	// 从 context 中获取 gin context（在路由层注入）
 	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
 	if !ok || ginCtx == nil {
-		logger.LogError(nil, "MCP: failed to get gin context from MCP tool handler context")
+		logger.LogError(ctx, "MCP: failed to get gin context from MCP tool handler context")
 		return newMCPErrorResult("internal error: failed to get request context"), nil
 	}
 

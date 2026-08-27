@@ -230,7 +230,6 @@ func Register(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func GetAllUsers(c *gin.Context) {
@@ -245,7 +244,6 @@ func GetAllUsers(c *gin.Context) {
 	pageInfo.SetItems(users)
 
 	common.ApiSuccess(c, pageInfo)
-	return
 }
 
 func SearchUsers(c *gin.Context) {
@@ -261,7 +259,6 @@ func SearchUsers(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 	common.ApiSuccess(c, pageInfo)
-	return
 }
 
 func canManageTargetRole(myRole int, targetRole int) bool {
@@ -289,7 +286,6 @@ func GetUser(c *gin.Context) {
 		"message": "",
 		"data":    user,
 	})
-	return
 }
 
 func GenerateAccessToken(c *gin.Context) {
@@ -324,7 +320,6 @@ func GenerateAccessToken(c *gin.Context) {
 		"message": "",
 		"data":    user.AccessToken,
 	})
-	return
 }
 
 type TransferAffQuotaRequest struct {
@@ -377,7 +372,6 @@ func GetAffCode(c *gin.Context) {
 		"message": "",
 		"data":    user.AffCode,
 	})
-	return
 }
 
 func GetSelf(c *gin.Context) {
@@ -431,7 +425,6 @@ func GetSelf(c *gin.Context) {
 		"message": "",
 		"data":    responseData,
 	})
-	return
 }
 
 // 计算用户权限的辅助函数
@@ -439,11 +432,12 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 	permissions := map[string]interface{}{}
 
 	// 根据用户角色计算权限
-	if userRole == common.RoleRootUser {
+	switch userRole {
+	case common.RoleRootUser:
 		// 超级管理员不需要边栏设置功能
 		permissions["sidebar_settings"] = false
 		permissions["sidebar_modules"] = map[string]interface{}{}
-	} else if userRole == common.RoleAdminUser {
+	case common.RoleAdminUser:
 		// 管理员可以设置边栏，但不包含系统设置功能
 		permissions["sidebar_settings"] = true
 		permissions["sidebar_modules"] = map[string]interface{}{
@@ -451,7 +445,7 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 				"setting": false, // 管理员不能访问系统设置
 			},
 		}
-	} else {
+	default:
 		// 普通用户只能设置个人功能，不包含管理员区域
 		permissions["sidebar_settings"] = true
 		permissions["sidebar_modules"] = map[string]interface{}{
@@ -460,68 +454,6 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 	}
 
 	return permissions
-}
-
-// 根据用户角色生成默认的边栏配置
-func generateDefaultSidebarConfig(userRole int) string {
-	defaultConfig := map[string]interface{}{}
-
-	// 聊天区域 - 所有用户都可以访问
-	defaultConfig["chat"] = map[string]interface{}{
-		"enabled":    true,
-		"playground": true,
-		"chat":       true,
-	}
-
-	// 控制台区域 - 所有用户都可以访问
-	defaultConfig["console"] = map[string]interface{}{
-		"enabled":    true,
-		"detail":     true,
-		"token":      true,
-		"log":        true,
-		"midjourney": true,
-		"task":       true,
-	}
-
-	// 个人中心区域 - 所有用户都可以访问
-	defaultConfig["personal"] = map[string]interface{}{
-		"enabled":  true,
-		"topup":    true,
-		"personal": true,
-	}
-
-	// 管理员区域 - 根据角色决定
-	if userRole == common.RoleAdminUser {
-		// 管理员可以访问管理员区域，但不能访问系统设置
-		defaultConfig["admin"] = map[string]interface{}{
-			"enabled":    true,
-			"channel":    true,
-			"models":     true,
-			"redemption": true,
-			"user":       true,
-			"setting":    false, // 管理员不能访问系统设置
-		}
-	} else if userRole == common.RoleRootUser {
-		// 超级管理员可以访问所有功能
-		defaultConfig["admin"] = map[string]interface{}{
-			"enabled":    true,
-			"channel":    true,
-			"models":     true,
-			"redemption": true,
-			"user":       true,
-			"setting":    true,
-		}
-	}
-	// 普通用户不包含admin区域
-
-	// 转换为JSON字符串
-	configBytes, err := json.Marshal(defaultConfig)
-	if err != nil {
-		common.SysLog("生成默认边栏配置失败: " + err.Error())
-		return ""
-	}
-
-	return string(configBytes)
 }
 
 // GetUserModels 返回当前用户可用的模型列表。
@@ -555,7 +487,6 @@ func GetUserModels(c *gin.Context) {
 		"message": "",
 		"data":    models,
 	})
-	return
 }
 
 func UpdateUser(c *gin.Context) {
@@ -598,7 +529,6 @@ func UpdateUser(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func AdminClearUserBinding(c *gin.Context) {
@@ -748,7 +678,6 @@ func UpdateSelf(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func checkUpdatePassword(originalPassword string, newPassword string, userId int) (updatePassword bool, err error) {
@@ -796,7 +725,6 @@ func DeleteUser(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func DeleteSelf(c *gin.Context) {
@@ -817,7 +745,6 @@ func DeleteSelf(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func CreateUser(c *gin.Context) {
@@ -856,7 +783,6 @@ func CreateUser(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 type ManageRequest struct {
@@ -1009,7 +935,6 @@ func ManageUser(c *gin.Context) {
 		"message": "",
 		"data":    clearUser,
 	})
-	return
 }
 
 type emailBindRequest struct {
@@ -1050,7 +975,6 @@ func EmailBind(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 type topUpRequest struct {

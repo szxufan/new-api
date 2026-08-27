@@ -24,7 +24,7 @@ var (
 
 func getResponsesContextCache() *cachex.HybridCache[dto.ResponsesContextEntry] {
 	responsesContextOnce.Do(func() {
-		responsesContextCache = cachex.NewHybridCache[dto.ResponsesContextEntry](cachex.HybridCacheConfig[dto.ResponsesContextEntry]{
+		responsesContextCache = cachex.NewHybridCache(cachex.HybridCacheConfig[dto.ResponsesContextEntry]{
 			Namespace: cachex.Namespace(responsesContextNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

@@ -30,7 +30,7 @@ var (
 
 func getReasoningCache() *cachex.HybridCache[ReasoningCacheEntry] {
 	reasoningCacheOnce.Do(func() {
-		reasoningCache = cachex.NewHybridCache[ReasoningCacheEntry](cachex.HybridCacheConfig[ReasoningCacheEntry]{
+		reasoningCache = cachex.NewHybridCache(cachex.HybridCacheConfig[ReasoningCacheEntry]{
 			Namespace: cachex.Namespace(reasoningCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

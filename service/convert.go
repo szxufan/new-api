@@ -41,12 +41,13 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 		}
 		if claudeRequest.Thinking != nil {
 			var reasoning openrouter.RequestReasoning
-			if claudeRequest.Thinking.Type == "enabled" {
+			switch claudeRequest.Thinking.Type {
+			case "enabled":
 				reasoning = openrouter.RequestReasoning{
 					Enabled:   true,
 					MaxTokens: claudeRequest.Thinking.GetBudgetTokens(),
 				}
-			} else if claudeRequest.Thinking.Type == "adaptive" {
+			case "adaptive":
 				reasoning = openrouter.RequestReasoning{
 					Enabled: true,
 				}
@@ -219,7 +220,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 func generateStopBlock(index int) *dto.ClaudeResponse {
 	return &dto.ClaudeResponse{
 		Type:  "content_block_stop",
-		Index: common.GetPointer[int](index),
+		Index: common.GetPointer(index),
 	}
 }
 
@@ -378,7 +379,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					Type:  "content_block_start",
 					ContentBlock: &dto.ClaudeMediaMessage{
 						Type:     "thinking",
-						Thinking: common.GetPointer[string](""),
+						Thinking: common.GetPointer(""),
 					},
 				})
 				idx2 := idx
@@ -401,7 +402,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					Type:  "content_block_start",
 					ContentBlock: &dto.ClaudeMediaMessage{
 						Type: "text",
-						Text: common.GetPointer[string](""),
+						Text: common.GetPointer(""),
 					},
 				})
 				idx2 := idx
@@ -410,7 +411,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					Type:  "content_block_delta",
 					Delta: &dto.ClaudeMediaMessage{
 						Type: "text_delta",
-						Text: common.GetPointer[string](content),
+						Text: common.GetPointer(content),
 					},
 				})
 				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeText
@@ -430,7 +431,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					Type:  "message_delta",
 					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
 					Delta: &dto.ClaudeMediaMessage{
-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+						StopReason: common.GetPointer(stopReasonOpenAI2Claude(info.FinishReason)),
 					},
 				})
 			}
@@ -458,7 +459,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 				Type:  "message_delta",
 				Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
 				Delta: &dto.ClaudeMediaMessage{
-					StopReason: common.GetPointer[string](stopReason),
+					StopReason: common.GetPointer(stopReason),
 				},
 			})
 			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
@@ -558,7 +559,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 							Type:  "content_block_start",
 							ContentBlock: &dto.ClaudeMediaMessage{
 								Type:     "thinking",
-								Thinking: common.GetPointer[string](""),
+								Thinking: common.GetPointer(""),
 							},
 						})
 					}
@@ -576,14 +577,14 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 							Type:  "content_block_start",
 							ContentBlock: &dto.ClaudeMediaMessage{
 								Type: "text",
-								Text: common.GetPointer[string](""),
+								Text: common.GetPointer(""),
 							},
 						})
 					}
 					info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeText
 					claudeResponse.Delta = &dto.ClaudeMediaMessage{
 						Type: "text_delta",
-						Text: common.GetPointer[string](textContent),
+						Text: common.GetPointer(textContent),
 					}
 				}
 			} else {
@@ -591,7 +592,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 		}
 
-		claudeResponse.Index = common.GetPointer[int](info.ClaudeConvertInfo.Index)
+		claudeResponse.Index = common.GetPointer(info.ClaudeConvertInfo.Index)
 		if !isEmpty && claudeResponse.Delta != nil {
 			claudeResponses = append(claudeResponses, &claudeResponse)
 		}
@@ -607,7 +608,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					Type:  "message_delta",
 					Usage: buildClaudeUsageFromOpenAIUsage(oaiUsage),
 					Delta: &dto.ClaudeMediaMessage{
-						StopReason: common.GetPointer[string](stopReasonOpenAI2Claude(info.FinishReason)),
+						StopReason: common.GetPointer(stopReasonOpenAI2Claude(info.FinishReason)),
 					},
 				})
 			}
@@ -927,7 +928,7 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 	hasContent := false
 	hasFinishReason := false
 	for _, choice := range openAIResponse.Choices {
-		if len(choice.Delta.GetContentString()) > 0 || (choice.Delta.ToolCalls != nil && len(choice.Delta.ToolCalls) > 0) {
+		if len(choice.Delta.GetContentString()) > 0 || len(choice.Delta.ToolCalls) > 0 {
 			hasContent = true
 		}
 		if choice.FinishReason != nil {

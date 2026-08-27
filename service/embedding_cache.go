@@ -47,7 +47,7 @@ func EmbeddingCacheEnabled() bool {
 
 func getEmbeddingCache() *cachex.HybridCache[EmbeddingCacheEntry] {
 	embeddingCacheOnce.Do(func() {
-		embeddingCache = cachex.NewHybridCache[EmbeddingCacheEntry](cachex.HybridCacheConfig[EmbeddingCacheEntry]{
+		embeddingCache = cachex.NewHybridCache(cachex.HybridCacheConfig[EmbeddingCacheEntry]{
 			Namespace: cachex.Namespace(embeddingCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

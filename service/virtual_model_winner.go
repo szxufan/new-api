@@ -34,7 +34,7 @@ var (
 
 func getVirtualModelWinnerCache() *cachex.HybridCache[VirtualWinnerRecord] {
 	virtualModelWinnerCacheOnce.Do(func() {
-		virtualModelWinnerCache = cachex.NewHybridCache[VirtualWinnerRecord](cachex.HybridCacheConfig[VirtualWinnerRecord]{
+		virtualModelWinnerCache = cachex.NewHybridCache(cachex.HybridCacheConfig[VirtualWinnerRecord]{
 			Namespace: cachex.Namespace(virtualModelWinnerCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {

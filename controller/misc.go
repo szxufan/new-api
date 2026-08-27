@@ -36,7 +36,6 @@ func TestStatus(c *gin.Context) {
 		"message":    "Server is running",
 		"http_stats": httpStats,
 	})
-	return
 }
 
 func GetStatus(c *gin.Context) {
@@ -166,7 +165,6 @@ func GetStatus(c *gin.Context) {
 		"message": "",
 		"data":    data,
 	})
-	return
 }
 
 func GetNotice(c *gin.Context) {
@@ -177,7 +175,6 @@ func GetNotice(c *gin.Context) {
 		"message": "",
 		"data":    common.OptionMap["Notice"],
 	})
-	return
 }
 
 func GetAbout(c *gin.Context) {
@@ -188,7 +185,6 @@ func GetAbout(c *gin.Context) {
 		"message": "",
 		"data":    common.OptionMap["About"],
 	})
-	return
 }
 
 func GetUserAgreement(c *gin.Context) {
@@ -197,7 +193,6 @@ func GetUserAgreement(c *gin.Context) {
 		"message": "",
 		"data":    system_setting.GetLegalSettings().UserAgreement,
 	})
-	return
 }
 
 func GetPrivacyPolicy(c *gin.Context) {
@@ -206,7 +201,6 @@ func GetPrivacyPolicy(c *gin.Context) {
 		"message": "",
 		"data":    system_setting.GetLegalSettings().PrivacyPolicy,
 	})
-	return
 }
 
 func GetMidjourney(c *gin.Context) {
@@ -217,7 +211,6 @@ func GetMidjourney(c *gin.Context) {
 		"message": "",
 		"data":    common.OptionMap["Midjourney"],
 	})
-	return
 }
 
 func GetHomePageContent(c *gin.Context) {
@@ -228,7 +221,6 @@ func GetHomePageContent(c *gin.Context) {
 		"message": "",
 		"data":    common.OptionMap["HomePageContent"],
 	})
-	return
 }
 
 func SendEmailVerification(c *gin.Context) {
@@ -299,7 +291,6 @@ func SendEmailVerification(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
 }
 
 func SendPasswordResetEmail(c *gin.Context) {
@@ -365,5 +356,4 @@ func ResetPassword(c *gin.Context) {
 		"message": "",
 		"data":    password,
 	})
-	return
 }
