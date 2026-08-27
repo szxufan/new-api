@@ -228,7 +228,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
               </div>
             ) : null}
 
-            {/* 轮询记录含敏感信息，后端仅对任务提交者本人下发 poll_record */}
+            {/* 轮询时间、状态码所有人可见；请求 URL、请求体、响应原文仅任务本人可见（后端按归属裁剪） */}
             {pollRecord != null && (
               <div className='space-y-2'>
                 <Label className='text-sm font-semibold'>
@@ -241,6 +241,7 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
                         {formatTimestampToDate(pollRecord.time, 'seconds')}
                       </span>
                     </DetailRow>
+                    {/* 请求 URL、请求体、响应原文含敏感信息，后端仅对任务提交者本人下发 */}
                     {(pollRecord.method || pollRecord.url) && (
                       <DetailRow label={t('Request URL')}>
                         <span className='font-mono text-xs break-all'>
@@ -257,28 +258,34 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
                           </span>
                         </DetailRow>
                       )}
-                    <DetailRow label={t('Request')}>
-                      <JsonBlock
-                        value={pollRecord.request}
-                        copied={
-                          copiedText === formatJsonValue(pollRecord.request)
-                        }
-                        onCopy={() =>
-                          copyToClipboard(formatJsonValue(pollRecord.request))
-                        }
-                      />
-                    </DetailRow>
-                    <DetailRow label={t('Response')}>
-                      <JsonBlock
-                        value={pollRecord.response}
-                        copied={
-                          copiedText === formatJsonValue(pollRecord.response)
-                        }
-                        onCopy={() =>
-                          copyToClipboard(formatJsonValue(pollRecord.response))
-                        }
-                      />
-                    </DetailRow>
+                    {pollRecord.request != null && (
+                      <DetailRow label={t('Request')}>
+                        <JsonBlock
+                          value={pollRecord.request}
+                          copied={
+                            copiedText === formatJsonValue(pollRecord.request)
+                          }
+                          onCopy={() =>
+                            copyToClipboard(formatJsonValue(pollRecord.request))
+                          }
+                        />
+                      </DetailRow>
+                    )}
+                    {pollRecord.response != null && (
+                      <DetailRow label={t('Response')}>
+                        <JsonBlock
+                          value={pollRecord.response}
+                          copied={
+                            copiedText === formatJsonValue(pollRecord.response)
+                          }
+                          onCopy={() =>
+                            copyToClipboard(
+                              formatJsonValue(pollRecord.response)
+                            )
+                          }
+                        />
+                      </DetailRow>
+                    )}
                   </div>
                 ) : (
                   <p className='text-muted-foreground text-sm'>

@@ -257,7 +257,8 @@ export interface TaskLog {
   fail_reason?: string
   result_url?: string
   properties?: TaskLogProperties
-  // 最后一次后端轮询上游的请求与响应，含敏感信息，仅任务提交者本人可见
+  // 最后一次后端轮询上游的请求与响应；其中请求 URL、请求体、响应原文
+  // 含敏感信息，仅任务提交者本人可见（后端按归属裁剪）
   poll_record?: TaskPollRecord
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
@@ -273,8 +274,8 @@ export interface TaskLogProperties {
 
 /**
  * Last backend poll record against the upstream provider.
- * Contains sensitive data (upstream URLs, request/response bodies) and is
- * only exposed to the user who submitted the task.
+ * Sensitive fields (upstream URL, request/response bodies) are only exposed
+ * to the user who submitted the task; others only see time and status code.
  */
 export interface TaskPollRecord {
   time?: number // unix seconds

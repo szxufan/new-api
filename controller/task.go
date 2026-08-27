@@ -89,15 +89,19 @@ func tasksToDto(tasks []*model.Task, fillUser bool, requesterId int) []*dto.Task
 			}
 		}
 		taskDto := relay.TaskModel2Dto(task)
-		// 轮询记录含上游请求 URL、请求体与响应原文（可能包含签名 URL、提示词等敏感信息），
-		// 仅任务提交者本人可见（管理员查看他人任务时同样不下发）
-		if task.UserId == requesterId {
-			if record := pollRecordToDto(&task.PollRecord); record != nil {
-				taskDto.PollRecord = record
-			} else {
-				// 本人任务但暂无轮询记录：下发空对象，前端据此区分"无权限"与"暂无记录"
-				taskDto.PollRecord = &dto.TaskPollRecord{}
+		// 轮询记录中的请求 URL、请求体与响应原文可能包含签名 URL、提示词等敏感信息，
+		// 仅任务提交者本人可见；他人（含管理员）仅保留非敏感字段（轮询时间、状态码）
+		if record := pollRecordToDto(&task.PollRecord); record != nil {
+			if task.UserId != requesterId {
+				record.Method = ""
+				record.URL = ""
+				record.Request = nil
+				record.Response = nil
 			}
+			taskDto.PollRecord = record
+		} else if task.UserId == requesterId {
+			// 本人任务但暂无轮询记录：下发空对象，前端据此显示"暂无轮询记录"
+			taskDto.PollRecord = &dto.TaskPollRecord{}
 		}
 		result[i] = taskDto
 	}

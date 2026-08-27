@@ -8,7 +8,7 @@
 
 - 基础信息：Task ID、平台、动作、状态、进度、额度、提交/开始/完成时间、输入（properties.input）、失败原因；
 - 管理员额外可见：渠道、用户；
-- **「最后一次上游轮询」区块仅任务提交者本人可见**（轮询记录含上游请求 URL、请求体与响应原文，可能包含签名 URL、提示词等敏感信息；管理员查看他人任务时也不展示）；
+- **「最后一次上游轮询」区块**：轮询时间与状态码所有用户可见；**请求 URL、请求体、响应原文仅任务提交者本人可见**（可能包含签名 URL、提示词等敏感信息，管理员查看他人任务时这三项不展示）；
 - 弹窗底部：符合条件的任务显示「下载生成结果」按钮（见下文）。
 
 「最后一次上游轮询」区块展示后端任务轮询循环（`service.TaskPollingLoop`，每 15 秒一轮）**最近一次**向渠道上游查询任务状态时的：
@@ -43,7 +43,7 @@
   - Suno 路径 `updateSunoTasks`：遍历本渠道全部未完成任务（而非仅上游返回的条目），逐个写入记录并持久化；上游未返回的任务记录中响应为空。
 - `dto/task.go` / `controller/task.go`
   - `TaskDto` 新增 `poll_record`（指针，`omitempty`）；
-  - **归属控制**：`tasksToDto(tasks, fillUser, requesterId)` 仅当 `task.UserId == requesterId` 时填充 `poll_record`——管理员列表 `GET /api/task/` 传入当前管理员 ID（只能看到自己提交的任务的轮询记录），用户列表 `GET /api/task/self` 传入当前用户 ID（全部可见）；本人任务暂无记录时下发空对象 `{}`，前端据此区分「无权限」（字段缺失，隐藏区块）与「暂无轮询记录」；
+  - **归属控制（字段级）**：`tasksToDto(tasks, fillUser, requesterId)` 对所有请求者下发轮询时间与状态码；当 `task.UserId != requesterId` 时剔除敏感字段（`method`/`url`/`request`/`response`）——即管理员列表 `GET /api/task/` 查看他人任务时仅见时间与状态码，用户列表 `GET /api/task/self` 本人任务完整可见；本人任务暂无记录时下发空对象 `{}`，前端据此显示「暂无轮询记录」；
   - `/v1/videos/:task_id` 等 fetch 端点一律不含该字段（`relay.TaskModel2Dto` 不映射）。
 - `relay/channel/task/ali/adaptor.go`
   - `AliVideoResponse` / `AliVideoOutput` 标量字段统一改用 `dto.StringValue`（兼容字符串与数字），避免上游/中转以数字形式返回 `code`、时间等字段时 `ParseTaskResult` 失败导致任务卡死至超时。
@@ -55,7 +55,7 @@
 
 - `types.ts`：`TaskLog` 新增 `result_url`、`properties`、`poll_record`、`quota`、`start_time`；新增 `TaskPollRecord`、`TaskLogProperties` 类型；
 - `lib/download.ts`：`resolveTaskDownloads`（Suno 音频条目 / 视频代理 URL）、`canDownloadTaskResult`（本人 + SUCCESS）、`extFromContentType`、`downloadTaskResults`（fetch→blob，失败回退新标签页），纯函数见 `lib/download.test.ts`；
-- `components/dialogs/task-details-dialog.tsx`：任务详情弹窗（轮询区块按后端下发的 `poll_record` 是否存在显示——仅任务本人可见；含下载按钮）；
+- `components/dialogs/task-details-dialog.tsx`：任务详情弹窗（轮询区块按后端下发的 `poll_record` 是否存在显示；请求/响应行按字段是否存在渲染，与后端归属裁剪配合）；
 - `components/columns/task-logs-columns.tsx`：Details 列追加眼睛图标入口，保留原有音频预览/视频链接/失败原因展示。
 
 ## 已知限制
@@ -64,7 +64,7 @@
 - `ParseTaskResult` 解析失败的错误日志会附带上游响应原文（截断至 2KB，`truncateForLog`），便于直接对照响应定位解析问题。
 - 轮询请求/响应在轮询循环成功发出 HTTP 请求并收到响应后落库；视频任务的解析失败/未知状态/429 等提前返回路径也会单独落库（但任务状态不更新）；Suno 批量请求遇到非 200/解析失败等提前返回分支时，该轮不落记录（错误仅记日志）。
 - 请求/响应各最大存储 64KB，超长截断。
-- 轮询记录（请求 URL、请求体、响应原文）可能包含签名 URL、提示词等敏感信息，**仅任务提交者本人可见**：管理员在任务列表中查看他人任务时不下发该字段；`/v1/videos/:task_id` 等 fetch 端点同样不含。
+- 轮询记录中的请求 URL、请求体、响应原文可能包含签名 URL、提示词等敏感信息，**仅任务提交者本人可见**；他人（含管理员）仅可见轮询时间与状态码。`/v1/videos/:task_id` 等 fetch 端点不含任何轮询记录字段。
 - 旧任务（功能上线前）无轮询记录，本人查看时弹窗显示「暂无轮询记录」。
 - 用户主动 fetch（`tryRealtimeFetch`）不属于后端轮询，不写入轮询记录。
 - Midjourney 任务走独立的绘图日志体系（`/usage-logs/drawing`），不在本功能范围内。
