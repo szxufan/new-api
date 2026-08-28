@@ -482,6 +482,10 @@ func GetUserModels(c *gin.Context) {
 	if want := parseEndpointTypes(c); len(want) > 0 {
 		models = filterModelsByEndpoints(models, want)
 	}
+	// 可选：?prompt_optimize=true 仅返回被管理员标记为可供「AI 优化提示词」使用的模型
+	if c.Query("prompt_optimize") == "true" {
+		models = filterPromptOptimizeModels(models)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

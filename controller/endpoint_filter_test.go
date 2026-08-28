@@ -227,3 +227,55 @@ func TestGetUserGroupsEndpointFilter(t *testing.T) {
 	require.Contains(t, resp.Data, "default")
 	require.NotContains(t, resp.Data, "vip")
 }
+
+// TestGetUserModelsPromptOptimizeFilter 验证 ?prompt_optimize=true 过滤：
+// 仅返回被管理员标记 prompt_optimize=1 的模型；可与 ?endpoint= 组合取交集；未传时行为不变。
+func TestGetUserModelsPromptOptimizeFilter(t *testing.T) {
+	db := setupEndpointFilterTestDB(t)
+
+	insertTestChannel(t, db, "openai-chat", "gpt-4o,gpt-4o-mini,claude-3-5-sonnet", "default", constant.ChannelTypeOpenAI)
+
+	// 仅标记 gpt-4o；gpt-4o-mini 显式为 0；claude-3-5-sonnet 无元数据记录
+	require.NoError(t, db.Create(&model.Model{
+		ModelName:      "gpt-4o",
+		NameRule:       model.NameRuleExact,
+		Status:         1,
+		PromptOptimize: 1,
+	}).Error)
+	require.NoError(t, db.Create(&model.Model{
+		ModelName:      "gpt-4o-mini",
+		NameRule:       model.NameRuleExact,
+		Status:         1,
+		PromptOptimize: 0,
+	}).Error)
+	model.RefreshPricing()
+
+	user := &model.User{
+		Username: "prompt-optimize-user",
+		Password: "password123",
+		Group:    "default",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	// 无参数：返回全部模型（兼容性回归）
+	resp := doUserModelsRequest(t, "", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"}, resp.Data)
+
+	// ?prompt_optimize=true：仅返回被标记的模型
+	resp = doUserModelsRequest(t, "?prompt_optimize=true", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"gpt-4o"}, resp.Data)
+
+	// 与 ?endpoint= 组合取交集
+	resp = doUserModelsRequest(t, "?prompt_optimize=true&endpoint=openai", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"gpt-4o"}, resp.Data)
+
+	// 与不匹配的端点组合：交集为空
+	resp = doUserModelsRequest(t, "?prompt_optimize=true&endpoint=image-generation", user.Id)
+	require.True(t, resp.Success)
+	require.Empty(t, resp.Data)
+}

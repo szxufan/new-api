@@ -193,6 +193,7 @@ export function ImageDebugForm({
           rows={4}
           maxLength={4000}
           disabled={isSubmitting}
+          className='max-h-80'
         />
       </div>
 

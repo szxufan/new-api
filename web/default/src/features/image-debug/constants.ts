@@ -44,8 +44,8 @@ export const PROMPT_OPTIMIZE_MODEL_STORAGE_KEY =
 /** 图像生成提示词优化指令 */
 export const IMAGE_PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are an expert prompt engineer for AI image generation models. Enhance the user's image prompt while preserving its core subject, intent and key details. Enrich it with concrete visual detail such as composition, lighting, color palette, style, atmosphere, and quality indicators where appropriate. Keep the same language as the original prompt. Output ONLY the optimized prompt text: no explanations, no quotes, no markdown code blocks, no prefix. Aim for a concise but vivid prompt under 200 words.`
 
-/** 视频生成提示词优化指令 */
-export const VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are an expert prompt engineer for AI video generation models. Enhance the user's video prompt while preserving its core subject, intent and key details. Enrich it with concrete visual and motion detail such as scene composition, lighting, camera movement, subject motion and object interaction over time, plus style and atmosphere where appropriate. Keep the same language as the original prompt. Output ONLY the optimized prompt text: no explanations, no quotes, no markdown code blocks, no prefix. Aim for a concise but vivid prompt under 200 words.`
+/** 视频生成提示词优化指令：按总时长输出以 5 秒为单位的分镜头脚本 */
+export const VIDEO_PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are an expert prompt engineer for AI video generation models. Rewrite the user's video prompt into a shot-by-shot storyboard script. Split the storyboard into consecutive shots of 5 seconds each according to the total duration stated in the user message (the last shot may be shorter). For each shot, output: shot number, time range (e.g. 0-5s), scene and subject description, motion and camera movement. If reference images are provided, keep the visual content consistent with them. Preserve the core subject, intent and key details of the original prompt. Keep the same language as the original prompt. Output ONLY the storyboard script: no explanations, no quotes, no markdown code blocks, no prefix.`
 
 // 尺寸、质量、风格、响应格式选项（label 为 i18n 键，与英文源字符串一致）
 export const IMAGE_SIZES = [

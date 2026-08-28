@@ -182,6 +182,8 @@ export function VideoDebugForm({
             type='video'
             prompt={state.prompt}
             group={state.group}
+            duration={state.duration}
+            images={state.images}
             disabled={isSubmitting}
             onOptimized={(prompt) => onStateChange({ prompt })}
           />
@@ -194,6 +196,7 @@ export function VideoDebugForm({
           rows={4}
           maxLength={PROMPT_MAX_LENGTH}
           disabled={isSubmitting}
+          className='max-h-80'
         />
       </div>
 

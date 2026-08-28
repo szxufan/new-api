@@ -87,6 +87,7 @@ export const modelFormSchema = z.object({
   name_rule: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
+  prompt_optimize: z.boolean(),
   fallback_model: z.string(),
 })
 
@@ -136,6 +137,7 @@ export function ModelMutateDrawer({
       name_rule: 0,
       status: true,
       sync_official: true,
+      prompt_optimize: false,
       fallback_model: '',
     },
   })
@@ -155,6 +157,7 @@ export function ModelMutateDrawer({
         name_rule: model.name_rule || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
+        prompt_optimize: model.prompt_optimize === 1,
         fallback_model: model.fallback_model || '',
       })
     } else if (open && !isEditing) {
@@ -169,6 +172,7 @@ export function ModelMutateDrawer({
         name_rule: 0,
         status: true,
         sync_official: true,
+        prompt_optimize: false,
         fallback_model: '',
       })
     }
@@ -184,6 +188,7 @@ export function ModelMutateDrawer({
           tags: Array.isArray(values.tags) ? values.tags.join(',') : '',
           status: values.status ? 1 : 0,
           sync_official: values.sync_official ? 1 : 0,
+          prompt_optimize: values.prompt_optimize ? 1 : 0,
         }
 
         const response = isEditing
@@ -396,7 +401,9 @@ export function ModelMutateDrawer({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('When the request contains images or videos, automatically use this model instead.')}
+                    {t(
+                      'When the request contains images or videos, automatically use this model instead.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -578,6 +585,31 @@ export function ModelMutateDrawer({
                       </FormLabel>
                       <FormDescription>
                         {t('Sync this model with official upstream')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='prompt_optimize'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base'>
+                        {t('Available for AI prompt optimization')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, this model can be selected as the optimization model for AI prompt optimization on the Image Debug page.'
+                        )}
                       </FormDescription>
                     </div>
                     <FormControl>

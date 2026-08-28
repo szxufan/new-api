@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { describe, it, expect } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
-import { modelsQueryKeys, mergeEndpointTemplate } from '../../lib'
+import { describe, it, expect } from 'vitest'
 import { ENDPOINT_TEMPLATES } from '../../constants'
+import { modelsQueryKeys, mergeEndpointTemplate } from '../../lib'
 import {
   MODEL_PRICING_SETTINGS_URL,
   modelFormSchema,
@@ -37,14 +37,18 @@ describe('models metadata 详情缓存失效', () => {
     })
 
     // 验证缓存命中
-    const cachedBefore = queryClient.getQueryData(modelsQueryKeys.detail(modelId))
+    const cachedBefore = queryClient.getQueryData(
+      modelsQueryKeys.detail(modelId)
+    )
     expect(cachedBefore).toBeTruthy()
 
     // 模拟 ModelMutateDrawer 中编辑成功后的缓存失效逻辑
     queryClient.removeQueries({ queryKey: modelsQueryKeys.detail(modelId) })
 
     // 验证详情缓存已被清除
-    const cachedAfter = queryClient.getQueryData(modelsQueryKeys.detail(modelId))
+    const cachedAfter = queryClient.getQueryData(
+      modelsQueryKeys.detail(modelId)
+    )
     expect(cachedAfter).toBeUndefined()
   })
 })
@@ -85,6 +89,7 @@ describe('模型编辑侧栏价格配置移除', () => {
       'name_rule',
       'status',
       'sync_official',
+      'prompt_optimize',
       'fallback_model',
     ]) {
       expect(shapeKeys).toContain(field)
@@ -119,10 +124,22 @@ describe('端点模板填充为追加语义', () => {
       openai: ENDPOINT_TEMPLATES['openai'],
     })
     // undefined / 纯空白同样视为空
-    expect(JSON.parse(mergeEndpointTemplate(undefined, 'openai', ENDPOINT_TEMPLATES['openai'])!)).toEqual({
+    expect(
+      JSON.parse(
+        mergeEndpointTemplate(
+          undefined,
+          'openai',
+          ENDPOINT_TEMPLATES['openai']
+        )!
+      )
+    ).toEqual({
       openai: ENDPOINT_TEMPLATES['openai'],
     })
-    expect(JSON.parse(mergeEndpointTemplate('   ', 'openai', ENDPOINT_TEMPLATES['openai'])!)).toEqual({
+    expect(
+      JSON.parse(
+        mergeEndpointTemplate('   ', 'openai', ENDPOINT_TEMPLATES['openai'])!
+      )
+    ).toEqual({
       openai: ENDPOINT_TEMPLATES['openai'],
     })
   })
@@ -157,11 +174,23 @@ describe('端点模板填充为追加语义', () => {
 
   it('已有内容不是合法 JSON 对象时，返回 null 以避免静默丢弃用户输入', () => {
     // 非法 JSON
-    expect(mergeEndpointTemplate('{invalid', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    expect(
+      mergeEndpointTemplate('{invalid', 'openai', ENDPOINT_TEMPLATES['openai'])
+    ).toBeNull()
     // JSON 数组
-    expect(mergeEndpointTemplate('["openai"]', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    expect(
+      mergeEndpointTemplate(
+        '["openai"]',
+        'openai',
+        ENDPOINT_TEMPLATES['openai']
+      )
+    ).toBeNull()
     // JSON 标量
-    expect(mergeEndpointTemplate('"openai"', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
-    expect(mergeEndpointTemplate('null', 'openai', ENDPOINT_TEMPLATES['openai'])).toBeNull()
+    expect(
+      mergeEndpointTemplate('"openai"', 'openai', ENDPOINT_TEMPLATES['openai'])
+    ).toBeNull()
+    expect(
+      mergeEndpointTemplate('null', 'openai', ENDPOINT_TEMPLATES['openai'])
+    ).toBeNull()
   })
 })

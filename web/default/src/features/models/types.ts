@@ -43,6 +43,8 @@ export interface Model {
   endpoints?: string
   status: number
   sync_official: number
+  /** 是否可供「AI 优化提示词」功能作为优化模型使用（0/1） */
+  prompt_optimize?: number
   created_time: number
   updated_time: number
   name_rule: number

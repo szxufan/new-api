@@ -65,3 +65,19 @@ func groupContainsSupportedEnabledModel(group string, want []constant.EndpointTy
 	}
 	return false
 }
+
+// filterPromptOptimizeModels 返回 models 中被管理员标记为可供「AI 优化提示词」使用的子集。
+// 查询标记集合失败时返回空切片（宁缺毋滥，避免误返回全部模型）。
+func filterPromptOptimizeModels(models []string) []string {
+	marked, err := model.GetPromptOptimizeModelNames()
+	if err != nil {
+		return []string{}
+	}
+	filtered := make([]string, 0, len(models))
+	for _, m := range models {
+		if marked[m] {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
+}

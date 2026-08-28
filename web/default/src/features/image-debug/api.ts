@@ -89,13 +89,18 @@ export async function optimizePrompt(
 /**
  * 获取用户可用模型。
  * @param endpoints 可选；按端点类型过滤（如 image-generation），空数组表示不过滤
+ * @param promptOptimize 为 true 时仅返回被管理员标记为可供「AI 优化提示词」使用的模型
  */
 export async function getUserModels(
-  endpoints: string[] = []
+  endpoints: string[] = [],
+  promptOptimize = false
 ): Promise<ModelOption[]> {
-  const params =
-    endpoints.length > 0 ? { endpoint: endpoints.join(',') } : undefined
-  const res = await api.get(API_ENDPOINTS.USER_MODELS, { params })
+  const params: Record<string, string> = {}
+  if (endpoints.length > 0) params.endpoint = endpoints.join(',')
+  if (promptOptimize) params.prompt_optimize = 'true'
+  const res = await api.get(API_ENDPOINTS.USER_MODELS, {
+    params: Object.keys(params).length > 0 ? params : undefined,
+  })
   const { data } = res
 
   if (!data.success || !Array.isArray(data.data)) {

@@ -22,18 +22,20 @@ type BoundChannel struct {
 }
 
 type Model struct {
-	Id           int            `json:"id"`
-	ModelName    string         `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
-	Description  string         `json:"description,omitempty" gorm:"type:text"`
-	Icon         string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
-	Tags         string         `json:"tags,omitempty" gorm:"type:varchar(255)"`
-	VendorID     int            `json:"vendor_id,omitempty" gorm:"index"`
-	Endpoints    string         `json:"endpoints,omitempty" gorm:"type:text"`
-	Status       int            `json:"status" gorm:"default:1"`
-	SyncOfficial int            `json:"sync_official" gorm:"default:1"`
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
-	UpdatedTime  int64          `json:"updated_time" gorm:"bigint"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
+	Id           int    `json:"id"`
+	ModelName    string `json:"model_name" gorm:"size:128;not null;uniqueIndex:uk_model_name_delete_at,priority:1"`
+	Description  string `json:"description,omitempty" gorm:"type:text"`
+	Icon         string `json:"icon,omitempty" gorm:"type:varchar(128)"`
+	Tags         string `json:"tags,omitempty" gorm:"type:varchar(255)"`
+	VendorID     int    `json:"vendor_id,omitempty" gorm:"index"`
+	Endpoints    string `json:"endpoints,omitempty" gorm:"type:text"`
+	Status       int    `json:"status" gorm:"default:1"`
+	SyncOfficial int    `json:"sync_official" gorm:"default:1"`
+	// PromptOptimize 标记该模型可供「AI 优化提示词」功能作为优化模型使用（0/1，默认 0）
+	PromptOptimize int            `json:"prompt_optimize" gorm:"default:0"`
+	CreatedTime    int64          `json:"created_time" gorm:"bigint"`
+	UpdatedTime    int64          `json:"updated_time" gorm:"bigint"`
+	DeletedAt      gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
 	BoundChannels []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
 	EnableGroups  []string       `json:"enable_groups,omitempty" gorm:"-"`
@@ -79,7 +81,7 @@ func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "name_rule", "fallback_model", "updated_time").
+		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "prompt_optimize", "name_rule", "fallback_model", "updated_time").
 		Updates(mi).Error
 }
 
@@ -103,6 +105,21 @@ func GetVendorModelCounts() (map[int64]int64, error) {
 		m[s.VendorID] = s.Count
 	}
 	return m, nil
+}
+
+// GetPromptOptimizeModelNames 返回被标记为可供「AI 优化提示词」使用的模型名集合（软删除自动排除）。
+func GetPromptOptimizeModelNames() (map[string]bool, error) {
+	var names []string
+	if err := DB.Model(&Model{}).
+		Where("prompt_optimize = ?", 1).
+		Pluck("model_name", &names).Error; err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
+	}
+	return set, nil
 }
 
 func GetAllModels(offset int, limit int) ([]*Model, error) {

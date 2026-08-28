@@ -19,9 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { createVideo, fetchVideo, getUserGroups, getUserModels } from '../api'
-import { VideoDebugForm } from './video-debug-form'
-import { VideoResult } from './video-result'
 import {
   DEFAULT_GROUP,
   DEFAULT_VIDEO_DURATION,
@@ -29,9 +28,11 @@ import {
   DEFAULT_VIDEO_RESOLUTION,
   VIDEO_POLL_INTERVAL_MS,
 } from '../constants'
-import { buildVideoPayload } from '../lib/video-payload'
 import { resolveSelection } from '../lib/selection'
+import { buildVideoPayload } from '../lib/video-payload'
 import type { VideoDebugFormState, VideoResponse } from '../types'
+import { VideoDebugForm } from './video-debug-form'
+import { VideoResult } from './video-result'
 
 function createDefaultState(): VideoDebugFormState {
   return {
@@ -66,9 +67,12 @@ export function VideoDebugTab() {
     queryFn: () => getUserGroups(VIDEO_ENDPOINTS),
   })
 
-  const handleStateChange = useCallback((patch: Partial<VideoDebugFormState>) => {
-    setState((prev) => ({ ...prev, ...patch }))
-  }, [])
+  const handleStateChange = useCallback(
+    (patch: Partial<VideoDebugFormState>) => {
+      setState((prev) => ({ ...prev, ...patch }))
+    },
+    []
+  )
 
   const handleStop = useCallback(() => {
     setIsPolling(false)
@@ -122,9 +126,7 @@ export function VideoDebugTab() {
         if (res.status === 'completed' || res.status === 'failed') {
           clearInterval(timer)
           if (res.status === 'failed') {
-            setError(
-              res.error?.message || t('Video generation failed')
-            )
+            setError(res.error?.message || t('Video generation failed'))
           }
           setIsPolling(false)
           setTaskId(null)
@@ -169,16 +171,19 @@ export function VideoDebugTab() {
   return (
     <div className='grid flex-1 grid-cols-1 gap-4 lg:grid-cols-2'>
       <div className='min-h-0'>
-        <VideoDebugForm
-          state={state}
-          models={models}
-          groups={groups}
-          isModelLoading={isLoadingModels}
-          isSubmitting={isPolling}
-          onStateChange={handleStateChange}
-          onSubmit={handleSubmit}
-          onStop={handleStop}
-        />
+        {/* 与图片 Tab 一致：表单超出视口高度时内部滚动（Main 布局 overflow-hidden） */}
+        <ScrollArea className='max-h-[calc(100vh-220px)] pr-3'>
+          <VideoDebugForm
+            state={state}
+            models={models}
+            groups={groups}
+            isModelLoading={isLoadingModels}
+            isSubmitting={isPolling}
+            onStateChange={handleStateChange}
+            onSubmit={handleSubmit}
+            onStop={handleStop}
+          />
+        </ScrollArea>
       </div>
       <div className='min-h-0'>
         <VideoResult

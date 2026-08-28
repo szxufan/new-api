@@ -37,7 +37,9 @@ import {
 } from '../lib/prompt-optimizer'
 import type { PromptOptimizeType } from '../types'
 
-const TEXT_MODELS_QUERY_KEY = ['image-debug-text-models'] as const
+const OPTIMIZE_MODELS_QUERY_KEY = [
+  'image-debug-prompt-optimize-models',
+] as const
 
 interface PromptOptimizerProps {
   /** 待优化的媒体类型：图像 / 视频 */
@@ -48,6 +50,10 @@ interface PromptOptimizerProps {
   group: string
   /** 生成任务提交中时禁用 */
   disabled?: boolean
+  /** 视频时长（秒，仅视频优化用于生成分镜头脚本；-1 表示智能时长） */
+  duration?: number
+  /** 视频输入图片 dataURL 列表（仅视频优化时一并传给 AI） */
+  images?: string[]
   /** 优化成功后的回调，参数为优化后的提示词 */
   onOptimized: (newPrompt: string) => void
 }
@@ -65,10 +71,10 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false)
 
   const { data: models = [], isLoading: isModelLoading } = useQuery({
-    queryKey: TEXT_MODELS_QUERY_KEY,
-    // 仅保留支持 OpenAI 聊天端点的文本模型，并按名称排序
+    queryKey: OPTIMIZE_MODELS_QUERY_KEY,
+    // 候选 = 管理员标记可供 AI 优化 ∩ 用户可用 ∩ 支持 OpenAI 聊天端点，并按名称排序
     queryFn: async () =>
-      sortModelOptions(await getUserModels([...TEXT_MODEL_ENDPOINTS])),
+      sortModelOptions(await getUserModels([...TEXT_MODEL_ENDPOINTS], true)),
   })
 
   // 候选加载后：存储的模型仍在列表中则沿用，否则回退到第一个可用模型
@@ -90,6 +96,8 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
           type: props.type,
           model: selectedModel,
           group: props.group,
+          duration: props.duration,
+          images: props.images,
         })
       )
       if (res.error?.message) {
@@ -121,7 +129,7 @@ export function PromptOptimizer(props: PromptOptimizerProps) {
     <div className='flex flex-wrap items-center gap-2'>
       {models.length === 0 && !isModelLoading && (
         <span className='text-muted-foreground text-xs'>
-          {t('No text models available')}
+          {t('No optimization models available')}
         </span>
       )}
       <NativeSelect

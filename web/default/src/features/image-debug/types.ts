@@ -134,9 +134,16 @@ export interface VideoDebugFormState {
 /** 待优化的媒体类型 */
 export type PromptOptimizeType = 'image' | 'video'
 
+/** 多模态消息内容片段（视频优化携带输入图片时使用） */
+export interface OptimizeContentPart {
+  type: 'text' | 'image_url'
+  text?: string
+  image_url?: { url: string }
+}
+
 export interface OptimizePromptMessage {
   role: 'system' | 'user'
-  content: string
+  content: string | OptimizeContentPart[]
 }
 
 export interface OptimizePromptRequest {

@@ -167,6 +167,111 @@ describe('buildOptimizePayload', () => {
   })
 })
 
+describe('buildOptimizePayload 视频分镜头与图片', () => {
+  function getUserContent(payload: ReturnType<typeof buildOptimizePayload>) {
+    return payload.messages[1].content
+  }
+
+  it('video 携带时长：用户消息包含时长与分镜数（12 秒 → 3 个分镜）', () => {
+    const payload = buildOptimizePayload({
+      prompt: 'a cat running',
+      type: 'video',
+      model: 'gpt-4o',
+      group: 'default',
+      duration: 12,
+    })
+    const content = getUserContent(payload)
+    expect(typeof content).toBe('string')
+    expect(content).toContain('a cat running')
+    expect(content).toContain('Video duration: 12 seconds')
+    expect(content).toContain('3 shots')
+  })
+
+  it('video 时长为 -1（智能时长）：包含智能时长说明', () => {
+    const payload = buildOptimizePayload({
+      prompt: 'a cat running',
+      type: 'video',
+      model: 'gpt-4o',
+      group: 'default',
+      duration: -1,
+    })
+    const content = getUserContent(payload)
+    expect(typeof content).toBe('string')
+    expect(content).toContain('smart duration')
+  })
+
+  it('video 时长 <=0 或缺省：按默认 5 秒（1 个分镜）', () => {
+    for (const duration of [0, undefined]) {
+      const payload = buildOptimizePayload({
+        prompt: 'a cat running',
+        type: 'video',
+        model: 'gpt-4o',
+        group: 'default',
+        duration,
+      })
+      const content = getUserContent(payload) as string
+      expect(content).toContain('Video duration: 5 seconds')
+      expect(content).toContain('1 shots')
+    }
+  })
+
+  it('video 携带图片：content 为「文本 + image_url」多模态数组', () => {
+    const payload = buildOptimizePayload({
+      prompt: 'a cat running',
+      type: 'video',
+      model: 'gpt-4o',
+      group: 'default',
+      duration: 10,
+      images: ['data:image/jpeg;base64,aaa', ' ', 'data:image/png;base64,bbb'],
+    })
+    const content = getUserContent(payload)
+    expect(Array.isArray(content)).toBe(true)
+    const parts = content as {
+      type: string
+      text?: string
+      image_url?: { url: string }
+    }[]
+    // 空白 url 被过滤：1 个 text + 2 个 image_url
+    expect(parts).toHaveLength(3)
+    expect(parts[0]).toEqual({
+      type: 'text',
+      text: expect.stringContaining('a cat running'),
+    })
+    expect(parts[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/jpeg;base64,aaa' },
+    })
+    expect(parts[2]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,bbb' },
+    })
+  })
+
+  it('video 无图片：content 仍为字符串', () => {
+    const payload = buildOptimizePayload({
+      prompt: 'a cat running',
+      type: 'video',
+      model: 'gpt-4o',
+      group: 'default',
+      duration: 10,
+      images: [],
+    })
+    expect(typeof getUserContent(payload)).toBe('string')
+  })
+
+  it('image 类型不受 duration/images 影响', () => {
+    const payload = buildOptimizePayload({
+      prompt: 'a cat',
+      type: 'image',
+      model: 'gpt-4o',
+      group: 'default',
+      duration: 12,
+      images: ['data:image/jpeg;base64,aaa'],
+    })
+    expect(getUserContent(payload)).toBe('a cat')
+  })
+})
+
 describe('extractOptimizedPrompt', () => {
   function createResponse(content?: string): OptimizePromptResponse {
     return { choices: [{ message: { content } }] }
