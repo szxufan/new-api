@@ -18,7 +18,8 @@
 优化模型候选由管理员在「模型管理 → 模型元数据」（`/models/metadata`）中配置：
 
 - 编辑模型时开启「可用于 AI 优化提示词」开关（后端字段 `models.prompt_optimize`，int 0/1，默认 0）；
-- 普通用户侧通过 `GET /api/user/models?prompt_optimize=true` 仅返回被标记的模型（与用户可用模型、`?endpoint=` 过滤取交集）；
+- 标记记录按元数据的**名称规则**（精确/前缀/后缀/包含）匹配渠道中实际启用的模型名（与模型定价的元数据匹配方式一致）。例如以「前缀」规则标记 `qwen3.8`，则渠道中所有 `qwen3.8-*` 模型均可作为优化模型；
+- 普通用户侧通过 `GET /api/user/models?prompt_optimize=true` 仅返回命中标记的模型（与用户可用模型、`?endpoint=` 过滤取交集）；
 - 未标记任何模型时，/image-debug 优化模型下拉显示「暂无可用的优化模型」。
 
 建议标记支持视觉（vision）能力的文本模型，以便视频优化时理解参考图片。
@@ -31,8 +32,8 @@
   - 计费：走 playground 常规计费流程（预扣费 + 结算），消费日志 `token_name` 显示为 `playground-<分组>`
   - 多模态：视频优化携带图片时 `content` 为「文本 + image_url」数组（dataURL 直传），后端 `dto.Message.ParseContent` 原生支持
 - 后端文件：
-  - `model/model_meta.go`：`Model.PromptOptimize` 字段（`Update()` Select 白名单已包含）与 `GetPromptOptimizeModelNames()` 查询
-  - `controller/endpoint_filter.go`：`filterPromptOptimizeModels` 过滤
+  - `model/model_meta.go`：`Model.PromptOptimize` 字段（`Update()` Select 白名单已包含）与 `GetPromptOptimizeModels()` 查询
+  - `controller/endpoint_filter.go`：`filterPromptOptimizeModels` / `matchesPromptOptimizeModel`（按元数据名称规则匹配实际模型名）
   - `controller/user.go`：`GetUserModels` 支持 `?prompt_optimize=true`（测试见 `controller/endpoint_filter_test.go`）
 - 前端文件：
   - `web/default/src/features/models/components/drawers/model-mutate-drawer.tsx`：元数据编辑表单的「可用于 AI 优化提示词」开关

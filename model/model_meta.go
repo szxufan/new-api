@@ -107,19 +107,12 @@ func GetVendorModelCounts() (map[int64]int64, error) {
 	return m, nil
 }
 
-// GetPromptOptimizeModelNames 返回被标记为可供「AI 优化提示词」使用的模型名集合（软删除自动排除）。
-func GetPromptOptimizeModelNames() (map[string]bool, error) {
-	var names []string
-	if err := DB.Model(&Model{}).
-		Where("prompt_optimize = ?", 1).
-		Pluck("model_name", &names).Error; err != nil {
-		return nil, err
-	}
-	set := make(map[string]bool, len(names))
-	for _, name := range names {
-		set[name] = true
-	}
-	return set, nil
+// GetPromptOptimizeModels 返回被标记为可供「AI 优化提示词」使用的模型元数据记录（软删除自动排除）。
+// 调用方需按 NameRule（精确/前缀/后缀/包含）将记录匹配到实际模型名。
+func GetPromptOptimizeModels() ([]*Model, error) {
+	var models []*Model
+	err := DB.Where("prompt_optimize = ?", 1).Find(&models).Error
+	return models, err
 }
 
 func GetAllModels(offset int, limit int) ([]*Model, error) {

@@ -279,3 +279,48 @@ func TestGetUserModelsPromptOptimizeFilter(t *testing.T) {
 	require.True(t, resp.Success)
 	require.Empty(t, resp.Data)
 }
+
+// TestGetUserModelsPromptOptimizeFilterNameRule 验证标记记录按名称规则（前缀/后缀/包含）匹配实际模型名：
+// 元数据以「qwen3.8」前缀规则标记时，渠道中所有 qwen3.8-* 模型均应命中。
+func TestGetUserModelsPromptOptimizeFilterNameRule(t *testing.T) {
+	db := setupEndpointFilterTestDB(t)
+
+	insertTestChannel(t, db, "qwen-chat", "qwen3.8-plus,qwen3.8-flash,qwen-max", "default", constant.ChannelTypeOpenAI)
+
+	// 前缀规则标记 qwen3.8
+	require.NoError(t, db.Create(&model.Model{
+		ModelName:      "qwen3.8",
+		NameRule:       model.NameRulePrefix,
+		Status:         1,
+		PromptOptimize: 1,
+	}).Error)
+	model.RefreshPricing()
+
+	user := &model.User{
+		Username: "prompt-optimize-rule-user",
+		Password: "password123",
+		Group:    "default",
+		Role:     common.RoleCommonUser,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(user).Error)
+
+	// 前缀规则：qwen3.8-plus / qwen3.8-flash 命中，qwen-max 不命中
+	resp := doUserModelsRequest(t, "?prompt_optimize=true", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"qwen3.8-plus", "qwen3.8-flash"}, resp.Data)
+
+	// 改为后缀规则：仅 *-flash 命中
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "qwen3.8").
+		Updates(map[string]any{"model_name": "-flash", "name_rule": model.NameRuleSuffix}).Error)
+	resp = doUserModelsRequest(t, "?prompt_optimize=true", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"qwen3.8-flash"}, resp.Data)
+
+	// 改为包含规则：所有含 "3.8" 的模型命中
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "-flash").
+		Updates(map[string]any{"model_name": "3.8", "name_rule": model.NameRuleContains}).Error)
+	resp = doUserModelsRequest(t, "?prompt_optimize=true", user.Id)
+	require.True(t, resp.Success)
+	require.ElementsMatch(t, []string{"qwen3.8-plus", "qwen3.8-flash"}, resp.Data)
+}

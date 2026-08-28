@@ -67,17 +67,44 @@ func groupContainsSupportedEnabledModel(group string, want []constant.EndpointTy
 }
 
 // filterPromptOptimizeModels 返回 models 中被管理员标记为可供「AI 优化提示词」使用的子集。
-// 查询标记集合失败时返回空切片（宁缺毋滥，避免误返回全部模型）。
+// 标记记录按元数据的名称规则（精确/前缀/后缀/包含）匹配实际模型名，
+// 与 updatePricing 中元数据匹配模型的方式保持一致。
+// 查询标记记录失败时返回空切片（宁缺毋滥，避免误返回全部模型）。
 func filterPromptOptimizeModels(models []string) []string {
-	marked, err := model.GetPromptOptimizeModelNames()
+	marked, err := model.GetPromptOptimizeModels()
 	if err != nil {
 		return []string{}
 	}
 	filtered := make([]string, 0, len(models))
 	for _, m := range models {
-		if marked[m] {
+		if matchesPromptOptimizeModel(m, marked) {
 			filtered = append(filtered, m)
 		}
 	}
 	return filtered
+}
+
+// matchesPromptOptimizeModel 判断模型名是否命中任一标记记录（按记录的名称规则匹配）。
+func matchesPromptOptimizeModel(name string, marked []*model.Model) bool {
+	for _, meta := range marked {
+		switch meta.NameRule {
+		case model.NameRulePrefix:
+			if strings.HasPrefix(name, meta.ModelName) {
+				return true
+			}
+		case model.NameRuleSuffix:
+			if strings.HasSuffix(name, meta.ModelName) {
+				return true
+			}
+		case model.NameRuleContains:
+			if strings.Contains(name, meta.ModelName) {
+				return true
+			}
+		default: // NameRuleExact
+			if name == meta.ModelName {
+				return true
+			}
+		}
+	}
+	return false
 }
