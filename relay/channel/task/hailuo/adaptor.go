@@ -41,6 +41,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if IsVideoV2Model(info.UpstreamModelName) {
+		return fmt.Sprintf("%s%s", a.baseURL, V2CreateEndpoint), nil
+	}
 	return fmt.Sprintf("%s%s", a.baseURL, TextToVideoEndpoint), nil
 }
 
@@ -61,12 +64,18 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("invalid request type in context")
 	}
 
-	body, err := a.convertToRequestPayload(&req, info)
+	var payload any
+	var err error
+	if IsVideoV2Model(info.UpstreamModelName) {
+		payload, err = a.buildV2Request(req, info)
+	} else {
+		payload, err = a.convertToRequestPayload(&req, info)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "convert request payload failed")
 	}
 
-	data, err := common.Marshal(body)
+	data, err := common.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +88,10 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 }
 
 func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (taskID string, taskData []byte, taskErr *dto.TaskError) {
+	if IsVideoV2Model(info.UpstreamModelName) {
+		return a.doV2Response(c, resp, info)
+	}
+
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
@@ -112,12 +125,12 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 }
 
 func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok {
+	if _, ok := body["task_id"].(string); !ok {
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s%s?task_id=%s", baseUrl, QueryTaskEndpoint, taskID)
+	// 轮询侧只能拿到 task_id 与 action（无模型名），故以提交期写入的 action 区分协议版本。
+	uri := buildQueryURL(baseUrl, body)
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -136,6 +149,16 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 
 func (a *TaskAdaptor) GetModelList() []string {
 	return ModelList
+}
+
+// buildQueryURL 按提交期写入的 action 选择查询端点：
+// v2 的 task_id 是路径参数，v1 是查询参数。
+func buildQueryURL(baseUrl string, body map[string]any) string {
+	taskID, _ := body["task_id"].(string)
+	if action, _ := body["action"].(string); action == constant.TaskActionVideoV2Generate {
+		return fmt.Sprintf("%s%s%s", baseUrl, V2QueryEndpoint, taskID)
+	}
+	return fmt.Sprintf("%s%s?task_id=%s", baseUrl, QueryTaskEndpoint, taskID)
 }
 
 func (a *TaskAdaptor) GetChannelName() string {
@@ -182,6 +205,12 @@ func (a *TaskAdaptor) parseResolutionFromSize(size string, modelConfig ModelConf
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	// v2（H3）查询响应顶层为 task 对象，按结构自适应识别；
+	// 这样即使 action 判据失效（历史任务、remix 覆写）也能正确解析。
+	if taskResult, isV2, err := a.parseV2TaskResult(respBody); isV2 || err != nil {
+		return taskResult, err
+	}
+
 	resTask := QueryTaskResponse{}
 	if err := common.Unmarshal(respBody, &resTask); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")
@@ -223,17 +252,17 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	return &taskResult, nil
 }
 
+// ConvertToOpenAIVideo 转换为 OpenAI 兼容视频对象（v1 / v2 共用）。
+// 状态与视频地址取数据库实时字段：task.Data 在提交阶段是创建响应原文、轮询后才是查询响应原文，
+// 且 v2 创建响应无 base_resp，按 v1 结构解析会把缺省的 status_code=0 误判为成功。
 func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
-	var hailuoResp QueryTaskResponse
-	if err := common.Unmarshal(originTask.Data, &hailuoResp); err != nil {
-		return nil, errors.Wrap(err, "unmarshal hailuo task data failed")
-	}
-
 	openAIVideo := originTask.ToOpenAIVideo()
-	if hailuoResp.BaseResp.StatusCode != StatusSuccess {
+
+	if originTask.Status == model.TaskStatusFailure {
+		message, code := a.resolveTaskFailure(originTask)
 		openAIVideo.Error = &dto.OpenAIVideoError{
-			Message: hailuoResp.BaseResp.StatusMsg,
-			Code:    strconv.Itoa(hailuoResp.BaseResp.StatusCode),
+			Message: message,
+			Code:    code,
 		}
 	}
 
@@ -243,6 +272,26 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 	}
 
 	return jsonData, nil
+}
+
+// resolveTaskFailure 提取失败信息：优先轮询写入的 FailReason，
+// 其次解析任务数据中的上游错误（先试 v2 的 task.error，再试 v1 的 base_resp）。
+func (a *TaskAdaptor) resolveTaskFailure(originTask *model.Task) (string, string) {
+	if strings.TrimSpace(originTask.FailReason) != "" {
+		return originTask.FailReason, "task_failed"
+	}
+
+	var v2Resp V2QueryResponse
+	if err := common.Unmarshal(originTask.Data, &v2Resp); err == nil && len(v2Resp.Task.Error) > 0 {
+		return string(v2Resp.Task.Error), "task_failed"
+	}
+
+	var v1Resp QueryTaskResponse
+	if err := common.Unmarshal(originTask.Data, &v1Resp); err == nil && v1Resp.BaseResp.StatusCode != StatusSuccess {
+		return v1Resp.BaseResp.StatusMsg, strconv.Itoa(v1Resp.BaseResp.StatusCode)
+	}
+
+	return "video generation task failed", "task_failed"
 }
 
 func (a *TaskAdaptor) buildVideoURL(_, fileID string) string {
