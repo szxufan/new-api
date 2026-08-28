@@ -163,11 +163,13 @@ type AliResponse struct {
 	AliError
 }
 
+// AliImageRequest DashScope 原生图像接口请求体。
+// 注意: DashScope 只接受 model/input/parameters，不支持 OpenAI 的 response_format，
+// b64_json 转换由本地响应处理阶段（aliImageHandler）完成。
 type AliImageRequest struct {
-	Model          string             `json:"model"`
-	Input          any                `json:"input"`
-	Parameters     AliImageParameters `json:"parameters,omitempty"`
-	ResponseFormat string             `json:"response_format,omitempty"`
+	Model      string             `json:"model"`
+	Input      any                `json:"input"`
+	Parameters AliImageParameters `json:"parameters,omitempty"`
 }
 
 type AliImageParameters struct {
@@ -177,6 +179,8 @@ type AliImageParameters struct {
 	Scale            string `json:"scale,omitempty"`
 	Watermark        *bool  `json:"watermark,omitempty"`
 	PromptExtend     *bool  `json:"prompt_extend,omitempty"`
+	PromptExtendMode string `json:"prompt_extend_mode,omitempty"`
+	EnableThinking   *bool  `json:"enable_thinking,omitempty"`
 	ThinkingMode     *bool  `json:"thinking_mode,omitempty"`
 	EnableSequential *bool  `json:"enable_sequential,omitempty"`
 	BboxList         any    `json:"bbox_list,omitempty"`
@@ -209,5 +213,3 @@ type WanImageParameters struct {
 	Seed      int     `json:"seed,omitempty"`      // 随机数种子，取值范围[0, 2147483647]
 	Strength  float64 `json:"strength,omitempty"`  // 修改幅度 0.0-1.0，默认0.5（部分模型支持）
 }
-
-

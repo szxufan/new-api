@@ -21,10 +21,12 @@ import (
 	"github.com/samber/lo"
 )
 
+// qwenImageMaxInputImages 千问图像系列图生图（I2I）场景最多支持的输入图像数量。
+const qwenImageMaxInputImages = 3
+
 func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequest, isSync bool) (*AliImageRequest, error) {
 	var imageRequest AliImageRequest
 	imageRequest.Model = request.Model
-	imageRequest.ResponseFormat = request.ResponseFormat
 	if request.Extra != nil {
 		if val, ok := request.Extra["parameters"]; ok {
 			err := common.Unmarshal(val, &imageRequest.Parameters)
@@ -61,15 +63,19 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 	// 同步图片模型和异步图片模型请求格式不一样
 	if isSync {
 		if imageRequest.Input == nil {
+			images, err := getImageInputsFromJSON(request)
+			if err != nil {
+				return nil, err
+			}
+			content, err := buildAliSyncContent(request.Model, request.Prompt, images)
+			if err != nil {
+				return nil, err
+			}
 			imageRequest.Input = AliImageInput{
 				Messages: []AliMessage{
 					{
-						Role: "user",
-						Content: []AliMediaContent{
-							{
-								Text: request.Prompt,
-							},
-						},
+						Role:    "user",
+						Content: content,
 					},
 				},
 			}
@@ -83,6 +89,77 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 	}
 
 	return &imageRequest, nil
+}
+
+// buildAliSyncContent 构造同步图像模型 input.messages[].content 数组。
+// 图生图（I2I）场景下按顺序放入全部输入图像，最后追加唯一的文本指令；
+// 文生图（T2I）场景下仅包含文本指令。
+// 参考: https://help.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference
+func buildAliSyncContent(model string, prompt string, images []string) ([]AliMediaContent, error) {
+	if isQwenImageModel(model) && len(images) > qwenImageMaxInputImages {
+		return nil, fmt.Errorf("qwen-image supports at most %d input images, got %d", qwenImageMaxInputImages, len(images))
+	}
+
+	content := make([]AliMediaContent, 0, len(images)+1)
+	for _, image := range images {
+		content = append(content, AliMediaContent{Image: image})
+	}
+	content = append(content, AliMediaContent{Text: prompt})
+	return content, nil
+}
+
+// isQwenImageModel 判断是否为千问图像系列模型（qwen-image / qwen-image-edit / qwen-image-3.0 等）。
+func isQwenImageModel(modelName string) bool {
+	return strings.Contains(strings.ToLower(modelName), "qwen-image")
+}
+
+// getImageInputsFromJSON 从 JSON 请求体中提取输入图像，兼容以下写法：
+//   - "image": "https://..." 或 "data:image/png;base64,..."
+//   - "image": ["...", "..."]
+//   - "images": ["...", "..."]
+func getImageInputsFromJSON(request dto.ImageRequest) ([]string, error) {
+	raw := request.Image
+	if len(raw) == 0 {
+		raw = request.Images
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var single string
+	if err := common.Unmarshal(raw, &single); err == nil {
+		return normalizeImageInputs([]string{single})
+	}
+
+	var list []string
+	if err := common.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("invalid image field: %w", err)
+	}
+	return normalizeImageInputs(list)
+}
+
+// normalizeImageInputs 丢弃空值，并把裸 base64 补全为 DashScope 要求的 data:{MIME_type};base64,{data} 格式。
+func normalizeImageInputs(inputs []string) ([]string, error) {
+	images := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+		if strings.HasPrefix(input, "data:") || strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+			images = append(images, input)
+			continue
+		}
+		mimeType, base64Data, err := service.DecodeBase64FileData(input)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base64 image: %w", err)
+		}
+		images = append(images, fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data))
+	}
+	if len(images) == 0 {
+		return nil, nil
+	}
+	return images, nil
 }
 func getImageBase64sFromForm(c *gin.Context, fieldName string) ([]string, error) {
 	mf := c.Request.MultipartForm
@@ -120,10 +197,6 @@ func getImageBase64sFromForm(c *gin.Context, fieldName string) ([]string, error)
 		return nil, errors.New("image is required")
 	}
 
-	//if len(imageFiles) > 1 {
-	//	return nil, errors.New("only one image is supported for qwen edit")
-	//}
-
 	// 获取base64编码的图片
 	var imageBase64s []string
 	for _, file := range imageFiles {
@@ -155,31 +228,25 @@ func getImageBase64sFromForm(c *gin.Context, fieldName string) ([]string, error)
 func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (*AliImageRequest, error) {
 	var imageRequest AliImageRequest
 	imageRequest.Model = request.Model
-	imageRequest.ResponseFormat = request.ResponseFormat
 
 	imageBase64s, err := getImageBase64sFromForm(c, "image")
 	if err != nil {
 		return nil, fmt.Errorf("get image base64s from form failed: %w", err)
 	}
-	//dto.MediaContent{}
-	mediaContents := make([]AliMediaContent, len(imageBase64s))
-	for i, b64 := range imageBase64s {
-		mediaContents[i] = AliMediaContent{
-			Image: b64,
-		}
+	content, err := buildAliSyncContent(request.Model, request.Prompt, imageBase64s)
+	if err != nil {
+		return nil, err
 	}
-	mediaContents = append(mediaContents, AliMediaContent{
-		Text: request.Prompt,
-	})
 	imageRequest.Input = AliImageInput{
 		Messages: []AliMessage{
 			{
 				Role:    "user",
-				Content: mediaContents,
+				Content: content,
 			},
 		},
 	}
 	imageRequest.Parameters = AliImageParameters{
+		Size:      strings.Replace(request.Size, "x", "*", -1),
 		N:         int(lo.FromPtrOr(request.N, uint(1))),
 		Watermark: request.Watermark,
 	}

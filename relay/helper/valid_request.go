@@ -157,6 +157,7 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 			if imageValue := formData.Get("image"); imageValue != "" {
 				imageRequest.Image, _ = common.Marshal(imageValue)
 			}
+			imageRequest.ResponseFormat = formData.Get("response_format")
 
 			if imageRequest.Model == "gpt-image-1" {
 				if imageRequest.Quality == "" {

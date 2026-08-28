@@ -179,6 +179,9 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	// DashScope 原生接口不支持 response_format，这里只记录到上下文，
+	// 由 aliImageHandler 在响应阶段本地完成 url -> b64_json 的转换
+	c.Set("response_format", request.ResponseFormat)
 	if info.RelayMode == constant.RelayModeImagesGenerations {
 		if isSyncImageModel(info.OriginModelName) {
 			a.IsSyncImageModel = true
