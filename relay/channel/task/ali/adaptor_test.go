@@ -1,6 +1,7 @@
 package ali
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -212,10 +213,10 @@ func TestConvertWanRequest(t *testing.T) {
 
 func TestProcessAliOtherRatios_HappyHorse(t *testing.T) {
 	tests := []struct {
-		model           string
-		resolution      string
-		expectedKey     string
-		expectedValue   float64
+		model         string
+		resolution    string
+		expectedKey   string
+		expectedValue float64
 	}{
 		{"happyhorse-1.0-t2v", "1080P", "resolution-1080P", 1.6 / 0.9},
 		{"happyhorse-1.0-i2v", "720P", "resolution-720P", 1.0},
@@ -533,9 +534,9 @@ func TestConvertToOpenAIVideo_Queued(t *testing.T) {
 	// 创建时仅保存 PENDING 响应；即使 task.Data 里是 PENDING，
 	// 状态也必须取数据库实时字段（此时为 SUBMITTED → queued）
 	task := &model.Task{
-		TaskID:   "task_test_003",
-		Status:   model.TaskStatusSubmitted,
-		Data:     []byte(`{"output":{"task_status":"PENDING","task_id":"upstream-001"},"request_id":"r1"}`),
+		TaskID:     "task_test_003",
+		Status:     model.TaskStatusSubmitted,
+		Data:       []byte(`{"output":{"task_status":"PENDING","task_id":"upstream-001"},"request_id":"r1"}`),
 		Properties: model.Properties{OriginModelName: "wan3.0-video"},
 	}
 
@@ -715,5 +716,498 @@ func TestParseTaskResultExactUpstreamBody(t *testing.T) {
 	}
 	if int(aliResp.Usage.SR) != 1080 {
 		t.Errorf("usage.SR mismatch: got %d, want 1080", int(aliResp.Usage.SR))
+	}
+}
+
+// ============================================================================
+// 百炼第三方托管 MiniMax（MiniMax/MiniMax-H3）视频生成
+// ============================================================================
+
+func newMiniMaxAliReq() *AliVideoRequest {
+	return &AliVideoRequest{
+		Model:      "MiniMax/MiniMax-H3",
+		Input:      AliVideoInput{},
+		Parameters: &AliVideoParameters{},
+	}
+}
+
+func mediaTypesOf(media []AliMedia) []string {
+	types := make([]string, len(media))
+	for i, m := range media {
+		types[i] = m.Type
+	}
+	return types
+}
+
+// newMiniMaxRelayInfo 构造可用的 RelayInfo。
+// IsModelMapped / UpstreamModelName 位于匿名嵌入的 *ChannelMeta 上，
+// 指针为 nil 时读取会 panic，因此必须显式初始化。
+func newMiniMaxRelayInfo(isMapped bool, upstreamModel string) *relaycommon.RelayInfo {
+	return &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			IsModelMapped:     isMapped,
+			UpstreamModelName: upstreamModel,
+		},
+	}
+}
+
+func TestIsMiniMaxModel(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected bool
+	}{
+		{"MiniMax/MiniMax-H3", true},
+		{"MiniMax-H3", true},
+		{"minimax-h3", true},
+		{"MiniMax/MiniMax-H3-Fast", true},
+		{"wan3.0-video", false},
+		{"wan2.5-i2v-preview", false},
+		{"happyhorse-1.0-t2v", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			if got := isMiniMaxModel(tt.model); got != tt.expected {
+				t.Errorf("isMiniMaxModel(%q) = %v, want %v", tt.model, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConvertMiniMaxRequest_T2V(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "史诗级太空歌剧院线预告",
+	})
+
+	if aliReq.Input.Prompt != "史诗级太空歌剧院线预告" {
+		t.Errorf("prompt mismatch: got %q", aliReq.Input.Prompt)
+	}
+	if len(aliReq.Input.Media) != 0 {
+		t.Errorf("文生视频不应有 media, got %v", mediaTypesOf(aliReq.Input.Media))
+	}
+	if aliReq.Parameters.Resolution != "768P" {
+		t.Errorf("resolution mismatch: got %q, want 768P", aliReq.Parameters.Resolution)
+	}
+	if aliReq.Parameters.Ratio != "16:9" {
+		t.Errorf("ratio mismatch: got %q, want 16:9（文生视频必填且不得为 adaptive）", aliReq.Parameters.Ratio)
+	}
+	if aliReq.Parameters.Duration != 5 {
+		t.Errorf("duration mismatch: got %d, want 5", aliReq.Parameters.Duration)
+	}
+}
+
+func TestConvertMiniMaxRequest_T2V_SizeRatio(t *testing.T) {
+	tests := []struct {
+		name           string
+		size           string
+		wantRatio      string
+		wantResolution string
+	}{
+		{"比例串直接透传", "9:16", "9:16", "768P"},
+		{"21:9 超宽比例", "21:9", "21:9", "768P"},
+		{"像素尺寸换算比例与档位", "1920*1080", "16:9", "2K"},
+		{"竖屏像素尺寸", "1080*1920", "9:16", "2K"},
+		{"小尺寸仅影响档位", "832*480", "16:9", "768P"},
+		{"非法比例回落默认", "5:3", "16:9", "768P"},
+		{"adaptive 文生视频回落", "adaptive", "16:9", "768P"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adaptor := &TaskAdaptor{}
+			aliReq := newMiniMaxAliReq()
+			adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+				Model:  "MiniMax/MiniMax-H3",
+				Prompt: "p",
+				Size:   tt.size,
+			})
+			if aliReq.Parameters.Ratio != tt.wantRatio {
+				t.Errorf("ratio mismatch: got %q, want %q", aliReq.Parameters.Ratio, tt.wantRatio)
+			}
+			if aliReq.Parameters.Resolution != tt.wantResolution {
+				t.Errorf("resolution mismatch: got %q, want %q", aliReq.Parameters.Resolution, tt.wantResolution)
+			}
+		})
+	}
+}
+
+func TestConvertMiniMaxRequest_I2V_SingleImage(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "让图片中的人物动起来",
+		Images: []string{"https://example.com/a.webp"},
+	})
+
+	if len(aliReq.Input.Media) != 1 {
+		t.Fatalf("media count mismatch: got %d, want 1", len(aliReq.Input.Media))
+	}
+	if aliReq.Input.Media[0].Type != "first_frame" {
+		t.Errorf("media type mismatch: got %q, want first_frame", aliReq.Input.Media[0].Type)
+	}
+	if aliReq.Input.Media[0].URL != "https://example.com/a.webp" {
+		t.Errorf("media url mismatch: got %q", aliReq.Input.Media[0].URL)
+	}
+	// 文档：图生视频宽高比由输入图片决定，恒为 adaptive
+	if aliReq.Parameters.Ratio != "adaptive" {
+		t.Errorf("ratio mismatch: got %q, want adaptive", aliReq.Parameters.Ratio)
+	}
+}
+
+func TestConvertMiniMaxRequest_FirstLastFrame(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "首尾帧生视频",
+		Images: []string{"https://example.com/first.png", "https://example.com/last.png"},
+	})
+
+	want := []string{"first_frame", "last_frame"}
+	got := mediaTypesOf(aliReq.Input.Media)
+	if len(got) != len(want) {
+		t.Fatalf("media types mismatch: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("media[%d] type mismatch: got %q, want %q", i, got[i], want[i])
+		}
+	}
+	if aliReq.Parameters.Ratio != "adaptive" {
+		t.Errorf("ratio mismatch: got %q, want adaptive", aliReq.Parameters.Ratio)
+	}
+}
+
+func TestConvertMiniMaxRequest_ReferenceImages(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "多模态参考生视频",
+		Images: []string{"https://example.com/1.jpg", "https://example.com/2.jpg", "https://example.com/3.jpg", "https://example.com/4.jpg"},
+	})
+
+	for _, m := range aliReq.Input.Media {
+		if m.Type != "image_url" {
+			t.Fatalf("≥3 张图应全部映射为 image_url, got %v", mediaTypesOf(aliReq.Input.Media))
+		}
+	}
+	if len(aliReq.Input.Media) != 4 {
+		t.Errorf("media count mismatch: got %d, want 4", len(aliReq.Input.Media))
+	}
+	// 参考模式默认 adaptive，可显式指定
+	if aliReq.Parameters.Ratio != "adaptive" {
+		t.Errorf("ratio mismatch: got %q, want adaptive", aliReq.Parameters.Ratio)
+	}
+}
+
+func TestConvertMiniMaxRequest_MixedDegrade(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "参考视频中的角色缓缓转头",
+		Images: []string{"https://example.com/first.png"},
+		Metadata: map[string]interface{}{
+			"reference_videos": []any{"https://example.com/ref.mp4"},
+		},
+	})
+
+	// 百炼规定首尾帧与参考素材互斥：存在参考素材时剔除首帧，降级为参考模式
+	got := mediaTypesOf(aliReq.Input.Media)
+	if len(got) != 1 || got[0] != "feature" {
+		t.Fatalf("互斥降级失败: got %v, want [feature]", got)
+	}
+	if aliReq.Parameters.Ratio != "adaptive" {
+		t.Errorf("ratio mismatch: got %q, want adaptive", aliReq.Parameters.Ratio)
+	}
+}
+
+func TestConvertMiniMaxRequest_MetadataMediaPassthrough(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+	req := relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "尾帧生视频",
+		Images: []string{"https://example.com/auto-first.png"},
+		Metadata: map[string]interface{}{
+			"input": map[string]interface{}{
+				"media": []any{
+					map[string]interface{}{"type": "last_frame", "url": "https://example.com/specified.png"},
+				},
+			},
+			"parameters": map[string]interface{}{"resolution": "2K"},
+		},
+	}
+
+	aliReq, err := adaptor.convertToAliRequest(info, req)
+	if err != nil {
+		t.Fatalf("convertToAliRequest failed: %v", err)
+	}
+	// metadata.input.media 优先级最高，原样覆盖自动映射结果
+	if len(aliReq.Input.Media) != 1 || aliReq.Input.Media[0].Type != "last_frame" {
+		t.Fatalf("metadata.input.media 未生效: got %v", mediaTypesOf(aliReq.Input.Media))
+	}
+	if aliReq.Input.Media[0].URL != "https://example.com/specified.png" {
+		t.Errorf("media url mismatch: got %q", aliReq.Input.Media[0].URL)
+	}
+	// metadata.parameters.resolution 同样覆盖 size 推导结果
+	if aliReq.Parameters.Resolution != "2K" {
+		t.Errorf("resolution mismatch: got %q, want 2K", aliReq.Parameters.Resolution)
+	}
+}
+
+func TestConvertMiniMaxRequest_MediaLimits(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	images := make([]string, 12)
+	for i := range images {
+		images[i] = "https://example.com/img" + string(rune('a'+i)) + ".jpg"
+	}
+	videos := []any{
+		"https://example.com/1.mp4", "https://example.com/2.mp4",
+		"https://example.com/3.mp4", "https://example.com/4.mp4",
+	}
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "p",
+		Images: images,
+		Metadata: map[string]interface{}{
+			"reference_videos": videos,
+		},
+	})
+
+	var imgCount, vidCount int
+	for _, m := range aliReq.Input.Media {
+		switch m.Type {
+		case "image_url":
+			imgCount++
+		case "feature":
+			vidCount++
+		default:
+			t.Errorf("意外素材类型: %q", m.Type)
+		}
+	}
+	if imgCount != 9 {
+		t.Errorf("参考图应截断为 9 张, got %d", imgCount)
+	}
+	if vidCount != 3 {
+		t.Errorf("参考视频应截断为 3 个, got %d", vidCount)
+	}
+}
+
+func TestNormalizeMiniMaxDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration int
+		seconds  string
+		want     int
+	}{
+		{"未指定回落默认", 0, "", 5},
+		{"智能时长 -1 不支持", -1, "", 5},
+		{"0 秒", 0, "0", 5},
+		{"小于下限", 3, "", 4},
+		{"下限", 4, "", 4},
+		{"区间内", 8, "", 8},
+		{"上限", 15, "", 15},
+		{"超上限", 20, "", 15},
+		{"seconds 回落", 0, "10", 10},
+		{"duration 优先于 seconds", 6, "10", 6},
+		{"seconds 非法字符串", 0, "abc", 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeMiniMaxDuration(relaycommon.TaskSubmitReq{Duration: tt.duration, Seconds: tt.seconds})
+			if got != tt.want {
+				t.Errorf("normalizeMiniMaxDuration(duration=%d, seconds=%q) = %d, want %d", tt.duration, tt.seconds, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMiniMaxResolutionFromSize(t *testing.T) {
+	tests := []struct {
+		size string
+		want string
+	}{
+		{"2K", "2K"},
+		{"2k", "2K"},
+		{"1080P", "2K"},
+		{"1920*1080", "2K"},
+		{"1080*1920", "2K"},
+		{"2560x1440", "2K"},
+		{"768P", "768P"},
+		{"720P", "768P"},
+		{"512P", "768P"},
+		{"480P", "768P"},
+		{"832*480", "768P"},
+		{"1280*720", "768P"},
+		{"16:9", ""},
+		{"", ""},
+		{"abc", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.size, func(t *testing.T) {
+			if got := miniMaxResolutionFromSize(tt.size); got != tt.want {
+				t.Errorf("miniMaxResolutionFromSize(%q) = %q, want %q", tt.size, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessAliOtherRatios_MiniMax2K(t *testing.T) {
+	// 回归保护：归一化曾把 2K 补成 2KP，导致档位倍率永远查不到
+	aliReq := &AliVideoRequest{
+		Model:      "MiniMax/MiniMax-H3",
+		Parameters: &AliVideoParameters{Resolution: "2K", Duration: 5},
+	}
+
+	ratios, err := ProcessAliOtherRatios(aliReq)
+	if err != nil {
+		t.Fatalf("ProcessAliOtherRatios failed: %v", err)
+	}
+	if _, ok := ratios["resolution-2KP"]; ok {
+		t.Error("resolution key 不应带 P 后缀")
+	}
+	if ratio, ok := ratios["resolution-2K"]; !ok || ratio != 2 {
+		t.Errorf("resolution-2K mismatch: got %v (present=%v), want 2", ratio, ok)
+	}
+}
+
+func TestProcessAliOtherRatios_MiniMax768P(t *testing.T) {
+	aliReq := &AliVideoRequest{
+		Model:      "MiniMax/MiniMax-H3",
+		Parameters: &AliVideoParameters{Resolution: "768P", Duration: 8},
+	}
+
+	ratios, err := ProcessAliOtherRatios(aliReq)
+	if err != nil {
+		t.Fatalf("ProcessAliOtherRatios failed: %v", err)
+	}
+	if ratio, ok := ratios["resolution-768P"]; !ok || ratio != 1 {
+		t.Errorf("resolution-768P mismatch: got %v (present=%v), want 1", ratio, ok)
+	}
+}
+
+func TestProcessAliOtherRatios_WanUnaffected(t *testing.T) {
+	// 回归保护：MiniMax 引入的 K 后缀豁免不得影响万相档位
+	aliReq := &AliVideoRequest{
+		Model:      "wan2.5-i2v-preview",
+		Parameters: &AliVideoParameters{Resolution: "1080P", Duration: 5},
+	}
+
+	ratios, err := ProcessAliOtherRatios(aliReq)
+	if err != nil {
+		t.Fatalf("ProcessAliOtherRatios failed: %v", err)
+	}
+	ratio, ok := ratios["resolution-1080P"]
+	if !ok {
+		t.Fatal("resolution-1080P key missing")
+	}
+	if diff := ratio - 1/0.3; diff > 1e-9 && diff < -1e-9 {
+		t.Errorf("wan2.5 1080P ratio mismatch: got %v, want %v", ratio, 1/0.3)
+	}
+}
+
+func TestConvertMiniMaxRequest_NoUnsupportedFields(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "一只猫在草地上奔跑",
+		Images: []string{"https://example.com/a.png"},
+	})
+
+	body, err := common.Marshal(aliReq)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	jsonStr := string(body)
+
+	// MiniMax 不接受万相专有字段，出现即会被上游拒绝
+	for _, forbidden := range []string{`"size"`, `"prompt_extend"`, `"img_url"`, `"audio"`, `"seed"`, `"negative_prompt"`, `"template"`, `"video_url"`} {
+		if strings.Contains(jsonStr, forbidden) {
+			t.Errorf("请求体不应包含 MiniMax 不支持的字段 %s, body=%s", forbidden, jsonStr)
+		}
+	}
+	for _, required := range []string{`"resolution"`, `"ratio"`, `"duration"`, `"prompt"`, `"media"`} {
+		if !strings.Contains(jsonStr, required) {
+			t.Errorf("请求体应包含字段 %s, body=%s", required, jsonStr)
+		}
+	}
+}
+
+func TestConvertToAliRequest_MiniMaxBranch(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "p",
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest failed: %v", err)
+	}
+	// 分支路由生效：走 MiniMax 而非 wan 兜底（wan 兜底会给出 720P + prompt_extend）
+	if aliReq.Parameters.Resolution != "768P" {
+		t.Errorf("resolution mismatch: got %q, want 768P（说明未走 MiniMax 分支）", aliReq.Parameters.Resolution)
+	}
+	if aliReq.Parameters.Ratio != "16:9" {
+		t.Errorf("ratio mismatch: got %q, want 16:9", aliReq.Parameters.Ratio)
+	}
+	if aliReq.Parameters.PromptExtend {
+		t.Error("MiniMax 分支不应设置 prompt_extend")
+	}
+	if aliReq.Model != "MiniMax/MiniMax-H3" {
+		t.Errorf("model mismatch: got %q", aliReq.Model)
+	}
+}
+
+func TestConvertToAliRequest_MiniMaxModelMapped(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(true, "MiniMax/MiniMax-H3")
+
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "minimax-h3",
+		Prompt: "p",
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest failed: %v", err)
+	}
+	if aliReq.Model != "MiniMax/MiniMax-H3" {
+		t.Errorf("模型映射后应使用上游模型名, got %q", aliReq.Model)
+	}
+	if aliReq.Parameters.Resolution != "768P" {
+		t.Errorf("resolution mismatch: got %q, want 768P", aliReq.Parameters.Resolution)
+	}
+}
+
+func TestConvertToAliRequest_MiniMaxMetadataCannotChangeModel(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	_, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "p",
+		Metadata: map[string]interface{}{
+			"model": "wan3.0-video",
+		},
+	})
+	if err == nil {
+		t.Fatal("metadata 改写 model 应被拒绝（计费绕过防护）")
 	}
 }

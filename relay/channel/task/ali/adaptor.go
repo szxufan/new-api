@@ -37,15 +37,15 @@ type AliVideoRequest struct {
 
 // AliVideoInput 视频输入参数
 type AliVideoInput struct {
-	Prompt         string `json:"prompt,omitempty"`          // 文本提示词
-	ImgURL         string `json:"img_url,omitempty"`         // 首帧图像URL或Base64（图生视频）
-	FirstFrameURL  string `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
-	LastFrameURL   string `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
-	AudioURL       string `json:"audio_url,omitempty"`       // 音频URL（wan2.5支持）
-	NegativePrompt string `json:"negative_prompt,omitempty"` // 反向提示词
-	Template       string `json:"template,omitempty"`        // 视频特效模板
-	Media          []AliMedia `json:"media,omitempty"`          // 媒体素材列表（HappyHorse / 万相3.0全能参考）
-	VideoURL       string `json:"video_url,omitempty"`       // HappyHorse 视频编辑输入视频URL
+	Prompt         string     `json:"prompt,omitempty"`          // 文本提示词
+	ImgURL         string     `json:"img_url,omitempty"`         // 首帧图像URL或Base64（图生视频）
+	FirstFrameURL  string     `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
+	LastFrameURL   string     `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
+	AudioURL       string     `json:"audio_url,omitempty"`       // 音频URL（wan2.5支持）
+	NegativePrompt string     `json:"negative_prompt,omitempty"` // 反向提示词
+	Template       string     `json:"template,omitempty"`        // 视频特效模板
+	Media          []AliMedia `json:"media,omitempty"`           // 媒体素材列表（HappyHorse / 万相3.0全能参考）
+	VideoURL       string     `json:"video_url,omitempty"`       // HappyHorse 视频编辑输入视频URL
 }
 
 // AliMedia 媒体素材（HappyHorse / 万相3.0）
@@ -269,6 +269,17 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 			"720P":  1,
 			"1080P": 1.6 / 0.9,
 		},
+		// 百炼第三方托管 MiniMax：768P 为基准档，2K 取其 2 倍。
+		// 倍率为相对档位，上线前需按百炼控制台实际单价校准，
+		// 详见 docs/ali-bailian-minimax-video.md 的「计费」章节。
+		"MiniMax/MiniMax-H3": {
+			"768P": 1,
+			"2K":   2,
+		},
+		"MiniMax-H3": {
+			"768P": 1,
+			"2K":   2,
+		},
 	}
 	var resolution string
 
@@ -281,7 +292,9 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 		resolution = toResolution
 	} else {
 		resolution = strings.ToUpper(aliReq.Parameters.Resolution)
-		if !strings.HasSuffix(resolution, "P") {
+		// 万相档位以 P 结尾（480P/720P/1080P），MiniMax 另有 2K 档，
+		// 不得补 P 后缀，否则查表 key 变成 2KP 导致档位倍率永远匹配不上。
+		if !strings.HasSuffix(resolution, "P") && !strings.HasSuffix(resolution, "K") {
 			resolution = resolution + "P"
 		}
 	}
@@ -295,6 +308,85 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 
 func isHappyHorseModel(model string) bool {
 	return strings.Contains(model, "happyhorse")
+}
+
+// ============================
+// 百炼第三方托管 MiniMax 视频生成
+// 文档：https://help.aliyun.com/zh/model-studio/minimax-video-generation-api-reference
+//
+// 与万相共用 DashScope 异步视频协议（同端点、同查询接口、同状态枚举），
+// 差异仅在请求体字段语义，因此只新增请求转换与计费档位，其余全部复用。
+// ============================
+
+const (
+	miniMaxDefaultResolution = "768P"
+	miniMaxResolution2K      = "2K"
+	miniMaxDefaultDuration   = 5
+	miniMaxDurationMin       = 4
+	miniMaxDurationMax       = 15
+	miniMaxDefaultT2VRatio   = "16:9"
+	miniMaxRatioAdaptive     = "adaptive"
+)
+
+// MiniMax 素材数量上限：首/尾帧各 1，参考图 9、参考视频 3、参考音频 3
+const (
+	miniMaxMaxFrameImages     = 1
+	miniMaxMaxReferenceImages = 9
+	miniMaxMaxReferenceVideos = 3
+	miniMaxMaxReferenceAudios = 3
+)
+
+// miniMaxMediaTypes 百炼 MiniMax 的素材类型枚举。
+// 注意与万相3.0 不同名：参考图/视频/音频在百炼侧为 image_url / feature / driving_audio。
+const (
+	miniMaxMediaFirstFrame     = "first_frame"
+	miniMaxMediaLastFrame      = "last_frame"
+	miniMaxMediaReferenceImg   = "image_url"
+	miniMaxMediaReferenceVid   = "feature"
+	miniMaxMediaReferenceAudio = "driving_audio"
+)
+
+// miniMaxRatios 百炼 MiniMax 支持的宽高比（比万相3.0 多 21:9）
+var miniMaxRatios = []string{"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
+
+// isMiniMaxModel 判断是否为百炼第三方托管的 MiniMax 视频模型。
+// 官方模型名为 "MiniMax/MiniMax-H3"，同时兼容中转去掉命名空间的 "MiniMax-H3"。
+// 本函数仅在视频 TaskAdaptor 路径上被调用，不会误伤 MiniMax 文本模型
+// （文本走 relay/channel/ali/adaptor.go 的 compatible-mode 路径）。
+func isMiniMaxModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "minimax")
+}
+
+// metadataStringSlice 从 metadata 中读取字符串数组，兼容 []string / []any / 单个 string 三种写法。
+func metadataStringSlice(metadata map[string]interface{}, key string) []string {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata[key]
+	if !ok {
+		return nil
+	}
+	switch value := raw.(type) {
+	case []string:
+		return lo.Filter(value, func(s string, _ int) bool {
+			return strings.TrimSpace(s) != ""
+		})
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, item := range value {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				result = append(result, strings.TrimSpace(s))
+			}
+		}
+		return result
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(value)}
+	default:
+		return nil
+	}
 }
 
 func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) (*AliVideoRequest, error) {
@@ -313,6 +405,8 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		a.convertHappyHorseRequest(aliReq, req)
 	} else if isWan3Model(upstreamModel) {
 		a.convertWan3Request(aliReq, req)
+	} else if isMiniMaxModel(upstreamModel) {
+		a.convertMiniMaxRequest(aliReq, req)
 	} else {
 		a.convertWanRequest(aliReq, req)
 	}
@@ -616,6 +710,206 @@ func (a *TaskAdaptor) convertWanRequest(aliReq *AliVideoRequest, req relaycommon
 		}
 	} else {
 		aliReq.Parameters.Duration = 5
+	}
+}
+
+// convertMiniMaxRequest 百炼 MiniMax（MiniMax/MiniMax-H3）请求转换。
+// 与万相的差异：素材统一走 input.media，且 type 枚举为 first_frame / last_frame /
+// image_url / feature / driving_audio；parameters 仅支持 resolution / ratio / duration /
+// watermark，不得输出 size、prompt_extend 等万相专有字段。
+// metadata.parameters.* 与 metadata.input.* 的覆盖由 convertToAliRequest 统一处理，
+// 因此客户端可通过 metadata.input.media 精确指定任意素材组合（逃生通道）。
+func (a *TaskAdaptor) convertMiniMaxRequest(aliReq *AliVideoRequest, req relaycommon.TaskSubmitReq) {
+	// prompt 不做截断：超长交由上游校验报错，避免静默篡改用户输入
+	aliReq.Input.Prompt = req.Prompt
+
+	media := buildMiniMaxMedia(req)
+	aliReq.Input.Media = media
+
+	aliReq.Parameters.Resolution = miniMaxResolution(req)
+	aliReq.Parameters.Ratio = miniMaxRatio(media, req.Size)
+	aliReq.Parameters.Duration = normalizeMiniMaxDuration(req)
+	// watermark 保持 false：bool + omitempty，序列化时自动省略，与上游默认值一致
+}
+
+// buildMiniMaxMedia 组装 input.media。
+// 图片数量推导：1 张→首帧，2 张→首尾帧，≥3 张→参考图；
+// metadata.reference_videos / reference_audios 分别映射为 feature / driving_audio。
+// 百炼规定首尾帧与参考素材互斥：存在任一参考素材时剔除首尾帧，降级为多模态参考生视频。
+func buildMiniMaxMedia(req relaycommon.TaskSubmitReq) []AliMedia {
+	referenceVideos := metadataStringSlice(req.Metadata, "reference_videos")
+	referenceAudios := metadataStringSlice(req.Metadata, "reference_audios")
+
+	var firstFrame, lastFrame string
+	referenceImages := make([]string, 0, len(req.Images))
+	switch {
+	case len(req.Images) == 1:
+		firstFrame = req.Images[0]
+	case len(req.Images) == 2:
+		firstFrame, lastFrame = req.Images[0], req.Images[1]
+	default:
+		referenceImages = append(referenceImages, req.Images...)
+	}
+
+	hasReference := len(referenceImages) > 0 || len(referenceVideos) > 0 || len(referenceAudios) > 0
+	if hasReference && (firstFrame != "" || lastFrame != "") {
+		common.SysLog(fmt.Sprintf("ali minimax video: first_frame/last_frame dropped in favor of reference media (model=%s)", req.Model))
+		firstFrame, lastFrame = "", ""
+	}
+
+	media := make([]AliMedia, 0, 2+len(referenceImages)+len(referenceVideos)+len(referenceAudios))
+	media = appendMiniMaxMedia(media, miniMaxMediaFirstFrame, []string{firstFrame}, miniMaxMaxFrameImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaLastFrame, []string{lastFrame}, miniMaxMaxFrameImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceImg, referenceImages, miniMaxMaxReferenceImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceVid, referenceVideos, miniMaxMaxReferenceVideos)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceAudio, referenceAudios, miniMaxMaxReferenceAudios)
+
+	if len(media) == 0 {
+		return nil
+	}
+	return media
+}
+
+// appendMiniMaxMedia 按类型追加素材，剔除空值并按上游数量上限截断（保留靠前者）。
+func appendMiniMaxMedia(media []AliMedia, mediaType string, urls []string, limit int) []AliMedia {
+	for i, url := range urls {
+		if i >= limit {
+			break
+		}
+		url = strings.TrimSpace(url)
+		if url == "" {
+			continue
+		}
+		media = append(media, AliMedia{Type: mediaType, URL: url})
+	}
+	return media
+}
+
+// miniMaxResolution 分辨率档位收敛（仅 768P / 2K）。
+// 优先级：metadata.parameters.resolution（由 convertToAliRequest 的覆盖阶段生效）
+// → size 推导 → 默认 768P。默认值不取 2K，避免未指定参数时默认落在更贵档位造成意外扣费。
+func miniMaxResolution(req relaycommon.TaskSubmitReq) string {
+	if resolution := miniMaxResolutionFromSize(req.Size); resolution != "" {
+		return resolution
+	}
+	return miniMaxDefaultResolution
+}
+
+// miniMaxResolutionFromSize 将 size 换算为 MiniMax 分辨率档位；无法判断时返回空串。
+func miniMaxResolutionFromSize(size string) string {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return ""
+	}
+	// 比例串（16:9 等）不决定档位
+	if strings.Contains(size, ":") {
+		return ""
+	}
+	switch strings.ToUpper(size) {
+	case "2K", "4K", "1080P", "1440P", "2160P":
+		return miniMaxResolution2K
+	case "480P", "512P", "720P", "768P":
+		return miniMaxDefaultResolution
+	}
+	if w, h, ok := parseSizeDimensions(size); ok {
+		// 以短边（垂直分辨率）判档：1280*720 属于 720P 内容，
+		// 若按长边判断会被误升到 2K 档并多扣费。
+		shortest := w
+		if h < shortest {
+			shortest = h
+		}
+		if shortest >= 1080 {
+			return miniMaxResolution2K
+		}
+		return miniMaxDefaultResolution
+	}
+	return ""
+}
+
+// miniMaxRatio 宽高比收敛。
+//   - 图生视频（含首/尾帧）：恒为 adaptive（文档：由输入图片决定，传其他值会被忽略）
+//   - 文生视频：必填且不得为 adaptive，默认 16:9
+//   - 多模态参考生视频：默认 adaptive，可显式指定
+func miniMaxRatio(media []AliMedia, size string) string {
+	var isImageToVideo, hasReference bool
+	for _, m := range media {
+		switch m.Type {
+		case miniMaxMediaFirstFrame, miniMaxMediaLastFrame:
+			isImageToVideo = true
+		case miniMaxMediaReferenceImg, miniMaxMediaReferenceVid, miniMaxMediaReferenceAudio:
+			hasReference = true
+		}
+	}
+	if isImageToVideo {
+		return miniMaxRatioAdaptive
+	}
+	// 文生视频不允许 adaptive
+	fallback := miniMaxRatioAdaptive
+	if !hasReference {
+		fallback = miniMaxDefaultT2VRatio
+	}
+
+	candidate := size
+	if !strings.Contains(candidate, ":") {
+		candidate = sizeToMiniMaxRatio(size)
+	}
+	if candidate == "" || !isMiniMaxValidRatio(candidate) {
+		return fallback
+	}
+	if !hasReference && strings.EqualFold(candidate, miniMaxRatioAdaptive) {
+		return fallback
+	}
+	return candidate
+}
+
+// isMiniMaxValidRatio 校验宽高比是否为 MiniMax 支持的官方值（含 adaptive）
+func isMiniMaxValidRatio(ratio string) bool {
+	if strings.EqualFold(ratio, miniMaxRatioAdaptive) {
+		return true
+	}
+	return lo.Contains(miniMaxRatios, ratio)
+}
+
+// sizeToMiniMaxRatio 将像素尺寸换算为最接近的 MiniMax 官方宽高比；无法解析时返回空串。
+func sizeToMiniMaxRatio(size string) string {
+	w, h, ok := parseSizeDimensions(size)
+	if !ok {
+		return ""
+	}
+	ratio := float64(w) / float64(h)
+	best := miniMaxDefaultT2VRatio
+	bestDiff := math.MaxFloat64
+	for _, r := range miniMaxRatios {
+		parts := strings.Split(r, ":")
+		tw, _ := strconv.Atoi(parts[0])
+		th, _ := strconv.Atoi(parts[1])
+		diff := math.Abs(ratio - float64(tw)/float64(th))
+		if diff < bestDiff {
+			bestDiff = diff
+			best = r
+		}
+	}
+	return best
+}
+
+// normalizeMiniMaxDuration MiniMax 时长归一化：取值 4-15 的整数秒，未指定默认 5 秒。
+// -1（万相3.0 的智能时长）等非法值收敛到默认值，超范围值收敛到边界。
+func normalizeMiniMaxDuration(req relaycommon.TaskSubmitReq) int {
+	duration := req.Duration
+	if duration == 0 && req.Seconds != "" {
+		if seconds, err := strconv.Atoi(req.Seconds); err == nil {
+			duration = seconds
+		}
+	}
+	switch {
+	case duration <= 0:
+		return miniMaxDefaultDuration
+	case duration < miniMaxDurationMin:
+		return miniMaxDurationMin
+	case duration > miniMaxDurationMax:
+		return miniMaxDurationMax
+	default:
+		return duration
 	}
 }
 
