@@ -177,6 +177,13 @@ describe('buildVideoPayload', () => {
     expect(payload.images).toBeUndefined()
     expect(payload.metadata).toEqual({ parameters: { resolution: '480P' } })
   })
+
+  it('MiniMax 2K 分辨率经 metadata.parameters.resolution 下发', () => {
+    const payload = buildVideoPayload(
+      createState({ model: 'MiniMax/MiniMax-H3', resolution: '2K' })
+    )
+    expect(payload.metadata).toEqual({ parameters: { resolution: '2K' } })
+  })
 })
 
 describe('effectiveGenerationMode', () => {

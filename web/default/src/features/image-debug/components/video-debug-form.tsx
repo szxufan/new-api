@@ -38,7 +38,7 @@ import {
   VIDEO_GENERATION_MODES,
   VIDEO_IMAGE_MAX,
   VIDEO_RATIOS,
-  VIDEO_RESOLUTIONS,
+  getVideoResolutions,
 } from '../constants'
 import { fileToDataUrl } from '../lib/file-utils'
 import type { GroupOption, ModelOption, VideoDebugFormState } from '../types'
@@ -268,12 +268,9 @@ export function VideoDebugForm({
             onChange={(e) => onStateChange({ resolution: e.target.value })}
             disabled={isSubmitting}
           >
-            {VIDEO_RESOLUTIONS.map((resolution) => (
-              <NativeSelectOption
-                key={resolution.value}
-                value={resolution.value}
-              >
-                {resolution.value}
+            {getVideoResolutions(state.model).map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {value}
               </NativeSelectOption>
             ))}
           </NativeSelect>

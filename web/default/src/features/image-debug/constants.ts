@@ -106,6 +106,27 @@ export const VIDEO_RESOLUTIONS = [
   { label: '1080P', value: '1080P' },
 ] as const
 
+/** 按模型族的分辨率档位：未命中规则时用通用档位（VIDEO_RESOLUTIONS）。
+ * 依据后端计费档位表（relay/channel/task/ali/adaptor.go 的 aliRatios）：
+ * MiniMax 仅 768P / 2K，HappyHorse 仅 720P / 1080P。 */
+export const VIDEO_RESOLUTION_RULES: {
+  pattern: RegExp
+  resolutions: readonly string[]
+}[] = [
+  { pattern: /minimax/i, resolutions: ['768P', '2K'] },
+  { pattern: /happyhorse/i, resolutions: ['720P', '1080P'] },
+]
+
+/** 返回所选模型支持的分辨率档位列表（无匹配规则时返回通用档位）。 */
+export function getVideoResolutions(model: string): readonly string[] {
+  for (const rule of VIDEO_RESOLUTION_RULES) {
+    if (rule.pattern.test(model)) {
+      return rule.resolutions
+    }
+  }
+  return VIDEO_RESOLUTIONS.map((r) => r.value)
+}
+
 /** 生成模式选项（label 为 i18n 键）；value 与 types.VideoGenerationMode 对应。
  * minImages 为该模式所需的最少图片数，0 表示无图片要求。 */
 export const VIDEO_GENERATION_MODES = [

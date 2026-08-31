@@ -28,6 +28,7 @@ import {
   DEFAULT_VIDEO_RATIO,
   DEFAULT_VIDEO_RESOLUTION,
   VIDEO_POLL_INTERVAL_MS,
+  getVideoResolutions,
 } from '../constants'
 import { resolveSelection } from '../lib/selection'
 import { buildVideoPayload } from '../lib/video-payload'
@@ -167,6 +168,16 @@ export function VideoDebugTab() {
   }
   if (resolvedGroup !== state.group) {
     setState((prev) => ({ ...prev, group: resolvedGroup }))
+    return null
+  }
+  // 模型变化后当前分辨率可能不在其支持档位（如 MiniMax 仅 768P/2K）：
+  // 自动修正到该模型首个档位
+  const resolutions = getVideoResolutions(state.model)
+  const resolvedResolution = resolutions.includes(state.resolution)
+    ? state.resolution
+    : resolutions[0]
+  if (resolvedResolution !== state.resolution) {
+    setState((prev) => ({ ...prev, resolution: resolvedResolution }))
     return null
   }
 
