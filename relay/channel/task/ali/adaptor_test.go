@@ -714,8 +714,42 @@ func TestParseTaskResultExactUpstreamBody(t *testing.T) {
 	if int(aliResp.Usage.Duration) != 10 {
 		t.Errorf("usage.duration mismatch: got %d, want 10", int(aliResp.Usage.Duration))
 	}
-	if int(aliResp.Usage.SR) != 1080 {
-		t.Errorf("usage.SR mismatch: got %d, want 1080", int(aliResp.Usage.SR))
+	if string(aliResp.Usage.SR) != "1080" {
+		t.Errorf("usage.SR mismatch: got %q, want %q", string(aliResp.Usage.SR), "1080")
+	}
+}
+
+// TestParseTaskResultExactMiniMaxBody 回归测试：2026-08-31 真实上游响应原文
+// （逐字节复制自线上轮询日志）。MiniMax 的 usage.SR 为字符串 "2K"，
+// 此前 SR 声明为 dto.IntValue → strconv.ParseFloat: parsing "2K" 失败，
+// 导致任务进度轮询卡死。
+func TestParseTaskResultExactMiniMaxBody(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	body := []byte(`{"request_id":"770231b7-37d0-9d30-b4e3-26347488216e","output":{"task_id":"e9ac6b51-c5aa-4754-a4eb-34766254b744","task_status":"SUCCEEDED","submit_time":"2026-08-31 19:47:49.436","scheduled_time":"2026-08-31 19:47:49.483","end_time":"2026-08-31 19:58:00.028","video_url":"https://algeng-video-infer.oss-cn-shanghai.aliyuncs.com/inference_output%2Frollout%2F2026-08-31%2F29f79e8d-0937-4f3b-9316-44050d7483ba%2Foutput_aigc.mp4?Expires=1788263878&OSSAccessKeyId=LTAI5tA8yjKg7HvBRDpzZ8Nk&Signature=xuDxIIUdpdOq%2B3pkrBrIuXhh4jc%3D"},"usage":{"duration":15,"total_seconds":15,"size":"2560*1440","output_seconds":15,"video_count":1,"image_count":0,"input_seconds":0,"SR":"2K"}}`)
+
+	result, err := adaptor.ParseTaskResult(body)
+	if err != nil {
+		t.Fatalf("ParseTaskResult failed on exact MiniMax body: %v", err)
+	}
+	if result.Status != model.TaskStatusSuccess {
+		t.Errorf("status mismatch: got %q, want %q", result.Status, model.TaskStatusSuccess)
+	}
+	if result.Url == "" {
+		t.Error("url should be set from video_url")
+	}
+
+	var aliResp AliVideoResponse
+	if err := common.Unmarshal(body, &aliResp); err != nil {
+		t.Fatalf("unmarshal AliVideoResponse failed: %v", err)
+	}
+	if aliResp.Usage == nil {
+		t.Fatal("usage should be parsed")
+	}
+	if string(aliResp.Usage.SR) != "2K" {
+		t.Errorf("usage.SR mismatch: got %q, want %q", string(aliResp.Usage.SR), "2K")
+	}
+	if int(aliResp.Usage.Duration) != 15 {
+		t.Errorf("usage.duration mismatch: got %d, want 15", int(aliResp.Usage.Duration))
 	}
 }
 

@@ -95,7 +95,9 @@ type AliVideoOutput struct {
 type AliUsage struct {
 	Duration   dto.IntValue `json:"duration,omitempty"`
 	VideoCount dto.IntValue `json:"video_count,omitempty"`
-	SR         dto.IntValue `json:"SR,omitempty"`
+	// SR 超分档位：万相返回数字（如 1080），MiniMax 返回字符串（如 "2K"），
+	// 故用 StringValue 兼容两种形态（数字会被转为其字符串表示）。
+	SR dto.StringValue `json:"SR,omitempty"`
 }
 
 type AliMetadata struct {
