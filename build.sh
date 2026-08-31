@@ -79,12 +79,15 @@ install_go() {
     os="$(detect_os)"
     arch="$(detect_arch)"
 
+    local download_url="https://go.dev/dl/${version}.${os}-${arch}.tar.gz"
     info "下载 ${version} (${os}/${arch}) ..."
+    info "下载地址: $download_url"
     local tmp
     tmp="$(mktemp -d)"
-    if ! curl -fsSL "https://go.dev/dl/${version}.${os}-${arch}.tar.gz" -o "$tmp/go.tar.gz"; then
+    if ! curl -fsSL "$download_url" -o "$tmp/go.tar.gz"; then
         rm -rf "$tmp"
-        err "Go 下载失败，请手动安装: https://go.dev/dl/"
+        err "Go 下载失败: $download_url"
+        err "请手动安装: https://go.dev/dl/"
         exit 1
     fi
 
