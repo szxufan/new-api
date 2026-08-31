@@ -9,6 +9,9 @@ BINARY_NAME="new-api"
 
 SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
 SKIP_BACKEND="${SKIP_BACKEND:-false}"
+# Go 模块代理，可通过 --goproxy 参数或环境变量 GOPROXY 设置
+# 国内编译机可设置为: https://goproxy.cn,direct
+GOPROXY="${GOPROXY:-}"
 # vite 构建大项目时 Node 默认堆内存不足，可调大上限避免 OOM
 NODE_MAX_OLD_SPACE_SIZE="${NODE_MAX_OLD_SPACE_SIZE:-4096}"
 export NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} ${NODE_OPTIONS:-}"
@@ -209,6 +212,7 @@ usage() {
     echo "  --skip-backend     跳过后端编译"
     echo "  --goos <os>        目标操作系统 (默认: 当前系统)"
     echo "  --goarch <arch>    目标架构 (默认: 当前架构)"
+    echo "  --goproxy <proxy>  设置 Go 模块代理 (例如: https://goproxy.cn,direct)"
     echo "  -h, --help         显示帮助信息"
     echo ""
     echo "环境变量:"
@@ -216,11 +220,13 @@ usage() {
     echo "  SKIP_BACKEND       设为 true 跳过后端编译"
     echo "  GOOS               目标操作系统"
     echo "  GOARCH             目标架构"
+    echo "  GOPROXY            Go 模块代理 (同 --goproxy)"
     echo ""
     echo "示例:"
     echo "  $0                              # 完整编译"
     echo "  $0 --skip-frontend              # 仅编译后端 (前端已编译)"
     echo "  $0 --goos linux --goarch arm64  # 交叉编译 Linux ARM64"
+    echo "  $0 --goproxy https://goproxy.cn,direct  # 使用国内模块代理编译"
     echo "  SKIP_FRONTEND=true $0           # 通过环境变量跳过前端"
 }
 
@@ -231,6 +237,7 @@ parse_args() {
             --skip-backend)  SKIP_BACKEND="true";  shift ;;
             --goos)          GOOS="$2"; shift 2 ;;
             --goarch)        GOARCH="$2"; shift 2 ;;
+            --goproxy)       GOPROXY="$2"; shift 2 ;;
             -h|--help)       usage; exit 0 ;;
             *)               err "未知参数: $1"; usage; exit 1 ;;
         esac
@@ -239,6 +246,12 @@ parse_args() {
 
 main() {
     parse_args "$@"
+
+    # 显式指定了模块代理时导出，供 go 命令使用
+    if [ -n "$GOPROXY" ]; then
+        export GOPROXY
+        info "使用 GOPROXY: $GOPROXY"
+    fi
 
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}  new-api 编译脚本${NC}"
