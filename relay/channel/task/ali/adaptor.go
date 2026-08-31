@@ -402,6 +402,17 @@ func (a *TaskAdaptor) convertHappyHorseRequest(aliReq *AliVideoRequest, req rela
 	aliReq.Input.Prompt = req.Prompt
 	aliReq.Parameters.Duration = 5
 
+	// 与 ValidateMultipartDirect 的归一保持一致（input_reference → images），
+	// 使转换器不依赖调用方已归一（历史行为：i2v/r2v 均直接消费 input_reference）。
+	if req.InputReference != "" {
+		req.Images = []string{req.InputReference}
+	}
+
+	// 统一解析层：metadata 具名键（first_frame_image / reference_images 等）优先；
+	// 隐式规则按模型变体（模型名即模式编码：t2v/i2v/r2v/video-edit），
+	// 见 docs/video-generation-mode-design.md。
+	plan, _ := relaycommon.BuildMediaPlan(req, happyHorseMediaPlanOptions(aliReq.Model))
+
 	switch {
 	case strings.Contains(aliReq.Model, "t2v"):
 		// HappyHorse 文生视频
@@ -409,33 +420,23 @@ func (a *TaskAdaptor) convertHappyHorseRequest(aliReq *AliVideoRequest, req rela
 		aliReq.Parameters.Ratio = "16:9"
 		aliReq.Parameters.Watermark = false
 	case strings.Contains(aliReq.Model, "i2v"):
-		// HappyHorse 图生视频（首帧）
+		// HappyHorse 图生视频（首帧）：
+		// first_frame_image 具名键 / 首张图片 / input_reference（经 ValidateMultipartDirect 归一）
 		aliReq.Parameters.Resolution = "1080P"
 		aliReq.Parameters.Watermark = false
-		if req.InputReference != "" {
+		if plan.FirstFrame != "" {
 			aliReq.Input.Media = []AliMedia{
-				{Type: "first_frame", URL: req.InputReference},
-			}
-		} else if len(req.Images) > 0 {
-			aliReq.Input.Media = []AliMedia{
-				{Type: "first_frame", URL: req.Images[0]},
+				{Type: "first_frame", URL: plan.FirstFrame},
 			}
 		}
 	case strings.Contains(aliReq.Model, "r2v"):
-		// HappyHorse 参考生视频
+		// HappyHorse 参考生视频：
+		// reference_images 具名键 / 全部图片 / input_reference（经 ValidateMultipartDirect 归一）
 		aliReq.Parameters.Resolution = "1080P"
 		aliReq.Parameters.Ratio = "16:9"
 		aliReq.Parameters.Watermark = false
-		if len(req.Images) > 0 {
-			media := make([]AliMedia, len(req.Images))
-			for i, img := range req.Images {
-				media[i] = AliMedia{Type: "reference_image", URL: img}
-			}
+		if media := happyHorseReferenceMedia(plan); len(media) > 0 {
 			aliReq.Input.Media = media
-		} else if req.InputReference != "" {
-			aliReq.Input.Media = []AliMedia{
-				{Type: "reference_image", URL: req.InputReference},
-			}
 		}
 	case strings.Contains(aliReq.Model, "video-edit"):
 		// HappyHorse 视频编辑
@@ -444,11 +445,7 @@ func (a *TaskAdaptor) convertHappyHorseRequest(aliReq *AliVideoRequest, req rela
 		if req.InputReference != "" {
 			aliReq.Input.VideoURL = req.InputReference
 		}
-		if len(req.Images) > 0 {
-			media := make([]AliMedia, len(req.Images))
-			for i, img := range req.Images {
-				media[i] = AliMedia{Type: "reference_image", URL: img}
-			}
+		if media := happyHorseReferenceMedia(plan); len(media) > 0 {
 			aliReq.Input.Media = media
 		}
 	}
@@ -480,6 +477,48 @@ func (a *TaskAdaptor) convertHappyHorseRequest(aliReq *AliVideoRequest, req rela
 			aliReq.Parameters.Duration = seconds
 		}
 	}
+}
+
+// happyHorseMediaPlanOptions HappyHorse 的隐式规则按模型变体（模型名即模式编码）：
+// r2v / video-edit：全部图片作为参考图（含单图）；i2v：仅首张图片作为首帧。
+// 与默认数量推导（2 张→首尾帧）不同，必须覆写，否则参考生视频会丢失素材。
+func happyHorseMediaPlanOptions(model string) relaycommon.MediaPlanOptions {
+	opts := relaycommon.MediaPlanOptions{}
+	switch {
+	case strings.Contains(model, "r2v"), strings.Contains(model, "video-edit"):
+		opts.ImplicitImages = func(images []string, plan *relaycommon.MediaPlan) {
+			plan.ReferenceImages = append(plan.ReferenceImages, images...)
+		}
+	case strings.Contains(model, "i2v"):
+		opts.ImplicitImages = func(images []string, plan *relaycommon.MediaPlan) {
+			for _, img := range images {
+				if s := strings.TrimSpace(img); s != "" {
+					plan.FirstFrame = s
+					return
+				}
+			}
+		}
+	}
+	return opts
+}
+
+// happyHorseReferenceMedia 将 plan 的参考素材映射为 HappyHorse 的 reference_image 项；
+// 无参考素材时首尾帧降级为参考图（r2v / video-edit 把所有素材都当作参考）。
+func happyHorseReferenceMedia(plan relaycommon.MediaPlan) []AliMedia {
+	refs := plan.ReferenceImages
+	if len(refs) == 0 {
+		if plan.FirstFrame != "" {
+			refs = append(refs, plan.FirstFrame)
+		}
+		if plan.LastFrame != "" {
+			refs = append(refs, plan.LastFrame)
+		}
+	}
+	media := make([]AliMedia, 0, len(refs))
+	for _, url := range refs {
+		media = append(media, AliMedia{Type: "reference_image", URL: url})
+	}
+	return media
 }
 
 // isWan3Model 判断是否为万相3.0模型（wan3.0-video / wan3.0-video-prime）

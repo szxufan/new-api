@@ -317,6 +317,9 @@ D1、D2、D3、D5、D6、D7。不动接口，纯行为修正（方向见 §7 末
 - hailuo v2 的 `buildV2Request` 双调用点（`EstimateBilling` / `BuildRequestBody`）：`BuildMediaPlan` 是 req 的纯函数，两次调用结果必然一致，无需缓存
 - kling 隐式路径仅用首张图（尾帧须经 `last_frame_image` 显式指定）；doubao 隐式路径保持无 role 项（上游 role 取值域待核实，§10），显式路径经 `MediaPlan` 赋 role（D6）
 - wan3 经 `ImplicitImages` 钩子保留「单图首帧 / 多图参考图」语义（§9 决策），测试锚点见 `ali/adaptor_test.go` 的 `TestConvertWan3Request_TwoImagesAreReferences`
+- happyhorse 同样经 `ImplicitImages` 钩子按模型变体（模型名即模式编码：t2v/i2v/r2v/video-edit）映射：
+  r2v / video-edit 全部图片为参考图，i2v 仅首张为首帧。修复了「参考生视频经具名键
+  `reference_images` 下发时 `input.media` 为空 → 上游 `InvalidParameter: Field required: input.media`」的缺陷
 
 ### 阶段 2：顶层契约字段
 

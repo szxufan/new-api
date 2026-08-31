@@ -1266,3 +1266,145 @@ func TestConvertMiniMaxRequest_NamedMetadataKeys(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================================
+// HappyHorse（修复「参考生视频经具名键下发时 input.media 缺失」的回归锚点）
+// ============================================================================
+
+// TestConvertToAliRequest_HappyHorseR2VNamedReferenceImages 线上缺陷回归：
+// 前端「参考生视频」模式经 metadata.reference_images 下发（不带 images），
+// 此前 r2v 分支只读 req.Images → input.media 为空 → 上游 InvalidParameter。
+func TestConvertToAliRequest_HappyHorseR2VNamedReferenceImages(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-r2v",
+		Prompt: "p",
+		Metadata: map[string]interface{}{
+			relaycommon.MetadataKeyReferenceImages: []string{
+				"https://example.com/r1.png",
+				"https://example.com/r2.png",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if len(aliReq.Input.Media) != 2 {
+		t.Fatalf("input.media count = %d, want 2 (bug: was empty)", len(aliReq.Input.Media))
+	}
+	for i, m := range aliReq.Input.Media {
+		if m.Type != "reference_image" {
+			t.Errorf("media[%d].Type = %q, want reference_image", i, m.Type)
+		}
+	}
+}
+
+// TestConvertToAliRequest_HappyHorseImplicit 锚定现状隐式语义：
+// r2v 全部图片为参考图；i2v 仅首张为首帧；t2v 无素材。
+func TestConvertToAliRequest_HappyHorseImplicit(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	// r2v + 2 张图 → 全部参考图（而非默认推导的首尾帧）
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-r2v",
+		Prompt: "p",
+		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if got := mediaTypesOf(aliReq.Input.Media); len(got) != 2 || got[0] != "reference_image" || got[1] != "reference_image" {
+		t.Errorf("r2v media types = %v, want [reference_image reference_image]", got)
+	}
+
+	// i2v + 2 张图 → 仅首张作为首帧
+	aliReq, err = adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-i2v",
+		Prompt: "p",
+		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if len(aliReq.Input.Media) != 1 || aliReq.Input.Media[0].Type != "first_frame" ||
+		aliReq.Input.Media[0].URL != "https://example.com/a.png" {
+		t.Errorf("i2v media = %+v, want single first_frame of first image", aliReq.Input.Media)
+	}
+
+	// t2v → 无素材
+	aliReq, err = adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-t2v",
+		Prompt: "p",
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if len(aliReq.Input.Media) != 0 {
+		t.Errorf("t2v media = %+v, want empty", aliReq.Input.Media)
+	}
+}
+
+// TestConvertToAliRequest_HappyHorseNamedFirstFrame 阶段 1 增量与降级：
+// i2v 支持 first_frame_image 具名键；r2v 收到首帧素材时降级为参考图。
+func TestConvertToAliRequest_HappyHorseNamedFirstFrame(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	// i2v + first_frame_image
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-i2v",
+		Prompt: "p",
+		Metadata: map[string]interface{}{
+			relaycommon.MetadataKeyFirstFrame: "https://example.com/first.png",
+		},
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if len(aliReq.Input.Media) != 1 || aliReq.Input.Media[0].Type != "first_frame" ||
+		aliReq.Input.Media[0].URL != "https://example.com/first.png" {
+		t.Errorf("i2v media = %+v, want first_frame from named key", aliReq.Input.Media)
+	}
+
+	// r2v + first_frame_image（无参考素材）→ 降级为参考图，input.media 不为空
+	aliReq, err = adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:  "happyhorse-1.1-r2v",
+		Prompt: "p",
+		Metadata: map[string]interface{}{
+			relaycommon.MetadataKeyFirstFrame: "https://example.com/first.png",
+		},
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if len(aliReq.Input.Media) != 1 || aliReq.Input.Media[0].Type != "reference_image" {
+		t.Errorf("r2v media = %+v, want frame downgraded to reference_image", aliReq.Input.Media)
+	}
+}
+
+// TestConvertToAliRequest_HappyHorseVideoEdit 锚定现状：
+// input_reference 作为待编辑视频（video_url）；ValidateMultipartDirect 会把它
+// 归一进 images，故参考素材同时出现（与线上链路一致）。
+func TestConvertToAliRequest_HappyHorseVideoEdit(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	info := newMiniMaxRelayInfo(false, "")
+
+	aliReq, err := adaptor.convertToAliRequest(info, relaycommon.TaskSubmitReq{
+		Model:          "happyhorse-1.0-video-edit",
+		Prompt:         "p",
+		InputReference: "https://example.com/src.mp4",
+		Images:         []string{"https://example.com/src.mp4"}, // ValidateMultipartDirect 归一结果
+	})
+	if err != nil {
+		t.Fatalf("convertToAliRequest() error = %v", err)
+	}
+	if aliReq.Input.VideoURL != "https://example.com/src.mp4" {
+		t.Errorf("video_url = %q, want input_reference", aliReq.Input.VideoURL)
+	}
+	if len(aliReq.Input.Media) != 1 || aliReq.Input.Media[0].Type != "reference_image" {
+		t.Errorf("video-edit media = %+v, want single reference_image", aliReq.Input.Media)
+	}
+}
