@@ -273,8 +273,31 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		Content: []ContentItem{},
 	}
 
-	// Add images if present
-	if req.HasImage() {
+	// 媒体输入（阶段 1 统一解析层）：
+	// - 显式路径（metadata 具名键）：按素材角色赋值 role（D6 修复）
+	// - 隐式路径（images 数组）：保持无 role 的 image_url 项（现状）——
+	//   上游 role 合法取值域待核实（设计文档 §10），不做推测
+	plan, err := relaycommon.BuildMediaPlan(*req, relaycommon.MediaPlanOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "build media plan failed")
+	}
+	if plan.Explicit {
+		if plan.FirstFrame != "" {
+			r.Content = append(r.Content, doubaoMediaItem("image_url", doubaoRoleFirstFrame, plan.FirstFrame))
+		}
+		if plan.LastFrame != "" {
+			r.Content = append(r.Content, doubaoMediaItem("image_url", doubaoRoleLastFrame, plan.LastFrame))
+		}
+		for _, url := range plan.ReferenceImages {
+			r.Content = append(r.Content, doubaoMediaItem("image_url", doubaoRoleReferenceImage, url))
+		}
+		for _, url := range plan.ReferenceVideos {
+			r.Content = append(r.Content, doubaoMediaItem("video_url", doubaoRoleReferenceVideo, url))
+		}
+		for _, url := range plan.ReferenceAudios {
+			r.Content = append(r.Content, doubaoMediaItem("audio_url", doubaoRoleReferenceAudio, url))
+		}
+	} else if req.HasImage() {
 		for _, imgURL := range req.Images {
 			r.Content = append(r.Content, ContentItem{
 				Type: "image_url",
@@ -301,6 +324,30 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	})
 
 	return &r, nil
+}
+
+// 豆包 content[].role 取值：与 MiniMax v2 content 协议对齐（两者结构同构）。
+// 注意：上游合法取值域待官方文档核实（设计文档 §10），因此仅用于显式路径。
+const (
+	doubaoRoleFirstFrame     = "first_frame"
+	doubaoRoleLastFrame      = "last_frame"
+	doubaoRoleReferenceImage = "reference_image"
+	doubaoRoleReferenceVideo = "reference_video"
+	doubaoRoleReferenceAudio = "reference_audio"
+)
+
+// doubaoMediaItem 构造带角色的媒体项（D6：此前后端从不为 Role 赋值）。
+func doubaoMediaItem(itemType, role, url string) ContentItem {
+	item := ContentItem{Type: itemType, Role: role}
+	switch itemType {
+	case "image_url":
+		item.ImageURL = &MediaURL{URL: url}
+	case "video_url":
+		item.VideoURL = &MediaURL{URL: url}
+	case "audio_url":
+		item.AudioURL = &MediaURL{URL: url}
+	}
+	return item
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {

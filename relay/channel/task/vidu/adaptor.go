@@ -92,17 +92,32 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		return service.TaskErrorWrapper(err, "get_task_request_failed", http.StatusBadRequest)
 	}
 	action := constant.TaskActionTextGenerate
-	if meatAction, ok := req.Metadata["action"]; ok {
-		action, _ = meatAction.(string)
+	if metaAction, ok := req.Metadata["action"]; ok {
+		// D2 修复：action 走白名单校验，非法值 / 非字符串返回 400，
+		// 避免静默降级为文生视频。
+		actionStr, isStr := metaAction.(string)
+		if !isStr || !isViduAction(actionStr) {
+			return service.TaskErrorWrapperLocal(
+				fmt.Errorf("invalid metadata.action %v, must be one of: %s / %s / %s / %s",
+					metaAction, constant.TaskActionTextGenerate, constant.TaskActionGenerate,
+					constant.TaskActionFirstTailGenerate, constant.TaskActionReferenceGenerate),
+				"invalid_action", http.StatusBadRequest)
+		}
+		action = actionStr
 	} else if req.HasImage() {
 		action = constant.TaskActionGenerate
 		if info.ChannelType == constant.ChannelTypeVidu {
-			// vidu 增加 首尾帧生视频和参考图生视频
-			if len(req.Images) == 2 {
-				action = constant.TaskActionFirstTailGenerate
-			} else if len(req.Images) > 2 {
-				action = constant.TaskActionReferenceGenerate
+			// vidu 增加 首尾帧生视频和参考图生视频：
+			// 统一解析层按图片数量 / metadata 具名键推导模式
+			//（无具名键时与原数量推导结果一致，零回归）
+			if plan, err := relaycommon.BuildMediaPlan(req, relaycommon.MediaPlanOptions{}); err == nil {
+				action = plan.Mode
 			}
+		}
+	} else if info.ChannelType == constant.ChannelTypeVidu && relaycommon.HasVideoMediaKeys(req.Metadata) {
+		// 阶段 1 增量：仅经 metadata 具名键指定素材角色（无 images）
+		if plan, err := relaycommon.BuildMediaPlan(req, relaycommon.MediaPlanOptions{}); err == nil {
+			action = plan.Mode
 		}
 	}
 	info.Action = action
@@ -224,6 +239,17 @@ func (a *TaskAdaptor) GetChannelName() string {
 // helpers
 // ============================
 
+// isViduAction 判断 action 是否为合法的 vidu 生成模式（对应四个上游端点）。
+func isViduAction(action string) bool {
+	switch action {
+	case constant.TaskActionTextGenerate, constant.TaskActionGenerate,
+		constant.TaskActionFirstTailGenerate, constant.TaskActionReferenceGenerate:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
 	r := requestPayload{
 		Model:             taskcommon.DefaultString(info.UpstreamModelName, "viduq1"),
@@ -233,6 +259,13 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		Resolution:        taskcommon.DefaultString(req.Size, "1080p"),
 		MovementAmplitude: "auto",
 		Bgm:               false,
+	}
+	// 使用 metadata 具名键时，按 plan 顺序展平为扁平图片数组（首帧→尾帧→参考图），
+	// 与 info.Action 的端点选择保持一致；未使用具名键时保持 req.Images 原样（现状）。
+	if info.ChannelType == constant.ChannelTypeVidu && relaycommon.HasVideoMediaKeys(req.Metadata) {
+		if plan, err := relaycommon.BuildMediaPlan(*req, relaycommon.MediaPlanOptions{}); err == nil {
+			r.Images = plan.Images()
+		}
 	}
 	if err := taskcommon.UnmarshalMetadata(req.Metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")

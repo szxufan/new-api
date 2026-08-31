@@ -1211,3 +1211,58 @@ func TestConvertToAliRequest_MiniMaxMetadataCannotChangeModel(t *testing.T) {
 		t.Fatal("metadata 改写 model 应被拒绝（计费绕过防护）")
 	}
 }
+
+// ============================================================================
+// 阶段 1：统一解析层（阶段 1 增量能力 + 零回归锚点）
+// ============================================================================
+
+// TestConvertWan3Request_TwoImagesAreReferences 锚定 §9 决策：
+// 万相3.0 的「2 张图 → 参考图」歧义语义保留，不得被默认推导统一成首尾帧。
+func TestConvertWan3Request_TwoImagesAreReferences(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := &AliVideoRequest{Model: "wan3.0-video", Input: AliVideoInput{}, Parameters: &AliVideoParameters{}}
+
+	req := relaycommon.TaskSubmitReq{
+		Prompt: "p",
+		Model:  "wan3.0-video",
+		Images: []string{"https://example.com/a.png", "https://example.com/b.png"},
+	}
+
+	adaptor.convertWan3Request(aliReq, req)
+
+	if len(aliReq.Input.Media) != 2 {
+		t.Fatalf("media count mismatch: got %d, want 2", len(aliReq.Input.Media))
+	}
+	for i, m := range aliReq.Input.Media {
+		if m.Type != "reference_image" {
+			t.Errorf("media[%d] type = %q, want reference_image (wan3 semantics)", i, m.Type)
+		}
+	}
+}
+
+// TestConvertMiniMaxRequest_NamedMetadataKeys 阶段 1 增量：
+// 统一 metadata 具名键可显式指定首尾帧。
+func TestConvertMiniMaxRequest_NamedMetadataKeys(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+	aliReq := newMiniMaxAliReq()
+
+	adaptor.convertMiniMaxRequest(aliReq, relaycommon.TaskSubmitReq{
+		Model:  "MiniMax/MiniMax-H3",
+		Prompt: "p",
+		Metadata: map[string]interface{}{
+			relaycommon.MetadataKeyFirstFrame: "https://example.com/first.png",
+			relaycommon.MetadataKeyLastFrame:  "https://example.com/last.png",
+		},
+	})
+
+	want := []string{"first_frame", "last_frame"}
+	got := mediaTypesOf(aliReq.Input.Media)
+	if len(got) != len(want) {
+		t.Fatalf("media types mismatch: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("media[%d] type = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

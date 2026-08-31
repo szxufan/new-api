@@ -71,7 +71,9 @@ func (a *TaskAdaptor) buildV2Request(req relaycommon.TaskSubmitReq, info *relayc
 }
 
 // buildV2Content 组装 v2 多模态 content 数组。
-// 优先使用 metadata.content（原样透传的逃生通道），否则按图片数量推导角色。
+// 优先使用 metadata.content（原样透传的逃生通道），否则经统一解析层
+// （relaycommon.BuildMediaPlan）按具名键 / 图片数量推导角色，见
+// docs/video-generation-mode-design.md。
 func buildV2Content(req relaycommon.TaskSubmitReq) ([]V2ContentItem, error) {
 	if raw, ok := req.Metadata["content"]; ok {
 		if items, err := unmarshalV2Content(raw); err == nil && len(items) > 0 {
@@ -91,46 +93,45 @@ func buildV2Content(req relaycommon.TaskSubmitReq) ([]V2ContentItem, error) {
 
 	items := []V2ContentItem{{Type: V2TypeText, Text: prompt}}
 
-	firstFrame, _ := metadataString(req.Metadata, "first_frame_image")
-	lastFrame, _ := metadataString(req.Metadata, "last_frame_image")
-	referenceImages, _ := metadataStrings(req.Metadata, "reference_images")
-	referenceVideos, _ := metadataStrings(req.Metadata, "reference_videos")
-	referenceAudios, _ := metadataStrings(req.Metadata, "reference_audios")
-
-	if firstFrame == "" && lastFrame == "" {
-		// 未显式指定首/尾帧时，按图片数量映射：1 张→首帧，2 张→首尾帧，≥3 张→参考图
-		switch {
-		case len(req.Images) == 1:
-			firstFrame = req.Images[0]
-		case len(req.Images) == 2:
-			firstFrame, lastFrame = req.Images[0], req.Images[1]
-		case len(req.Images) > 2:
-			referenceImages = append(referenceImages, req.Images...)
-		case strings.TrimSpace(req.InputReference) != "":
-			firstFrame = req.InputReference
-		}
-	} else {
-		// 显式指定了首/尾帧，images 作为参考素材并入
-		referenceImages = append(referenceImages, req.Images...)
+	plan, err := relaycommon.BuildMediaPlan(req, v2MediaPlanOptions())
+	if err != nil {
+		return nil, err
 	}
 
-	if strings.TrimSpace(firstFrame) != "" {
-		items = append(items, v2MediaItem(V2TypeImageURL, V2RoleFirstFrame, firstFrame))
+	if plan.FirstFrame != "" {
+		items = append(items, v2MediaItem(V2TypeImageURL, V2RoleFirstFrame, plan.FirstFrame))
 	}
-	if strings.TrimSpace(lastFrame) != "" {
-		items = append(items, v2MediaItem(V2TypeImageURL, V2RoleLastFrame, lastFrame))
+	if plan.LastFrame != "" {
+		items = append(items, v2MediaItem(V2TypeImageURL, V2RoleLastFrame, plan.LastFrame))
 	}
-	for _, url := range referenceImages {
+	for _, url := range plan.ReferenceImages {
 		items = append(items, v2MediaItem(V2TypeImageURL, V2RoleReferenceImage, url))
 	}
-	for _, url := range referenceVideos {
+	for _, url := range plan.ReferenceVideos {
 		items = append(items, v2MediaItem(V2TypeVideoURL, V2RoleReferenceVideo, url))
 	}
-	for _, url := range referenceAudios {
+	for _, url := range plan.ReferenceAudios {
 		items = append(items, v2MediaItem(V2TypeAudioURL, V2RoleReferenceAudio, url))
 	}
 
 	return sanitizeV2Content(items), nil
+}
+
+// v2MediaPlanOptions 声明 hailuo v2 的素材上限与互斥策略，
+// 与 sanitizeV2Content 的收敛规则一致（互斥降级 + 角色上限 + 总数上限）。
+func v2MediaPlanOptions() relaycommon.MediaPlanOptions {
+	return relaycommon.MediaPlanOptions{
+		Limits: relaycommon.MediaLimits{
+			MaxFirstFrame:       1,
+			MaxLastFrame:        1,
+			MaxReferenceImage:   V2MaxReferenceImages,
+			MaxReferenceVideo:   V2MaxReferenceVideos,
+			MaxReferenceAudio:   V2MaxReferenceAudios,
+			MaxTotalMedia:       V2MaxMixedAssets,
+			MutualExclusive:     true,
+			OnExclusiveConflict: relaycommon.DowngradeFramesToReference,
+		},
+	}
 }
 
 // sanitizeV2Content 收敛 content 数组：剔除空项与非法类型、解决首尾帧与参考素材的互斥、
@@ -548,33 +549,6 @@ func metadataString(metadata map[string]any, key string) (string, bool) {
 	return strings.TrimSpace(value), true
 }
 
-func metadataStrings(metadata map[string]any, key string) ([]string, bool) {
-	if metadata == nil {
-		return nil, false
-	}
-	raw, ok := metadata[key]
-	if !ok {
-		return nil, false
-	}
-	if list, ok := raw.([]string); ok {
-		return nonEmptyStrings(list), true
-	}
-	list, ok := raw.([]any)
-	if !ok {
-		return nil, false
-	}
-	result := make([]string, 0, len(list))
-	for _, item := range list {
-		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-			result = append(result, strings.TrimSpace(s))
-		}
-	}
-	if len(result) == 0 {
-		return nil, false
-	}
-	return result, true
-}
-
 func metadataInt(metadata map[string]any, key string) (int, bool) {
 	if metadata == nil {
 		return 0, false
@@ -609,14 +583,4 @@ func metadataBool(metadata map[string]any, key string) (bool, bool) {
 		return parsed, true
 	}
 	return false, false
-}
-
-func nonEmptyStrings(list []string) []string {
-	result := make([]string, 0, len(list))
-	for _, item := range list {
-		if strings.TrimSpace(item) != "" {
-			result = append(result, strings.TrimSpace(item))
-		}
-	}
-	return result
 }

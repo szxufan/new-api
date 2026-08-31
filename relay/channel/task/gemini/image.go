@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -14,29 +15,31 @@ import (
 const maxVeoImageSize = 20 * 1024 * 1024 // 20 MB
 
 // ExtractMultipartImage reads the first `input_reference` file from a multipart
-// form upload and returns a VeoImageInput. Returns nil if no file is present.
-func ExtractMultipartImage(c *gin.Context, info *relaycommon.RelayInfo) *VeoImageInput {
+// form upload and returns a VeoImageInput. Returns (nil, nil) if no file is present.
+// Returns an error if the file exceeds maxVeoImageSize (D5 fix: previously it
+// silently returned nil and the request degraded to text-to-video without notice).
+func ExtractMultipartImage(c *gin.Context, info *relaycommon.RelayInfo) (*VeoImageInput, error) {
 	mf, err := c.MultipartForm()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	files, exists := mf.File["input_reference"]
 	if !exists || len(files) == 0 {
-		return nil
+		return nil, nil
 	}
 	fh := files[0]
 	if fh.Size > maxVeoImageSize {
-		return nil
+		return nil, fmt.Errorf("input_reference file %q exceeds the %d MB size limit", fh.Filename, maxVeoImageSize/(1024*1024))
 	}
 	file, err := fh.Open()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer file.Close()
 
 	fileBytes, err := io.ReadAll(file)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	mimeType := fh.Header.Get("Content-Type")
@@ -48,7 +51,7 @@ func ExtractMultipartImage(c *gin.Context, info *relaycommon.RelayInfo) *VeoImag
 	return &VeoImageInput{
 		BytesBase64Encoded: base64.StdEncoding.EncodeToString(fileBytes),
 		MimeType:           mimeType,
-	}
+	}, nil
 }
 
 // ParseImageInput parses an image string (data URI or raw base64) into a

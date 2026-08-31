@@ -78,7 +78,7 @@ func validatePrompt(prompt string) *dto.TaskError {
 	return nil
 }
 
-func validateMultipartTaskRequest(c *gin.Context, info *RelayInfo, action string) (TaskSubmitReq, error) {
+func validateMultipartTaskRequest(c *gin.Context) (TaskSubmitReq, error) {
 	var req TaskSubmitReq
 	if _, err := c.MultipartForm(); err != nil {
 		return req, err
@@ -200,7 +200,7 @@ func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *d
 	contentType := c.GetHeader("Content-Type")
 	var req TaskSubmitReq
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		req, err = validateMultipartTaskRequest(c, info, action)
+		req, err = validateMultipartTaskRequest(c)
 		if err != nil {
 			return createTaskError(err, "invalid_multipart_form", http.StatusBadRequest, true)
 		}

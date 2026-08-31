@@ -264,9 +264,23 @@ func (a *TaskAdaptor) GetChannelName() string {
 // ============================
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (*requestPayload, error) {
+	// 统一解析层（阶段 1）：
+	// - image 优先 req.Image（现状），否则取 plan.FirstFrame
+	//   （metadata.first_frame_image 或 images 首张，后者即 D1 兜底）；
+	// - image_tail 仅来自 metadata.last_frame_image：可灵隐式路径只用单图，
+	//   不从图片数量推导尾帧（现状语义，避免零回归风险）。
+	plan, err := relaycommon.BuildMediaPlan(*req, klingMediaPlanOptions())
+	if err != nil {
+		return nil, err
+	}
+	image := req.Image
+	if image == "" {
+		image = plan.FirstFrame
+	}
 	r := requestPayload{
 		Prompt:         req.Prompt,
-		Image:          req.Image,
+		Image:          image,
+		ImageTail:      plan.LastFrame,
 		Mode:           taskcommon.DefaultString(req.Mode, "std"),
 		Duration:       fmt.Sprintf("%d", taskcommon.DefaultInt(req.Duration, 5)),
 		AspectRatio:    a.getAspectRatio(req.Size),
@@ -287,6 +301,21 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 	return &r, nil
+}
+
+// klingMediaPlanOptions 可灵的隐式规则：只使用首张图片（现状）。
+// 尾帧须经 metadata.last_frame_image 显式指定，不从图片数量推导。
+func klingMediaPlanOptions() relaycommon.MediaPlanOptions {
+	return relaycommon.MediaPlanOptions{
+		ImplicitImages: func(images []string, plan *relaycommon.MediaPlan) {
+			for _, img := range images {
+				if s := strings.TrimSpace(img); s != "" {
+					plan.FirstFrame = s
+					return
+				}
+			}
+		},
+	}
 }
 
 func (a *TaskAdaptor) getAspectRatio(size string) string {

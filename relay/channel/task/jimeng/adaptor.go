@@ -420,6 +420,18 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 			// 无图片：文生视频
 			r.ReqKey = strings.Replace(r.ReqKey, "jimeng_v30", "jimeng_t2v_v30", 1)
 		}
+
+		// D3 修复：按实际图片数量回填 info.Action，保证落库 / 日志 / 管理端
+		// 过滤与 req_key 真实模式一致（此前 JSON 路径恒为默认 generate）。
+		// 落库发生在 DoResponse 之后，此处回填有效（kling 的 DoRequest 回填同理）。
+		switch {
+		case imageLen > 1:
+			info.Action = constant.TaskActionFirstTailGenerate
+		case imageLen == 1:
+			info.Action = constant.TaskActionGenerate
+		default:
+			info.Action = constant.TaskActionTextGenerate
+		}
 	}
 
 	return &r, nil

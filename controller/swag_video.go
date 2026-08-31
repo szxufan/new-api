@@ -40,6 +40,58 @@ func VideoGenerations(c *gin.Context) {
 func VideoGenerationsTaskId(c *gin.Context) {
 }
 
+// VideosSubmit
+// @Summary 提交视频生成任务（OpenAI 兼容）
+// @Description 提交视频生成任务。请求体为统一任务契约（见 dto.VideoRequest）；
+// @Description metadata 支持统一素材具名键 first_frame_image / last_frame_image /
+// @Description reference_images / reference_videos / reference_audios，
+// @Description 完整契约与各渠道差异见 docs/video-api.md。
+// @Tags Video
+// @Accept json,multipart/form-data
+// @Produce json
+// @Param Authorization header string true "用户认证令牌 (Authorization: Bearer sk-xxxx)"
+// @Param request body dto.VideoRequest true "视频生成请求参数"
+// @Success 200 {object} dto.OpenAIVideo "任务提交结果（格式跟随上游，任务 ID 为公开 ID）"
+// @Failure 400 {object} dto.TaskError "请求参数错误"
+// @Failure 401 {object} dto.TaskError "未授权"
+// @Failure 500 {object} dto.TaskError "服务器内部错误"
+// @Router /v1/videos [post]
+func VideosSubmit(c *gin.Context) {
+}
+
+// VideosFetch
+// @Summary 查询视频生成任务（OpenAI 兼容）
+// @Description 根据公开任务 ID 查询任务状态与结果，返回 OpenAI Video 对象
+// @Tags Video
+// @Accept json
+// @Produce json
+// @Param Authorization header string true "用户认证令牌 (Authorization: Bearer sk-xxxx)"
+// @Param task_id path string true "公开任务 ID（task_ 前缀）"
+// @Success 200 {object} dto.OpenAIVideo "任务状态和结果"
+// @Failure 400 {object} dto.TaskError "请求参数错误（如 task_not_exist）"
+// @Failure 401 {object} dto.TaskError "未授权"
+// @Failure 500 {object} dto.TaskError "服务器内部错误"
+// @Router /v1/videos/{task_id} [get]
+func VideosFetch(c *gin.Context) {
+}
+
+// VideosRemix
+// @Summary 视频二创（remix）
+// @Description 基于已有视频提交二创任务；模式固定为 remix，不接受客户端指定
+// @Tags Video
+// @Accept json
+// @Produce json
+// @Param Authorization header string true "用户认证令牌 (Authorization: Bearer sk-xxxx)"
+// @Param video_id path string true "原视频任务 ID"
+// @Param request body dto.VideoRequest true "二创请求参数"
+// @Success 200 {object} dto.OpenAIVideo "任务提交结果"
+// @Failure 400 {object} dto.TaskError "请求参数错误"
+// @Failure 401 {object} dto.TaskError "未授权"
+// @Failure 500 {object} dto.TaskError "服务器内部错误"
+// @Router /v1/videos/{video_id}/remix [post]
+func VideosRemix(c *gin.Context) {
+}
+
 // KlingText2VideoGenerations
 // @Summary 可灵文生视频
 // @Description 调用可灵AI文生视频接口，生成视频内容

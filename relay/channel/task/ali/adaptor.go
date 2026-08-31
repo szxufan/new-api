@@ -357,38 +357,6 @@ func isMiniMaxModel(model string) bool {
 	return strings.Contains(strings.ToLower(model), "minimax")
 }
 
-// metadataStringSlice 从 metadata 中读取字符串数组，兼容 []string / []any / 单个 string 三种写法。
-func metadataStringSlice(metadata map[string]interface{}, key string) []string {
-	if metadata == nil {
-		return nil
-	}
-	raw, ok := metadata[key]
-	if !ok {
-		return nil
-	}
-	switch value := raw.(type) {
-	case []string:
-		return lo.Filter(value, func(s string, _ int) bool {
-			return strings.TrimSpace(s) != ""
-		})
-	case []any:
-		result := make([]string, 0, len(value))
-		for _, item := range value {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				result = append(result, strings.TrimSpace(s))
-			}
-		}
-		return result
-	case string:
-		if strings.TrimSpace(value) == "" {
-			return nil
-		}
-		return []string{strings.TrimSpace(value)}
-	default:
-		return nil
-	}
-}
-
 func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relaycommon.TaskSubmitReq) (*AliVideoRequest, error) {
 	upstreamModel := req.Model
 	if info.IsModelMapped {
@@ -621,15 +589,17 @@ func (a *TaskAdaptor) convertWan3Request(aliReq *AliVideoRequest, req relaycommo
 	aliReq.Parameters.PromptExtend = true
 	aliReq.Parameters.Watermark = false
 
-	// 媒体输入：单图 → 首帧（图生视频）；多图 → 参考图（参考生视频）
-	if len(req.Images) > 0 {
-		media := make([]AliMedia, len(req.Images))
-		mediaType := "reference_image"
-		if len(req.Images) == 1 {
-			mediaType = "first_frame"
+	// 媒体输入：单图 → 首帧（图生视频）；多图 → 参考图（参考生视频）。
+	// 经统一解析层但保留万相3.0 的隐式语义（§9 决策：单图首帧 / 多图全部参考图）；
+	// 尾帧与参考视频/音频的上游 type 枚举待核实（§10），暂只映射首帧与参考图。
+	plan, err := relaycommon.BuildMediaPlan(req, wan3MediaPlanOptions())
+	if err == nil && (plan.FirstFrame != "" || len(plan.ReferenceImages) > 0) {
+		media := make([]AliMedia, 0, 1+len(plan.ReferenceImages))
+		if plan.FirstFrame != "" {
+			media = append(media, AliMedia{Type: "first_frame", URL: plan.FirstFrame})
 		}
-		for i, img := range req.Images {
-			media[i] = AliMedia{Type: mediaType, URL: img}
+		for _, url := range plan.ReferenceImages {
+			media = append(media, AliMedia{Type: "reference_image", URL: url})
 		}
 		aliReq.Input.Media = media
 	}
@@ -654,6 +624,25 @@ func (a *TaskAdaptor) convertWan3Request(aliReq *AliVideoRequest, req relaycommo
 	}
 
 	aliReq.Parameters.Duration = normalizeWan3Duration(req)
+}
+
+// wan3MediaPlanOptions 万相3.0 的渠道覆写：单图 → 首帧；多图 → 全部参考图。
+// 与默认数量推导（2 张→首尾帧）不同，该歧义按 §9 决策保留现状。
+// 互斥冲突时降级为参考图（万相3.0 为全能参考模型，保留素材优先）。
+func wan3MediaPlanOptions() relaycommon.MediaPlanOptions {
+	return relaycommon.MediaPlanOptions{
+		Limits: relaycommon.MediaLimits{
+			MutualExclusive:     true,
+			OnExclusiveConflict: relaycommon.DowngradeFramesToReference,
+		},
+		ImplicitImages: func(images []string, plan *relaycommon.MediaPlan) {
+			if len(images) == 1 {
+				plan.FirstFrame = images[0]
+				return
+			}
+			plan.ReferenceImages = append(plan.ReferenceImages, images...)
+		},
+	}
 }
 
 func (a *TaskAdaptor) convertWanRequest(aliReq *AliVideoRequest, req relaycommon.TaskSubmitReq) {
@@ -732,42 +721,41 @@ func (a *TaskAdaptor) convertMiniMaxRequest(aliReq *AliVideoRequest, req relayco
 	// watermark 保持 false：bool + omitempty，序列化时自动省略，与上游默认值一致
 }
 
-// buildMiniMaxMedia 组装 input.media。
-// 图片数量推导：1 张→首帧，2 张→首尾帧，≥3 张→参考图；
-// metadata.reference_videos / reference_audios 分别映射为 feature / driving_audio。
-// 百炼规定首尾帧与参考素材互斥：存在任一参考素材时剔除首尾帧，降级为多模态参考生视频。
+// buildMiniMaxMedia 组装 input.media，经统一解析层（relaycommon.BuildMediaPlan）
+// 完成具名键读取、数量推导、互斥处理与上限截断，见 docs/video-generation-mode-design.md。
+// 百炼规定首尾帧与参考素材互斥：存在任一参考素材时剔除首尾帧（DropFrames，现状语义）。
 func buildMiniMaxMedia(req relaycommon.TaskSubmitReq) []AliMedia {
-	referenceVideos := metadataStringSlice(req.Metadata, "reference_videos")
-	referenceAudios := metadataStringSlice(req.Metadata, "reference_audios")
-
-	var firstFrame, lastFrame string
-	referenceImages := make([]string, 0, len(req.Images))
-	switch {
-	case len(req.Images) == 1:
-		firstFrame = req.Images[0]
-	case len(req.Images) == 2:
-		firstFrame, lastFrame = req.Images[0], req.Images[1]
-	default:
-		referenceImages = append(referenceImages, req.Images...)
+	plan, err := relaycommon.BuildMediaPlan(req, miniMaxMediaPlanOptions())
+	if err != nil {
+		return nil
 	}
 
-	hasReference := len(referenceImages) > 0 || len(referenceVideos) > 0 || len(referenceAudios) > 0
-	if hasReference && (firstFrame != "" || lastFrame != "") {
-		common.SysLog(fmt.Sprintf("ali minimax video: first_frame/last_frame dropped in favor of reference media (model=%s)", req.Model))
-		firstFrame, lastFrame = "", ""
-	}
-
-	media := make([]AliMedia, 0, 2+len(referenceImages)+len(referenceVideos)+len(referenceAudios))
-	media = appendMiniMaxMedia(media, miniMaxMediaFirstFrame, []string{firstFrame}, miniMaxMaxFrameImages)
-	media = appendMiniMaxMedia(media, miniMaxMediaLastFrame, []string{lastFrame}, miniMaxMaxFrameImages)
-	media = appendMiniMaxMedia(media, miniMaxMediaReferenceImg, referenceImages, miniMaxMaxReferenceImages)
-	media = appendMiniMaxMedia(media, miniMaxMediaReferenceVid, referenceVideos, miniMaxMaxReferenceVideos)
-	media = appendMiniMaxMedia(media, miniMaxMediaReferenceAudio, referenceAudios, miniMaxMaxReferenceAudios)
+	media := make([]AliMedia, 0, 2+len(plan.ReferenceImages)+len(plan.ReferenceVideos)+len(plan.ReferenceAudios))
+	media = appendMiniMaxMedia(media, miniMaxMediaFirstFrame, []string{plan.FirstFrame}, miniMaxMaxFrameImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaLastFrame, []string{plan.LastFrame}, miniMaxMaxFrameImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceImg, plan.ReferenceImages, miniMaxMaxReferenceImages)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceVid, plan.ReferenceVideos, miniMaxMaxReferenceVideos)
+	media = appendMiniMaxMedia(media, miniMaxMediaReferenceAudio, plan.ReferenceAudios, miniMaxMaxReferenceAudios)
 
 	if len(media) == 0 {
 		return nil
 	}
 	return media
+}
+
+// miniMaxMediaPlanOptions 声明百炼 MiniMax 的素材上限与互斥策略（与原有实现一致）。
+func miniMaxMediaPlanOptions() relaycommon.MediaPlanOptions {
+	return relaycommon.MediaPlanOptions{
+		Limits: relaycommon.MediaLimits{
+			MaxFirstFrame:       miniMaxMaxFrameImages,
+			MaxLastFrame:        miniMaxMaxFrameImages,
+			MaxReferenceImage:   miniMaxMaxReferenceImages,
+			MaxReferenceVideo:   miniMaxMaxReferenceVideos,
+			MaxReferenceAudio:   miniMaxMaxReferenceAudios,
+			MutualExclusive:     true,
+			OnExclusiveConflict: relaycommon.DropFrames,
+		},
+	}
 }
 
 // appendMiniMaxMedia 按类型追加素材，剔除空值并按上游数量上限截断（保留靠前者）。
