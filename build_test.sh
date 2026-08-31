@@ -45,7 +45,12 @@ assert_equals() { # desc actual expected
 TMP_HOME="$(mktemp -d)"
 GO_STUB_DIR="$TMP_HOME/.local/go/bin"
 GO_STUB_LOG="$(mktemp)"
-trap 'rm -rf "$TMP_HOME" "$GO_STUB_LOG"' EXIT
+cleanup() {
+    rm -rf "$TMP_HOME" "$GO_STUB_LOG" \
+        "${FAKE_GO_STAGE:-}" "${FAKE_GO_TARBALL:-}" "${CURL_URL_LOG:-}" \
+        "${INSTALL_HOME:-}" "${INSTALL_HOME2:-}" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 mkdir -p "$GO_STUB_DIR"
 cat > "$GO_STUB_DIR/go" <<'EOF'
@@ -111,6 +116,83 @@ rc=$?
 assert_equals "build.sh 退出码为 0" "$rc" "0"
 assert_equals "go build 未收到脚本设置的 GOPROXY" "$(cat "$GO_STUB_LOG")" "GOPROXY="
 assert_not_contains "未指定时不打印 GOPROXY 提示" "$out" "使用 GOPROXY"
+
+echo ""
+echo "=== 测试 5: --help 文档包含 --go-download-url 说明 ==="
+assert_contains "--help 列出 --go-download-url 选项" "$help_out" "--go-download-url <url>"
+assert_contains "--help 列出 GO_DOWNLOAD_URL 环境变量" "$help_out" "GO_DOWNLOAD_URL"
+
+echo ""
+echo "=== 测试 6: install_go 指定 GO_DOWNLOAD_URL 时不探测版本 ==="
+# 准备伪造的 go 安装包 (tar.gz 内含 go/bin/go 桩)
+FAKE_GO_STAGE="$(mktemp -d)"
+mkdir -p "$FAKE_GO_STAGE/go/bin"
+cat > "$FAKE_GO_STAGE/go/bin/go" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "version" ]; then
+    echo "go version go0.0.0 (stub)"
+fi
+exit 0
+EOF
+chmod +x "$FAKE_GO_STAGE/go/bin/go"
+FAKE_GO_TARBALL="$(mktemp)"
+tar -C "$FAKE_GO_STAGE" -czf "$FAKE_GO_TARBALL" go
+
+# source build.sh 以便直接调用 install_go 函数
+source "$BUILD_SH"
+set +e # build.sh 顶部启用了 set -e，测试需要容忍断言失败
+
+CURL_URL_LOG="$(mktemp)"
+# 用 shell 函数覆盖 curl: 记录请求的 URL，下载请求返回伪造安装包
+curl() {
+    local url="" out="" prev="" a
+    for a in "$@"; do
+        case "$a" in
+            http*) url="$a" ;;
+        esac
+        if [ "$prev" = "-o" ]; then
+            out="$a"
+        fi
+        prev="$a"
+    done
+    echo "$url" >> "$CURL_URL_LOG"
+    if [ -n "$out" ]; then
+        cp "$FAKE_GO_TARBALL" "$out"
+    else
+        echo "go1.99.0" # VERSION 查询的响应
+    fi
+    return 0
+}
+
+INSTALL_HOME="$(mktemp -d)"
+: > "$CURL_URL_LOG"
+(
+    HOME="$INSTALL_HOME"
+    GO_DOWNLOAD_URL="https://mirror.example.com/golang/go1.22.5.linux-amd64.tar.gz"
+    install_go
+) > /dev/null 2>&1
+assert_equals "install_go (指定 URL) 退出码为 0" "$?" "0"
+assert_equals "仅请求了指定的下载地址" "$(cat "$CURL_URL_LOG")" \
+    "https://mirror.example.com/golang/go1.22.5.linux-amd64.tar.gz"
+if [ -x "$INSTALL_HOME/.local/go/bin/go" ]; then
+    pass "go 已解压安装到 \$HOME/.local/go"
+else
+    fail "go 已解压安装到 \$HOME/.local/go"
+fi
+
+echo ""
+echo "=== 测试 7: install_go 未指定 URL 时仍走版本探测 ==="
+INSTALL_HOME2="$(mktemp -d)"
+: > "$CURL_URL_LOG"
+(
+    HOME="$INSTALL_HOME2"
+    GO_DOWNLOAD_URL=""
+    install_go
+) > /dev/null 2>&1
+assert_equals "install_go (默认) 退出码为 0" "$?" "0"
+expected_urls="$(printf 'https://go.dev/VERSION?m=text\nhttps://go.dev/dl/go1.99.0.%s-%s.tar.gz' \
+    "$(detect_os)" "$(detect_arch)")"
+assert_equals "先探测版本再拼接下载地址" "$(cat "$CURL_URL_LOG")" "$expected_urls"
 
 echo ""
 echo "========================================"

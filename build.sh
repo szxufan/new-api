@@ -12,6 +12,9 @@ SKIP_BACKEND="${SKIP_BACKEND:-false}"
 # Go 模块代理，可通过 --goproxy 参数或环境变量 GOPROXY 设置
 # 国内编译机可设置为: https://goproxy.cn,direct
 GOPROXY="${GOPROXY:-}"
+# Go 安装包下载地址，可通过 --go-download-url 参数或环境变量 GO_DOWNLOAD_URL 设置
+# 指定后自动安装 go 时直接下载该地址，不再请求 go.dev 探测版本
+GO_DOWNLOAD_URL="${GO_DOWNLOAD_URL:-}"
 # vite 构建大项目时 Node 默认堆内存不足，可调大上限避免 OOM
 NODE_MAX_OLD_SPACE_SIZE="${NODE_MAX_OLD_SPACE_SIZE:-4096}"
 export NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} ${NODE_OPTIONS:-}"
@@ -68,19 +71,25 @@ install_go() {
         exit 1
     fi
 
-    local version
-    version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1 || true)"
-    if [ -z "$version" ]; then
-        err "无法获取 Go 最新版本，请手动安装: https://go.dev/dl/"
-        exit 1
+    local download_url
+    if [ -n "$GO_DOWNLOAD_URL" ]; then
+        # 显式指定下载地址时直接下载，不请求 go.dev 探测版本
+        download_url="$GO_DOWNLOAD_URL"
+    else
+        local version
+        version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1 || true)"
+        if [ -z "$version" ]; then
+            err "无法获取 Go 最新版本，请手动安装: https://go.dev/dl/"
+            exit 1
+        fi
+        local os arch
+        os="$(detect_os)"
+        arch="$(detect_arch)"
+        download_url="https://go.dev/dl/${version}.${os}-${arch}.tar.gz"
+        info "下载 ${version} (${os}/${arch}) ..."
     fi
 
-    local os arch install_dir="$HOME/.local"
-    os="$(detect_os)"
-    arch="$(detect_arch)"
-
-    local download_url="https://go.dev/dl/${version}.${os}-${arch}.tar.gz"
-    info "下载 ${version} (${os}/${arch}) ..."
+    local install_dir="$HOME/.local"
     info "下载地址: $download_url"
     local tmp
     tmp="$(mktemp -d)"
@@ -216,6 +225,7 @@ usage() {
     echo "  --goos <os>        目标操作系统 (默认: 当前系统)"
     echo "  --goarch <arch>    目标架构 (默认: 当前架构)"
     echo "  --goproxy <proxy>  设置 Go 模块代理 (例如: https://goproxy.cn,direct)"
+    echo "  --go-download-url <url>  指定 Go 安装包下载地址 (自动安装时不再探测版本)"
     echo "  -h, --help         显示帮助信息"
     echo ""
     echo "环境变量:"
@@ -224,12 +234,14 @@ usage() {
     echo "  GOOS               目标操作系统"
     echo "  GOARCH             目标架构"
     echo "  GOPROXY            Go 模块代理 (同 --goproxy)"
+    echo "  GO_DOWNLOAD_URL    Go 安装包下载地址 (同 --go-download-url)"
     echo ""
     echo "示例:"
     echo "  $0                              # 完整编译"
     echo "  $0 --skip-frontend              # 仅编译后端 (前端已编译)"
     echo "  $0 --goos linux --goarch arm64  # 交叉编译 Linux ARM64"
     echo "  $0 --goproxy https://goproxy.cn,direct  # 使用国内模块代理编译"
+    echo "  $0 --go-download-url https://mirrors.aliyun.com/golang/go1.22.5.linux-amd64.tar.gz"
     echo "  SKIP_FRONTEND=true $0           # 通过环境变量跳过前端"
 }
 
@@ -241,6 +253,7 @@ parse_args() {
             --goos)          GOOS="$2"; shift 2 ;;
             --goarch)        GOARCH="$2"; shift 2 ;;
             --goproxy)       GOPROXY="$2"; shift 2 ;;
+            --go-download-url) GO_DOWNLOAD_URL="$2"; shift 2 ;;
             -h|--help)       usage; exit 0 ;;
             *)               err "未知参数: $1"; usage; exit 1 ;;
         esac
@@ -283,4 +296,7 @@ main() {
     fi
 }
 
-main "$@"
+# 被 source 时不执行 main (测试脚本需要单独调用其中的函数)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
