@@ -106,9 +106,28 @@ export const VIDEO_RESOLUTIONS = [
   { label: '1080P', value: '1080P' },
 ] as const
 
+/** 生成模式选项（label 为 i18n 键）；value 与 types.VideoGenerationMode 对应。
+ * minImages 为该模式所需的最少图片数，0 表示无图片要求。 */
+export const VIDEO_GENERATION_MODES = [
+  { label: 'Auto (inferred from image count)', value: 'auto', minImages: 0 },
+  { label: 'Image to video (first frame)', value: 'image2video', minImages: 1 },
+  {
+    label: 'First & last frame interpolation',
+    value: 'first_last_frame',
+    minImages: 2,
+  },
+  {
+    label: 'Reference-based generation',
+    value: 'reference2video',
+    minImages: 1,
+  },
+] as const
+
 export const DEFAULT_VIDEO_RATIO = ''
 export const DEFAULT_VIDEO_RESOLUTION = '1080P'
 export const DEFAULT_VIDEO_DURATION = 5
+/** 默认生成模式：auto = 由后端按图片数量隐式推导（现状行为） */
+export const DEFAULT_VIDEO_GENERATION_MODE = 'auto' as const
 export const VIDEO_DURATION_MIN = 2
 export const VIDEO_DURATION_MAX = 30
 /** -1 表示智能时长（模型自动推荐） */

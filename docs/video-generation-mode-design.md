@@ -332,6 +332,13 @@ D1、D2、D3、D5、D6、D7。不动接口，纯行为修正（方向见 §7 末
 - 视频调试台按渠道动态渲染模式选择器（替换现有"自动映射"提示）
 - gemini/vertex 补齐 `lastFrame` / `referenceImages`（含 HTTP URL 图片下载转 base64）
 
+**部分实施**：视频调试台已上线**静态**模式选择器（自动 / 首帧 / 首尾帧 / 参考生视频，
+见 [video-debug-form.tsx](file:///home/xufan/trea_project/new-api/web/default/src/features/image-debug/components/video-debug-form.tsx)
+与 [video-payload.ts](file:///home/xufan/trea_project/new-api/web/default/src/features/image-debug/lib/video-payload.ts)），
+显式模式经统一具名键下发，`auto` 保持现状。尚未按渠道能力动态过滤选项 ——
+对不支持某模式的渠道（如万相3.0 尾帧），显式指定会按「能力未知 → 宽松」策略静默降级，
+动态渲染需等待渠道能力接口落地。
+
 ## 9. 已确认决策
 
 | 决策                                   | 内容                                                                                                                                                                   |

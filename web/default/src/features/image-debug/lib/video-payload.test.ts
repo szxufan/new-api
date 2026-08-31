@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, it, expect } from 'vitest'
-import { buildVideoPayload } from './video-payload'
+import { buildVideoPayload, effectiveGenerationMode } from './video-payload'
 import type { VideoDebugFormState } from '../types'
 
 function createState(overrides: Partial<VideoDebugFormState>): VideoDebugFormState {
@@ -26,6 +26,7 @@ function createState(overrides: Partial<VideoDebugFormState>): VideoDebugFormSta
     group: 'default',
     prompt: '一只猫在奔跑',
     images: [],
+    generationMode: 'auto',
     ratio: '',
     resolution: '1080P',
     duration: 5,
@@ -81,5 +82,107 @@ describe('buildVideoPayload', () => {
   it('时长 0 回退默认 5 秒', () => {
     const payload = buildVideoPayload(createState({ duration: 0 }))
     expect(payload.duration).toBe(5)
+  })
+
+  // ==========================================================================
+  // 生成模式（统一具名键适配）
+  // ==========================================================================
+
+  it('auto 模式：透传 images，不产生具名键（现状行为）', () => {
+    const images = ['data:image/png;base64,aaa', 'data:image/png;base64,bbb']
+    const payload = buildVideoPayload(createState({ images }))
+    expect(payload.images).toEqual(images)
+    expect(payload.metadata).toBeUndefined()
+  })
+
+  it('image2video：单图经 first_frame_image 下发', () => {
+    const images = ['data:image/png;base64,aaa']
+    const payload = buildVideoPayload(
+      createState({ images, generationMode: 'image2video' })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toEqual({ first_frame_image: images[0] })
+  })
+
+  it('first_last_frame：两张图分别映射为首帧/尾帧', () => {
+    const images = ['data:image/png;base64,aaa', 'data:image/png;base64,bbb']
+    const payload = buildVideoPayload(
+      createState({ images, generationMode: 'first_last_frame' })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toEqual({
+      first_frame_image: images[0],
+      last_frame_image: images[1],
+    })
+  })
+
+  it('reference2video：全部图片经 reference_images 下发', () => {
+    const images = ['data:image/png;base64,aaa', 'data:image/png;base64,bbb']
+    const payload = buildVideoPayload(
+      createState({ images, generationMode: 'reference2video' })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toEqual({ reference_images: images })
+  })
+
+  it('显式模式但图片不足时回落 auto（防御）', () => {
+    const images = ['data:image/png;base64,aaa']
+    const payload = buildVideoPayload(
+      createState({ images, generationMode: 'first_last_frame' })
+    )
+    expect(payload.images).toEqual(images)
+    expect(payload.metadata).toBeUndefined()
+  })
+
+  it('显式模式与非默认分辨率：具名键与 parameters 合并到同一 metadata', () => {
+    const images = ['data:image/png;base64,aaa']
+    const payload = buildVideoPayload(
+      createState({
+        images,
+        generationMode: 'image2video',
+        resolution: '480P',
+      })
+    )
+    expect(payload.metadata).toEqual({
+      parameters: { resolution: '480P' },
+      first_frame_image: images[0],
+    })
+  })
+
+  it('无图片时显式模式不产生任何素材字段（文生视频）', () => {
+    const payload = buildVideoPayload(
+      createState({ generationMode: 'image2video' })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toBeUndefined()
+  })
+})
+
+describe('effectiveGenerationMode', () => {
+  it('图片数满足要求时返回所选模式', () => {
+    expect(
+      effectiveGenerationMode({
+        images: ['a', 'b'],
+        generationMode: 'first_last_frame',
+      })
+    ).toBe('first_last_frame')
+  })
+
+  it('图片数不足时回落 auto', () => {
+    expect(
+      effectiveGenerationMode({ images: ['a'], generationMode: 'first_last_frame' })
+    ).toBe('auto')
+    expect(
+      effectiveGenerationMode({ images: [], generationMode: 'image2video' })
+    ).toBe('auto')
+  })
+
+  it('未知模式回落 auto', () => {
+    expect(
+      effectiveGenerationMode({
+        images: ['a'],
+        generationMode: 'bogus' as VideoDebugFormState['generationMode'],
+      })
+    ).toBe('auto')
   })
 })

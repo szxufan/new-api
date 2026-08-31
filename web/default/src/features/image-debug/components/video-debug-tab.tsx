@@ -24,6 +24,7 @@ import { createVideo, fetchVideo, getUserGroups, getUserModels } from '../api'
 import {
   DEFAULT_GROUP,
   DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_GENERATION_MODE,
   DEFAULT_VIDEO_RATIO,
   DEFAULT_VIDEO_RESOLUTION,
   VIDEO_POLL_INTERVAL_MS,
@@ -40,6 +41,7 @@ function createDefaultState(): VideoDebugFormState {
     group: DEFAULT_GROUP,
     prompt: '',
     images: [],
+    generationMode: DEFAULT_VIDEO_GENERATION_MODE,
     ratio: DEFAULT_VIDEO_RATIO,
     resolution: DEFAULT_VIDEO_RESOLUTION,
     duration: DEFAULT_VIDEO_DURATION,

@@ -35,6 +35,7 @@ import {
   PROMPT_MAX_LENGTH,
   VIDEO_DURATION_MAX,
   VIDEO_DURATION_MIN,
+  VIDEO_GENERATION_MODES,
   VIDEO_IMAGE_MAX,
   VIDEO_RATIOS,
   VIDEO_RESOLUTIONS,
@@ -93,9 +94,16 @@ export function VideoDebugForm({
   }
 
   const handleRemoveImage = (index: number) => {
-    onStateChange({
-      images: state.images.filter((_, i) => i !== index),
-    })
+    const images = state.images.filter((_, i) => i !== index)
+    const patch: Partial<VideoDebugFormState> = { images }
+    // 删除图片后所选模式可能不再满足最低图片数：回落 auto
+    const option = VIDEO_GENERATION_MODES.find(
+      (m) => m.value === state.generationMode
+    )
+    if (option && images.length < option.minImages) {
+      patch.generationMode = 'auto'
+    }
+    onStateChange(patch)
   }
 
   return (
@@ -202,6 +210,33 @@ export function VideoDebugForm({
 
       {/* 参数 */}
       <div className='grid grid-cols-2 gap-3'>
+        <div className='space-y-2'>
+          <Label>{t('Generation Mode')}</Label>
+          <NativeSelect
+            className='w-full'
+            value={state.generationMode}
+            onChange={(e) =>
+              onStateChange({
+                generationMode: e.target.value as VideoDebugFormState['generationMode'],
+              })
+            }
+            disabled={isSubmitting}
+          >
+            {VIDEO_GENERATION_MODES.map((mode) => (
+              <NativeSelectOption
+                key={mode.value}
+                value={mode.value}
+                disabled={state.images.length < mode.minImages}
+              >
+                {t(mode.label)}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <p className='text-muted-foreground text-xs'>
+            {t('Explicit modes use unified media keys; auto infers from image count.')}
+          </p>
+        </div>
+
         <div className='space-y-2'>
           <Label>{t('Aspect Ratio')}</Label>
           <NativeSelect

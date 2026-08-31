@@ -112,6 +112,18 @@ export interface VideoResponse {
   }
 }
 
+/** 视频生成模式：与后端统一解析层（docs/video-generation-mode-design.md）对应。
+ * - auto：不指定，由后端按 images 数量隐式推导（现状行为）
+ * - image2video：首帧生视频（metadata.first_frame_image）
+ * - first_last_frame：首尾帧插值（metadata.first_frame_image + last_frame_image）
+ * - reference2video：参考生视频（metadata.reference_images）
+ */
+export type VideoGenerationMode =
+  | 'auto'
+  | 'image2video'
+  | 'first_last_frame'
+  | 'reference2video'
+
 /** 视频调试表单状态（图片以 Base64 dataURL 保存在内存） */
 export interface VideoDebugFormState {
   model: string
@@ -119,6 +131,8 @@ export interface VideoDebugFormState {
   prompt: string
   /** 上传图片的 dataURL 列表：0 张 = 文生视频；1 张 = 首帧生视频；多张 = 参考生视频 */
   images: string[]
+  /** 生成模式：'auto' 时按图片数量由后端隐式推导 */
+  generationMode: VideoGenerationMode
   /** 宽高比：''(adaptive) / 16:9 / 9:16 / 1:1 / 4:3 / 3:4 */
   ratio: string
   /** 分辨率：480P / 720P / 1080P */
