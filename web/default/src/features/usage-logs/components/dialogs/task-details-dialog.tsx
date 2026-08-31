@@ -148,6 +148,31 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
               <DetailRow label={t('Action')}>
                 <span>{t(taskActionMapper.getLabel(log.action))}</span>
               </DetailRow>
+              {(log.properties?.origin_model_name ||
+                log.properties?.upstream_model_name) && (
+                <DetailRow label={t('Model')}>
+                  <span className='font-mono text-xs break-all'>
+                    {log.properties?.origin_model_name ||
+                      log.properties?.upstream_model_name}
+                  </span>
+                </DetailRow>
+              )}
+              {log.properties?.upstream_model_name &&
+                log.properties.upstream_model_name !==
+                  log.properties?.origin_model_name && (
+                  <DetailRow label={t('Actual Model')}>
+                    <span className='font-mono text-xs break-all'>
+                      {log.properties.upstream_model_name}
+                    </span>
+                  </DetailRow>
+                )}
+              {(log.properties?.duration ?? 0) > 0 && (
+                <DetailRow label={t('Video Duration')}>
+                  <span className='font-mono text-xs tabular-nums'>
+                    {log.properties?.duration}s
+                  </span>
+                </DetailRow>
+              )}
               <DetailRow label={t('Status')}>
                 <StatusBadge
                   label={t(

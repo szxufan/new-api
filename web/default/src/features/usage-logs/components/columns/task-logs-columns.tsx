@@ -177,11 +177,40 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
             />
             <span className='text-muted-foreground/60 truncate text-[11px]'>
               {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
+              {(log.properties?.duration ?? 0) > 0 &&
+                ` · ${log.properties?.duration}s`}
             </span>
           </div>
         )
       },
       meta: { label: t('Task ID'), mobileTitle: true },
+    },
+    {
+      id: 'model',
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Model')} />
+      ),
+      cell: ({ row }) => {
+        const props = row.original.properties
+        const origin = props?.origin_model_name
+        const upstream = props?.upstream_model_name
+        if (!origin && !upstream) {
+          return <span className='text-muted-foreground/60 text-xs'>-</span>
+        }
+        return (
+          <div className='flex max-w-[180px] flex-col gap-0.5'>
+            <span className='truncate font-mono text-xs'>
+              {origin || upstream}
+            </span>
+            {upstream && upstream !== origin && (
+              <span className='text-muted-foreground/60 truncate text-[11px]'>
+                → {upstream}
+              </span>
+            )}
+          </div>
+        )
+      },
+      meta: { label: t('Model'), mobileHidden: true },
     },
     createDurationColumn<TaskLog>({
       submitTimeKey: 'submit_time',

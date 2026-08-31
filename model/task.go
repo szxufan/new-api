@@ -80,6 +80,8 @@ type Properties struct {
 	Input             string `json:"input"`
 	UpstreamModelName string `json:"upstream_model_name,omitempty"`
 	OriginModelName   string `json:"origin_model_name,omitempty"`
+	// Duration 客户端请求的时长（秒）；-1 智能时长；0 未指定（省略）
+	Duration int `json:"duration,omitempty"`
 }
 
 func (m *Properties) Scan(val interface{}) error {

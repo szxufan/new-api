@@ -4555,6 +4555,7 @@
     "Vertex AI does not support functionResponse.id. Enable this to remove the field automatically.": "Vertex AI ne prend pas en charge functionResponse.id. Activez ceci pour supprimer automatiquement ce champ.",
     "Vertex AI Key Format": "Format de clé Vertex AI",
     "Video": "Vidéo",
+    "Video Duration": "Durée de la vidéo",
     "Video generation failed": "Échec de la génération vidéo",
     "Video length in seconds": "Durée de la vidéo en secondes",
     "Video Remix": "Remix vidéo",

@@ -270,6 +270,8 @@ export interface TaskLogProperties {
   input?: string
   upstream_model_name?: string
   origin_model_name?: string
+  /** 客户端请求的时长（秒）；-1 智能时长；缺省为未指定 */
+  duration?: number
 }
 
 /**

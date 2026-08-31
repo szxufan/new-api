@@ -195,6 +195,37 @@ func isKnownTaskField(field string) bool {
 	return knownFields[field]
 }
 
+// ResolveRequestedDuration 返回客户端请求的时长（秒），未指定返回 0。
+// 优先级：duration > seconds > metadata.durationSeconds（gemini/vertex 用法）。
+// -1 表示智能时长，原样返回；具体渠道的收敛（范围裁剪/默认值）由各适配器负责。
+func ResolveRequestedDuration(req TaskSubmitReq) int {
+	if req.Duration != 0 {
+		return req.Duration
+	}
+	if s := strings.TrimSpace(req.Seconds); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n != 0 {
+			return n
+		}
+	}
+	if v, ok := req.Metadata["durationSeconds"]; ok {
+		switch d := v.(type) {
+		case int:
+			if d != 0 {
+				return d
+			}
+		case float64:
+			if d != 0 {
+				return int(d)
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(d)); err == nil && n != 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
 func ValidateBasicTaskRequest(c *gin.Context, info *RelayInfo, action string) *dto.TaskError {
 	var err error
 	contentType := c.GetHeader("Content-Type")

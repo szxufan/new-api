@@ -4555,6 +4555,7 @@
     "Vertex AI does not support functionResponse.id. Enable this to remove the field automatically.": "Vertex AI 不支持 functionResponse.id 字段，开启后将自动移除该字段",
     "Vertex AI Key Format": "Vertex AI 密钥格式",
     "Video": "视频",
+    "Video Duration": "视频时长",
     "Video generation failed": "视频生成失败",
     "Video length in seconds": "视频时长（秒）",
     "Video Remix": "视频 Remix",

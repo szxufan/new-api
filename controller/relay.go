@@ -1037,6 +1037,10 @@ taskResult:
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
+		// 记录客户端请求的时长（任务日志展示用；各渠道的收敛规则不影响此原始值）
+		if taskReq, err := relaycommon.GetTaskRequest(c); err == nil {
+			task.Properties.Duration = relaycommon.ResolveRequestedDuration(taskReq)
+		}
 		if insertErr := task.Insert(); insertErr != nil {
 			common.SysError("insert task error: " + insertErr.Error())
 		}

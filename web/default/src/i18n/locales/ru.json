@@ -4555,6 +4555,7 @@
     "Vertex AI does not support functionResponse.id. Enable this to remove the field automatically.": "Vertex AI не поддерживает functionResponse.id. Включите, чтобы автоматически удалить это поле.",
     "Vertex AI Key Format": "Формат ключа Vertex AI",
     "Video": "Видео",
+    "Video Duration": "Длительность видео",
     "Video generation failed": "Не удалось сгенерировать видео",
     "Video length in seconds": "Длительность видео в секундах",
     "Video Remix": "Ремикс видео",
