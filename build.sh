@@ -15,6 +15,9 @@ GOPROXY="${GOPROXY:-}"
 # Go 安装包下载地址，可通过 --go-download-url 参数或环境变量 GO_DOWNLOAD_URL 设置
 # 指定后自动安装 go 时直接下载该地址，不再请求 go.dev 探测版本
 GO_DOWNLOAD_URL="${GO_DOWNLOAD_URL:-}"
+# Bun 安装包 (zip) 下载地址，可通过 --bun-download-url 参数或环境变量 BUN_DOWNLOAD_URL 设置
+# 指定后自动安装 bun 时直接下载解压该地址，不走官方安装脚本 (官方脚本从 github 下载)
+BUN_DOWNLOAD_URL="${BUN_DOWNLOAD_URL:-}"
 # vite 构建大项目时 Node 默认堆内存不足，可调大上限避免 OOM
 NODE_MAX_OLD_SPACE_SIZE="${NODE_MAX_OLD_SPACE_SIZE:-4096}"
 export NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE} ${NODE_OPTIONS:-}"
@@ -46,15 +49,56 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+install_bun_from_url() {
+    if ! command -v unzip >/dev/null 2>&1; then
+        err "缺少 unzip，无法解压 Bun 安装包，请手动安装: https://bun.sh"
+        exit 1
+    fi
+
+    info "下载地址: $BUN_DOWNLOAD_URL"
+    local tmp
+    tmp="$(mktemp -d)"
+    if ! curl -fsSL "$BUN_DOWNLOAD_URL" -o "$tmp/bun.zip"; then
+        rm -rf "$tmp"
+        err "Bun 下载失败: $BUN_DOWNLOAD_URL"
+        err "请手动安装: https://bun.sh"
+        exit 1
+    fi
+
+    unzip -q "$tmp/bun.zip" -d "$tmp"
+    rm -f "$tmp/bun.zip"
+
+    # 官方压缩包内为 bun-<平台>/bun 结构，找到二进制后安装
+    local bun_bin
+    bun_bin="$(find "$tmp" -type f -name bun | head -n 1)"
+    if [ -z "$bun_bin" ]; then
+        rm -rf "$tmp"
+        err "Bun 安装包中未找到 bun 可执行文件: $BUN_DOWNLOAD_URL"
+        exit 1
+    fi
+
+    mkdir -p "$BUN_INSTALL/bin"
+    mv "$bun_bin" "$BUN_INSTALL/bin/bun"
+    chmod +x "$BUN_INSTALL/bin/bun"
+    rm -rf "$tmp"
+}
+
 install_bun() {
     info "未检测到 bun，尝试自动安装 ..."
     if ! command -v curl >/dev/null 2>&1; then
         err "缺少 curl，无法自动安装 bun，请手动安装: https://bun.sh"
         exit 1
     fi
-    curl -fsSL https://bun.sh/install | bash
-    # 将 bun 默认安装目录加入当前 PATH
+
     export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+    if [ -n "$BUN_DOWNLOAD_URL" ]; then
+        # 显式指定下载地址时直接下载解压，不走官方安装脚本
+        install_bun_from_url
+    else
+        curl -fsSL https://bun.sh/install | bash
+    fi
+
+    # 将 bun 默认安装目录加入当前 PATH
     export PATH="$BUN_INSTALL/bin:$PATH"
     if command -v bun >/dev/null 2>&1; then
         ok "bun 安装成功: $(bun --version)"
@@ -226,6 +270,7 @@ usage() {
     echo "  --goarch <arch>    目标架构 (默认: 当前架构)"
     echo "  --goproxy <proxy>  设置 Go 模块代理 (例如: https://goproxy.cn,direct)"
     echo "  --go-download-url <url>  指定 Go 安装包下载地址 (自动安装时不再探测版本)"
+    echo "  --bun-download-url <url> 指定 Bun 安装包下载地址 (zip, 不走官方安装脚本)"
     echo "  -h, --help         显示帮助信息"
     echo ""
     echo "环境变量:"
@@ -235,6 +280,7 @@ usage() {
     echo "  GOARCH             目标架构"
     echo "  GOPROXY            Go 模块代理 (同 --goproxy)"
     echo "  GO_DOWNLOAD_URL    Go 安装包下载地址 (同 --go-download-url)"
+    echo "  BUN_DOWNLOAD_URL   Bun 安装包下载地址 (同 --bun-download-url)"
     echo ""
     echo "示例:"
     echo "  $0                              # 完整编译"
@@ -242,6 +288,7 @@ usage() {
     echo "  $0 --goos linux --goarch arm64  # 交叉编译 Linux ARM64"
     echo "  $0 --goproxy https://goproxy.cn,direct  # 使用国内模块代理编译"
     echo "  $0 --go-download-url https://mirrors.aliyun.com/golang/go1.22.5.linux-amd64.tar.gz"
+    echo "  $0 --bun-download-url https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
     echo "  SKIP_FRONTEND=true $0           # 通过环境变量跳过前端"
 }
 
@@ -254,6 +301,7 @@ parse_args() {
             --goarch)        GOARCH="$2"; shift 2 ;;
             --goproxy)       GOPROXY="$2"; shift 2 ;;
             --go-download-url) GO_DOWNLOAD_URL="$2"; shift 2 ;;
+            --bun-download-url) BUN_DOWNLOAD_URL="$2"; shift 2 ;;
             -h|--help)       usage; exit 0 ;;
             *)               err "未知参数: $1"; usage; exit 1 ;;
         esac
