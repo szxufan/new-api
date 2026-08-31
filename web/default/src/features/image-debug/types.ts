@@ -114,12 +114,14 @@ export interface VideoResponse {
 
 /** 视频生成模式：与后端统一解析层（docs/video-generation-mode-design.md）对应。
  * - auto：不指定，由后端按 images 数量隐式推导（现状行为）
+ * - text2video：文生视频（不下发任何素材；已上传图片仅用于提示词优化）
  * - image2video：首帧生视频（metadata.first_frame_image）
  * - first_last_frame：首尾帧插值（metadata.first_frame_image + last_frame_image）
  * - reference2video：参考生视频（metadata.reference_images）
  */
 export type VideoGenerationMode =
   | 'auto'
+  | 'text2video'
   | 'image2video'
   | 'first_last_frame'
   | 'reference2video'

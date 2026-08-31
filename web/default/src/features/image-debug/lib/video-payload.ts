@@ -53,7 +53,8 @@ export function effectiveGenerationMode(
  * - duration：秒数（2-30，-1 智能时长）
  * - generationMode：
  *   - 'auto'：透传 images，后端按数量自动映射首帧/首尾帧/参考图（现状行为）
- *   - 显式模式：经 metadata 统一具名键指定
+ *   - 'text2video'：不下发任何素材（纯文本生成）
+ *   - 其他显式模式：经 metadata 统一具名键指定
  *     （first_frame_image / last_frame_image / reference_images）
  * - metadata.parameters.resolution：非默认分辨率时透传给万相3.0 等支持方
  */
@@ -91,6 +92,9 @@ export function buildVideoPayload(state: VideoDebugFormState): {
   if (state.images.length > 0) {
     const mode = effectiveGenerationMode(state)
     switch (mode) {
+      case 'text2video':
+        // 文生视频：不下发任何素材（已上传图片仅用于提示词优化）
+        break
       case 'image2video':
         metadata[METADATA_KEY_FIRST_FRAME] = state.images[0]
         break

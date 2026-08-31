@@ -233,7 +233,11 @@ export function VideoDebugForm({
             ))}
           </NativeSelect>
           <p className='text-muted-foreground text-xs'>
-            {t('Explicit modes use unified media keys; auto infers from image count.')}
+            {state.generationMode === 'text2video' && state.images.length > 0
+              ? t('Uploaded images will be ignored in this mode.')
+              : t(
+                  'Explicit modes use unified media keys; auto infers from image count.'
+                )}
           </p>
         </div>
 

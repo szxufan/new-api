@@ -156,6 +156,27 @@ describe('buildVideoPayload', () => {
     expect(payload.images).toBeUndefined()
     expect(payload.metadata).toBeUndefined()
   })
+
+  it('text2video：即使有图片也不下发任何素材', () => {
+    const images = ['data:image/png;base64,aaa', 'data:image/png;base64,bbb']
+    const payload = buildVideoPayload(
+      createState({ images, generationMode: 'text2video' })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toBeUndefined()
+  })
+
+  it('text2video 与非默认分辨率：仅下发 parameters', () => {
+    const payload = buildVideoPayload(
+      createState({
+        images: ['data:image/png;base64,aaa'],
+        generationMode: 'text2video',
+        resolution: '480P',
+      })
+    )
+    expect(payload.images).toBeUndefined()
+    expect(payload.metadata).toEqual({ parameters: { resolution: '480P' } })
+  })
 })
 
 describe('effectiveGenerationMode', () => {

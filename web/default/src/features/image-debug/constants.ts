@@ -110,6 +110,7 @@ export const VIDEO_RESOLUTIONS = [
  * minImages 为该模式所需的最少图片数，0 表示无图片要求。 */
 export const VIDEO_GENERATION_MODES = [
   { label: 'Auto (inferred from image count)', value: 'auto', minImages: 0 },
+  { label: 'Text to video', value: 'text2video', minImages: 0 },
   { label: 'Image to video (first frame)', value: 'image2video', minImages: 1 },
   {
     label: 'First & last frame interpolation',
