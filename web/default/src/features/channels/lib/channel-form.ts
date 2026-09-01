@@ -41,6 +41,7 @@ export const channelFormSchema = z.object({
   test_model: z.string().optional(),
   auto_ban: z.number().optional(),
   disable_429_ban: z.boolean().optional(), // 是否禁用429自动限流；true=跳过限流走正常重试
+  retry_times: z.number().min(-1).max(50).optional(), // 渠道专属重试次数：0=全局，-1=禁止重试，N>0=覆盖
   status: z.number(),
   status_code_mapping: z.string().optional(),
   tag: z.string().optional(),
@@ -116,6 +117,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   test_model: '',
   auto_ban: 1,
   disable_429_ban: false, // 默认关闭：维持现状（429限流+fallback）
+  retry_times: 0,
   status: CHANNEL_STATUS.ENABLED,
   status_code_mapping: '',
   tag: '',
@@ -296,6 +298,7 @@ export function transformChannelToFormDefaults(
     test_model: channel.test_model || '',
     auto_ban: channel.auto_ban ?? 1,
     disable_429_ban: channel.channel_info?.disable_429_ban ?? false,
+    retry_times: channel.retry_times ?? 0,
     status: channel.status,
     status_code_mapping: channel.status_code_mapping || '',
     tag: channel.tag || '',
@@ -506,6 +509,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
+    retry_times: formData.retry_times ?? 0,
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
@@ -566,6 +570,7 @@ export function transformFormDataToUpdatePayload(
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
+    retry_times: formData.retry_times ?? 0,
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,

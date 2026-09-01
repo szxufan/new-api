@@ -61,6 +61,7 @@ export const channelSchema = z.object({
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
   auto_ban: z.number().nullish(),
+  retry_times: z.number().nullish(), // 渠道专属重试次数：0=使用全局，-1=禁止重试，N>0=覆盖
   other_info: z.string().default(''),
   tag: z.string().nullish(),
   setting: z.string().nullish(),

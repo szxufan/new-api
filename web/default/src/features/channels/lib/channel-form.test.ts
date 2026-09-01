@@ -254,6 +254,23 @@ describe('transformChannelToFormDefaults', () => {
       transformChannelToFormDefaults(channelUndefined).group_blacklist
     ).toEqual([])
   })
+
+  it('should default retry_times to 0 for channels without it', () => {
+    const channelNull = createMockChannel({ retry_times: null })
+    const channelUndefined = createMockChannel({ retry_times: undefined })
+
+    expect(CHANNEL_FORM_DEFAULT_VALUES.retry_times).toBe(0)
+    expect(transformChannelToFormDefaults(channelNull).retry_times).toBe(0)
+    expect(transformChannelToFormDefaults(channelUndefined).retry_times).toBe(0)
+  })
+
+  it('should preserve retry_times override values (-1 and positive)', () => {
+    const forbidden = createMockChannel({ retry_times: -1 })
+    const override = createMockChannel({ retry_times: 5 })
+
+    expect(transformChannelToFormDefaults(forbidden).retry_times).toBe(-1)
+    expect(transformChannelToFormDefaults(override).retry_times).toBe(5)
+  })
 })
 
 describe('group_blacklist payloads', () => {
@@ -281,5 +298,59 @@ describe('group_blacklist payloads', () => {
     )
 
     expect(payload.group_blacklist).toBe('')
+  })
+})
+
+describe('retry_times payloads', () => {
+  it('should always send retry_times on create (including explicit 0)', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      retry_times: 0,
+    })
+
+    expect(payload.channel.retry_times).toBe(0)
+  })
+
+  it('should send retry_times override values on create', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      retry_times: -1,
+    })
+
+    expect(payload.channel.retry_times).toBe(-1)
+  })
+
+  it('should always send retry_times on update (including explicit -1)', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        retry_times: -1,
+      },
+      1
+    )
+
+    expect(payload.retry_times).toBe(-1)
+  })
+
+  it('should fall back to 0 when retry_times is undefined', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        retry_times: undefined,
+      },
+      1
+    )
+
+    expect(payload.retry_times).toBe(0)
   })
 })

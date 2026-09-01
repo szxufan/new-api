@@ -235,7 +235,7 @@ export async function handleTestChannel(
       toast.success(i18next.t(SUCCESS_MESSAGES.TESTED))
       onTestComplete?.(
         true,
-        response.time * 1000,
+        (response.time ?? 0) * 1000,
         undefined,
         undefined,
         response.fingerprint

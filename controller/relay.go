@@ -80,6 +80,42 @@ func executeRelayHandler(c *gin.Context, relayInfo *relaycommon.RelayInfo, relay
 	}
 }
 
+// resolveChannelAttempts 根据渠道专属重试次数计算该渠道的尝试次数。
+//
+// 参数 channelRetryTimes 为渠道的 retry_times 值：
+//   - -1 → 禁止在该渠道上重试（forbidden=true，仅尝试一次）
+//   - 0  → 使用全局计算值 defaultAttempts
+//   - N>0 → 该渠道重试 N 次，即尝试 N+1 次
+func resolveChannelAttempts(channelRetryTimes, defaultAttempts int) (attempts int, forbidden bool) {
+	if channelRetryTimes < 0 {
+		return 1, true
+	}
+	if channelRetryTimes == 0 {
+		return defaultAttempts, false
+	}
+	return channelRetryTimes + 1, false
+}
+
+// computeExtraRetryBudget 计算渠道重试覆盖引入的额外请求级尝试预算：
+// Σ max(0, resolveChannelAttempts(ch) - defaultAttempts)。
+// 无覆盖渠道（全部为 0 或 -1）时返回 0，保证与未启用该功能时行为一致。
+func computeExtraRetryBudget(channels []*model.Channel, defaultAttempts int) int {
+	extra := 0
+	for _, ch := range channels {
+		if ch == nil {
+			continue
+		}
+		attempts, forbidden := resolveChannelAttempts(ch.GetRetryTimes(), defaultAttempts)
+		if forbidden {
+			continue
+		}
+		if attempts > defaultAttempts {
+			extra += attempts - defaultAttempts
+		}
+	}
+	return extra
+}
+
 // shouldRetryChannel 判断当前错误是否应该重试同一渠道。
 func shouldRetryChannel(c *gin.Context, openaiErr *types.NewAPIError) bool {
 	if openaiErr == nil {
@@ -179,7 +215,7 @@ func tryChannelOnce(
 		if lastError == nil {
 			// HTTP 层面成功，检查是否有响应内容检测命中
 			if relayInfo.DetectionHit {
-				lastError = handleDetectionHit(relayInfo)
+				lastError = handleDetectionHit(c, relayInfo)
 			}
 		}
 		if lastError == nil {
@@ -216,7 +252,7 @@ func tryChannelOnce(
 }
 
 // handleDetectionHit 处理响应内容检测命中，构造检测错误并决定是否允许重试
-func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+func handleDetectionHit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	detection := relayInfo.ChannelMeta.ChannelSetting.ResponseDetection
 
 	// OnHit == "abort" 时，直接返回错误不重试
@@ -236,10 +272,10 @@ func handleDetectionHit(relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 		types.ErrorCodeResponseDetectionHit,
 	)
 
-	// 检查检测重试次数限制
+	// 检查检测重试次数限制（渠道 retry_times>0 时覆盖全局）
 	maxRetries := common.RetryTimes
-	if detection != nil && detection.MaxRetries > 0 {
-		maxRetries = detection.MaxRetries
+	if channelRetryTimes := common.GetContextKeyInt(c, constant.ContextKeyChannelRetryTimes); channelRetryTimes > 0 {
+		maxRetries = channelRetryTimes
 	}
 	relayInfo.DetectionRetryCount++
 	if relayInfo.DetectionRetryCount > maxRetries {
@@ -298,12 +334,15 @@ func tryFallbackChannels(
 			continue
 		}
 
+		// 按渠道解析尝试次数：-1 禁止重试（仅尝试一次），0 使用全局，N>0 覆盖
+		fbAttempts, _ := resolveChannelAttempts(fbChannel.GetRetryTimes(), perChannelAttempts)
+
 		common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, originalChannelId)
 		common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, fbChannel.Id)
 		logger.LogInfo(c, fmt.Sprintf("using fallback channel #%d for original channel #%d", fbChannel.Id, originalChannelId))
 
 		// fallback 渠道走 tryChannelOnce（不递归，429 也只当作失败）
-		lastError = tryChannelOnce(c, relayInfo, relayFormat, fbChannel, perChannelAttempts, totalAttempts, maxAttempts)
+		lastError = tryChannelOnce(c, relayInfo, relayFormat, fbChannel, fbAttempts, totalAttempts, maxAttempts)
 		if lastError == nil {
 			return nil
 		}
@@ -522,23 +561,37 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if affinityChannelId > 0 {
 		affinityChannel, affinityErr := model.CacheGetChannel(affinityChannelId)
 		if affinityErr == nil && affinityChannel != nil {
+			// 渠道覆盖 N>0 时按覆盖值计算尝试次数，并放宽本分支的循环上限
+			affinityAttempts, affinityForbidden := resolveChannelAttempts(affinityChannel.GetRetryTimes(), 1)
+			branchMaxAttempts := maxAttempts
+			if affinityAttempts > branchMaxAttempts {
+				branchMaxAttempts = affinityAttempts
+			}
+			if affinityForbidden {
+				// 渠道禁止重试：仅尝试本渠道一次（不换 key/不原地重试），随后退出锁定
+				branchMaxAttempts = 1
+			}
 			// 亲和性锁定：只重试该渠道和它的 fallback，不换其他渠道
-			for totalAttempts < maxAttempts {
+			for totalAttempts < branchMaxAttempts {
 				if affinityChannel.Status == common.ChannelStatusEnabled {
 					// 清除可能残留的 fallback 上下文
 					common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, 0)
 					common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, 0)
 
-					lastError = tryChannelOnce(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts)
+					lastError = tryChannelOnce(c, relayInfo, relayFormat, affinityChannel, affinityAttempts, &totalAttempts, branchMaxAttempts)
 					if lastError == nil {
 						relayInfo.LastError = nil
 						logRelayResult(c, relayInfo, nil)
 						return
 					}
+					if affinityForbidden {
+						// 渠道禁止重试：失败即退出锁定，fall through 到轮次循环切换其他渠道
+						break
+					}
 
 					// 429/自动禁用 → 立刻尝试 fallback，fallback 全失败则退出亲和性锁定
 					if isFallbackEligibleError(lastError, affinityChannel.GetDisable429Ban()) {
-						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, affinityChannel.Id, lastError)
+						fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, affinityAttempts, &totalAttempts, branchMaxAttempts, affinityChannel.Id, lastError)
 						if fbError == nil {
 							relayInfo.LastError = nil
 							logRelayResult(c, relayInfo, nil)
@@ -554,8 +607,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					}
 					// 渠道仍启用，继续重试同一渠道
 				} else {
+					if affinityForbidden {
+						// 渠道禁止重试：退出锁定，fall through 到轮次循环切换其他渠道
+						break
+					}
 					// 渠道被关闭（429/自动禁用/手动禁用），先试 fallback
-					fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, 1, &totalAttempts, maxAttempts, affinityChannel.Id, lastError)
+					fbError := tryFallbackChannels(c, relayInfo, relayFormat, affinityChannel, affinityAttempts, &totalAttempts, branchMaxAttempts, affinityChannel.Id, lastError)
 					if fbError == nil {
 						relayInfo.LastError = nil
 						logRelayResult(c, relayInfo, nil)
@@ -586,6 +643,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if len(channelList) == 0 {
 			break
 		}
+		if round == 0 {
+			// 首轮根据渠道覆盖值补偿请求级尝试预算，无覆盖渠道时补偿为 0（行为不变）
+			maxAttempts += computeExtraRetryBudget(channelList, perChannelAttempts)
+		}
 
 		// 中层：遍历主渠道
 		for _, channel := range channelList {
@@ -599,12 +660,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				continue
 			}
 
+			// 按渠道解析尝试次数：-1 禁止重试（仅尝试一次），0 使用全局，N>0 覆盖
+			chAttempts, chForbidden := resolveChannelAttempts(channel.GetRetryTimes(), perChannelAttempts)
+			if chForbidden {
+				logger.LogInfo(c, fmt.Sprintf("channel #%d has retry disabled, will try it once without retry", channel.Id))
+			}
+
 			// 清除可能残留的 fallback 上下文
 			common.SetContextKey(c, constant.ContextKeyFallbackFromChannelId, 0)
 			common.SetContextKey(c, constant.ContextKeyFallbackToChannelId, 0)
 
 			// 内层：同渠道重试，429 时内部触发 fallback
-			lastError = tryChannelOnce(c, relayInfo, relayFormat, channel, perChannelAttempts, &totalAttempts, maxAttempts)
+			lastError = tryChannelOnce(c, relayInfo, relayFormat, channel, chAttempts, &totalAttempts, maxAttempts)
 			if lastError == nil {
 				relayInfo.LastError = nil
 				logRelayResult(c, relayInfo, nil)

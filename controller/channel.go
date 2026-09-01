@@ -580,6 +580,11 @@ func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
 
 // validateChannel 通用的渠道校验函数
 func validateChannel(channel *model.Channel, isAdd bool) error {
+	// 校验渠道专属重试次数：0=使用全局，-1=禁止重试，N>0=覆盖
+	if channel.RetryTimes != nil && *channel.RetryTimes < -1 {
+		return fmt.Errorf("渠道重试次数[retry_times] 不能小于 -1")
+	}
+
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())

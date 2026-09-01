@@ -2603,6 +2603,34 @@ export function ChannelMutateDrawer({
 
                       <FormField
                         control={form.control}
+                        name='retry_times'
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t('Channel Retry Times')}</FormLabel>
+                            <FormControl>
+                              <Input
+                                type='number'
+                                min={-1}
+                                placeholder={t('0 = use global retry count')}
+                                {...field}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value)
+                                  field.onChange(isNaN(val) ? 0 : val)
+                                }}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {t(
+                                'Retry count for this channel (0 = use global setting, -1 = disable retry on this channel)'
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
                         name='test_model'
                         render={({ field }) => (
                           <FormItem>

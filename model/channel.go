@@ -49,6 +49,8 @@ type Channel struct {
 	StatusCodeMapping *string `json:"status_code_mapping" gorm:"type:varchar(1024);default:''"`
 	Priority          *int64  `json:"priority" gorm:"bigint;default:0"`
 	AutoBan           *int    `json:"auto_ban" gorm:"default:1"`
+	// RetryTimes 渠道专属重试次数：0=使用全局重试次数，-1=禁止在该渠道重试，N>0=该渠道重试 N 次
+	RetryTimes        *int    `json:"retry_times" gorm:"default:0"`
 	OtherInfo         string  `json:"other_info"`
 	Tag               *string `json:"tag" gorm:"index"`
 	Setting           *string `json:"setting" gorm:"type:text"` // 渠道额外设置
@@ -1171,6 +1173,14 @@ func (channel *Channel) ValidateSettings() error {
 		}
 	}
 	return nil
+}
+
+// GetRetryTimes 返回渠道专属重试次数：nil 视为 0（使用全局重试次数）
+func (channel *Channel) GetRetryTimes() int {
+	if channel.RetryTimes == nil {
+		return 0
+	}
+	return *channel.RetryTimes
 }
 
 func (channel *Channel) GetSetting() dto.ChannelSettings {
