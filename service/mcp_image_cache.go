@@ -18,6 +18,10 @@ const (
 	mcpImageCacheNamespace = "new-api:mcp_image:v1"
 	mcpImageCacheTTL       = 30 * time.Minute
 	mcpImageCacheCapacity  = 10_000
+	// MCPUploadImageTTL MCP 临时上传图片的保留时长（2 小时后自动删除）
+	MCPUploadImageTTL = 2 * time.Hour
+	// MCPUploadMaxSize MCP 临时上传图片的最大字节数（20MB，与生成图缓存上限一致）
+	MCPUploadMaxSize = 20 * 1024 * 1024
 )
 
 // MCPImageEntry 存储图片的二进制数据、MIME 类型和原始大小
@@ -119,10 +123,15 @@ func GetCachedImage(imageID string) (*MCPImageEntry, bool) {
 	return &entry, true
 }
 
-// SetCachedImage 将图片数据存入缓存
+// SetCachedImage 将图片数据存入缓存（默认 TTL，用于生成图）
 func SetCachedImage(imageID string, entry MCPImageEntry) error {
+	return SetCachedImageWithTTL(imageID, entry, mcpImageCacheTTL)
+}
+
+// SetCachedImageWithTTL 以指定 TTL 将图片数据存入缓存（用于 MCP 临时上传，2 小时过期）
+func SetCachedImageWithTTL(imageID string, entry MCPImageEntry, ttl time.Duration) error {
 	cache := getMCPImageCache()
-	return cache.SetWithTTL(imageID, entry, mcpImageCacheTTL)
+	return cache.SetWithTTL(imageID, entry, ttl)
 }
 
 // MimeTypeToExt 根据 MIME 类型返回文件扩展名（含点号）

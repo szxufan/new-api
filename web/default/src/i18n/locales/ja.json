@@ -4754,6 +4754,23 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Select group": "グループを選択",
+    "Select model": "モデルを選択",
+    "Text-to-image models": "テキストから画像生成モデル",
+    "Image-to-image models": "画像から画像生成モデル",
+    "Text-to-video models": "テキストから動画生成モデル",
+    "Image-to-video models (first frame)": "画像から動画生成モデル（先頭フレーム）",
+    "First-last frame video models": "先頭・末尾フレーム動画モデル",
+    "Reference video models": "参照画像動画モデル",
+    "Used by generate_image without image_ids": "image_ids なしの generate_image で使用",
+    "Used by generate_image with image_ids (max 3)": "image_ids 付きの generate_image で使用（最大 3 枚）",
+    "Used by generate_video": "generate_video で使用",
+    "Used by generate_video_from_frames with first frame only": "generate_video_from_frames で先頭フレームのみの場合に使用",
+    "Used by generate_video_from_frames with first + last frames": "generate_video_from_frames で先頭・末尾フレーム両方の場合に使用",
+    "Used by generate_video_from_reference (max 3 images)": "generate_video_from_reference で使用（最大 3 枚）",
+    "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "MCP ツール（画像・動画生成）のグループ別モデルを設定します。MCP クライアントがツールを呼び出す際、呼び出し元グループのモデルが使用され、未設定の場合は default グループにフォールバックします。",
+    "Configure per-group models for MCP endpoints (image & video generation)": "MCP エンドポイントのグループ別モデルを設定（画像・動画生成）",
+    "No mapping configured. Click \"Add\" to get started.": "マッピングが未設定です。「追加」をクリックして開始してください。"
   }
 }

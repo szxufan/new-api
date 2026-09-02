@@ -155,6 +155,16 @@ Authorization: Bearer <API_KEY>
 | 模型映射     | 若配置，映射目标必须保留 `minimax-h3` 前缀（见上）                                                                                                                                                                                  |
 | 模型定价     | 需在「系统设置 → 计费 → 模型定价」配置基础价，未配置按默认倍率计费                                                                                                                                                                  |
 
+**注意：本文档仅适用于「MiniMax 官方渠道」通路。** MiniMax-H3 在系统内有两条互不相干的接入通路：
+
+|              | MiniMax 官方渠道（本文档）                                   | 阿里云百炼渠道（第三方托管）                                                                                                                                             |
+| ------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 渠道类型     | `ChannelTypeMiniMax = 35`                                    | `ChannelTypeAli = 17`                                                                                                                                                    |
+| 客户端模型名 | `MiniMax-H3`（v2 判定：前缀 `minimax-h3`，大小写不敏感）     | `MiniMax/MiniMax-H3`（判定：模型名含 `minimax` 即路由，[ali/adaptor.go#L354-L359](file:///home/xufan/trea_project/new-api/relay/channel/task/ali/adaptor.go#L354-L359)） |
+| 你的上游协议 | **本文档 §1–2**（`/v2/video_generation` + `content[]` 数组） | DashScope 异步协议（`POST /api/v1/services/aigc/video-generation/video-synthesis` + `input.media[]`，见 [ali-bailian-minimax-video.md](./ali-bailian-minimax-video.md)） |
+
+若你的 Provider 后端实现的是百炼 DashScope 协议，请改用渠道类型 17 并参考百炼文档；实现本文档的 v2 协议则用渠道类型 35。
+
 ## 2. 查询任务：`GET /v2/query/video_generation/{task_id}`
 
 适配器调用点：[adaptor.go#L127-L148](file:///home/xufan/trea_project/new-api/relay/channel/task/hailuo/adaptor.go#L127-L148)（`FetchTask`）、[adaptor.go#L154-L162](file:///home/xufan/trea_project/new-api/relay/channel/task/hailuo/adaptor.go#L154-L162)（`buildQueryURL`）。

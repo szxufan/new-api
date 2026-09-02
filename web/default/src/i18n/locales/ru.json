@@ -4754,6 +4754,23 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Select group": "Выберите группу",
+    "Select model": "Выберите модель",
+    "Text-to-image models": "Модели текст→изображение",
+    "Image-to-image models": "Модели изображение→изображение",
+    "Text-to-video models": "Модели текст→видео",
+    "Image-to-video models (first frame)": "Модели изображение→видео (первый кадр)",
+    "First-last frame video models": "Модели видео первый-последний кадр",
+    "Reference video models": "Модели видео по референсам",
+    "Used by generate_image without image_ids": "Используется generate_image без image_ids",
+    "Used by generate_image with image_ids (max 3)": "Используется generate_image с image_ids (макс. 3)",
+    "Used by generate_video": "Используется generate_video",
+    "Used by generate_video_from_frames with first frame only": "Используется generate_video_from_frames только с первым кадром",
+    "Used by generate_video_from_frames with first + last frames": "Используется generate_video_from_frames с первым и последним кадрами",
+    "Used by generate_video_from_reference (max 3 images)": "Используется generate_video_from_reference (макс. 3 изображения)",
+    "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "Настройка моделей по группам для инструментов MCP (генерация изображений и видео). При вызове инструмента клиентом MCP используется модель группы вызывающего, с откатом к группе default.",
+    "Configure per-group models for MCP endpoints (image & video generation)": "Настройка моделей по группам для конечных точек MCP (генерация изображений и видео)",
+    "No mapping configured. Click \"Add\" to get started.": "Сопоставления не настроены. Нажмите «Добавить», чтобы начать."
   }
 }

@@ -4754,6 +4754,23 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Select group": "Chọn nhóm",
+    "Select model": "Chọn mô hình",
+    "Text-to-image models": "Mô hình văn bản sang hình ảnh",
+    "Image-to-image models": "Mô hình hình ảnh sang hình ảnh",
+    "Text-to-video models": "Mô hình văn bản sang video",
+    "Image-to-video models (first frame)": "Mô hình hình ảnh sang video (khung đầu)",
+    "First-last frame video models": "Mô hình video khung đầu-cuối",
+    "Reference video models": "Mô hình video theo ảnh tham chiếu",
+    "Used by generate_image without image_ids": "Dùng bởi generate_image khi không có image_ids",
+    "Used by generate_image with image_ids (max 3)": "Dùng bởi generate_image có image_ids (tối đa 3)",
+    "Used by generate_video": "Dùng bởi generate_video",
+    "Used by generate_video_from_frames with first frame only": "Dùng bởi generate_video_from_frames khi chỉ có khung đầu",
+    "Used by generate_video_from_frames with first + last frames": "Dùng bởi generate_video_from_frames khi có khung đầu + cuối",
+    "Used by generate_video_from_reference (max 3 images)": "Dùng bởi generate_video_from_reference (tối đa 3 ảnh)",
+    "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "Cấu hình mô hình theo nhóm cho các công cụ MCP (tạo hình ảnh & video). Khi MCP client gọi công cụ, mô hình của nhóm gọi sẽ được dùng, nếu không có sẽ fallback về nhóm default.",
+    "Configure per-group models for MCP endpoints (image & video generation)": "Cấu hình mô hình theo nhóm cho các MCP endpoint (tạo hình ảnh & video)",
+    "No mapping configured. Click \"Add\" to get started.": "Chưa cấu hình ánh xạ. Nhấn \"Thêm\" để bắt đầu."
   }
 }

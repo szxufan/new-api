@@ -4754,6 +4754,23 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Select group": "选择分组",
+    "Select model": "选择模型",
+    "Text-to-image models": "文生图模型",
+    "Image-to-image models": "图生图模型",
+    "Text-to-video models": "文生视频模型",
+    "Image-to-video models (first frame)": "图生视频模型（首帧）",
+    "First-last frame video models": "首尾帧生视频模型",
+    "Reference video models": "参考图生视频模型",
+    "Used by generate_image without image_ids": "generate_image 不带 image_ids 时使用",
+    "Used by generate_image with image_ids (max 3)": "generate_image 携带 image_ids 时使用（最多 3 张）",
+    "Used by generate_video": "generate_video 使用",
+    "Used by generate_video_from_frames with first frame only": "generate_video_from_frames 仅传首帧时使用",
+    "Used by generate_video_from_frames with first + last frames": "generate_video_from_frames 同时传首帧和尾帧时使用",
+    "Used by generate_video_from_reference (max 3 images)": "generate_video_from_reference 使用（最多 3 张图）",
+    "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "配置 MCP 工具（图像与视频生成）各分组使用的模型。MCP 客户端调用工具时使用调用方分组的模型，未配置时回退到 default 分组。",
+    "Configure per-group models for MCP endpoints (image & video generation)": "配置 MCP 端点各分组使用的模型（图像与视频生成）",
+    "No mapping configured. Click \"Add\" to get started.": "尚未配置映射，点击「添加」开始。"
   }
 }

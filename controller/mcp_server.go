@@ -18,8 +18,11 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/mcp_setting"
@@ -35,6 +38,9 @@ type MCPGinContextKey struct{}
 
 var mcpGinContextKey = MCPGinContextKey{}
 
+// maxMCPReferenceImages MCP 图生图/参考图最多引用的临时图片数量
+const maxMCPReferenceImages = 3
+
 // mcpServer 是单例 MCP Server
 var mcpServer *mcp.Server
 
@@ -47,9 +53,37 @@ func init() {
 	// 注册 generate_image 工具
 	mcpServer.AddTool(&mcp.Tool{
 		Name:        "generate_image",
-		Description: "Generate an image from a text prompt using the configured image model for the current group",
+		Description: "Generate an image from a text prompt, or edit/combine input images when image_ids is provided. Uses the image model configured for the current group",
 		InputSchema: generateImageInputSchema(),
 	}, handleMCPGenerateImage)
+
+	// 注册文生视频工具
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "generate_video",
+		Description: "Generate a video from a text prompt (async). Returns task_id immediately; poll get_video_task to check progress and get the result URL",
+		InputSchema: generateVideoInputSchema(),
+	}, handleMCPGenerateVideo)
+
+	// 注册首帧/首尾帧生视频工具
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "generate_video_from_frames",
+		Description: "Generate a video from a first frame image (and optionally a last frame image) uploaded via POST /v1/mcp-upload (async). Returns task_id immediately; poll get_video_task",
+		InputSchema: generateVideoFromFramesInputSchema(),
+	}, handleMCPGenerateVideoFromFrames)
+
+	// 注册参考图生视频工具
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "generate_video_from_reference",
+		Description: "Generate a video guided by 1-3 reference images uploaded via POST /v1/mcp-upload (async). Returns task_id immediately; poll get_video_task",
+		InputSchema: generateVideoFromReferenceInputSchema(),
+	}, handleMCPGenerateVideoFromReference)
+
+	// 注册视频任务查询工具
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "get_video_task",
+		Description: "Get the status, progress and result URL of a video generation task submitted by generate_video / generate_video_from_frames / generate_video_from_reference",
+		InputSchema: getVideoTaskInputSchema(),
+	}, handleMCPGetVideoTask)
 }
 
 // generateImageInputSchema 返回 generate_image 工具的 JSON Schema
@@ -59,7 +93,14 @@ func generateImageInputSchema() json.RawMessage {
 		"properties": map[string]any{
 			"prompt": map[string]any{
 				"type":        "string",
-				"description": "The text description of the image to generate",
+				"description": "The text description of the image to generate, or the edit instruction when image_ids is provided",
+			},
+			"image_ids": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"minItems":    1,
+				"maxItems":    3,
+				"description": "Optional. Temporary image IDs returned by POST /v1/mcp-upload (max 3). When provided, image-to-image (edit) is performed using these reference images",
 			},
 		},
 		"required": []string{"prompt"},
@@ -71,6 +112,10 @@ func generateImageInputSchema() json.RawMessage {
 // handleMCPGenerateImage 是 generate_image 工具的 handler。
 // 不使用 relay.ImageHelper（它会将响应写入 HTTP ResponseWriter），
 // 而是直接调用适配器底层方法，将图片 URL 作为 MCP Tool Result 返回。
+// 支持两种模式：
+//   - 文生图：仅传 prompt，使用分组配置的文生图模型
+//   - 图生图：传 prompt + image_ids（POST /v1/mcp-upload 返回的临时图片 ID，最多 3 张），
+//     使用分组配置的图生图模型，走 /v1/images/edits 路径
 func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// 从 context 中获取 gin context（在路由层注入）
 	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
@@ -81,7 +126,8 @@ func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp
 
 	// 解析工具参数
 	var args struct {
-		Prompt string `json:"prompt"`
+		Prompt   string   `json:"prompt"`
+		ImageIDs []string `json:"image_ids"`
 	}
 	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
 		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
@@ -89,21 +135,51 @@ func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp
 	if args.Prompt == "" {
 		return newMCPErrorResult("prompt is required"), nil
 	}
+	if len(args.ImageIDs) > maxMCPReferenceImages {
+		return newMCPErrorResult(fmt.Sprintf("image_ids supports at most %d images, got %d", maxMCPReferenceImages, len(args.ImageIDs))), nil
+	}
 
-	// 从配置获取该分组的文生图模型
+	// 从配置获取该分组的文生图/图生图模型
 	group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
 	if group == "" {
 		group = "default"
 	}
-	model := mcp_setting.GetGroupImageModel(group)
-	if model == "" {
-		return newMCPErrorResult(fmt.Sprintf("no image model configured for group: %s", group)), nil
+	isI2I := len(args.ImageIDs) > 0
+	var model string
+	if isI2I {
+		model = mcp_setting.GetGroupI2IModel(group)
+		if model == "" {
+			return newMCPErrorResult(fmt.Sprintf("no image-to-image model configured for group: %s, please configure mcp_setting.group_i2i_models", group)), nil
+		}
+	} else {
+		model = mcp_setting.GetGroupImageModel(group)
+		if model == "" {
+			return newMCPErrorResult(fmt.Sprintf("no image model configured for group: %s", group)), nil
+		}
 	}
 
-	// 构造 ImageRequest（仅 prompt 和 model，其他参数由上游默认值决定）
+	// 解析临时图片 ID 为本站代理 URL（仅图生图）
+	var imageInputs []string
+	if isI2I {
+		var resolveErr error
+		imageInputs, resolveErr = resolveMCPImageIDs(ginCtx, args.ImageIDs)
+		if resolveErr != nil {
+			return newMCPErrorResult(resolveErr.Error()), nil
+		}
+	}
+
+	// 构造 ImageRequest
 	imageReq := &dto.ImageRequest{
 		Model:  model,
 		Prompt: args.Prompt,
+	}
+	if isI2I {
+		// OpenAI edits JSON 格式的 image 字段（字符串数组），上游适配器（如 ali qwen-image）会解析
+		imagesJSON, marshalErr := common.Marshal(imageInputs)
+		if marshalErr != nil {
+			return newMCPErrorResult(fmt.Sprintf("failed to marshal image inputs: %s", marshalErr.Error())), nil
+		}
+		imageReq.Image = imagesJSON
 	}
 
 	// 设置 original_model，使 GenRelayInfo 能正确读取 OriginModelName
@@ -117,10 +193,15 @@ func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp
 		return newMCPErrorResult(fmt.Sprintf("failed to build relay info: %s", err.Error())), nil
 	}
 
-	// 覆盖 RequestURLPath 为正确的文生图路径
+	// 覆盖 RequestURLPath 为正确的图片生成/编辑路径
 	// GenRelayInfo 从原始请求 URL 读取路径（/v1/mcp），
-	// 但上游需要的是 /v1/images/generations
-	relayInfo.RequestURLPath = "/v1/images/generations"
+	// 上游需要的是 /v1/images/generations（文生图）或 /v1/images/edits（图生图）
+	if isI2I {
+		relayInfo.RequestURLPath = "/v1/images/edits"
+		relayInfo.RelayMode = relayconstant.RelayModeImagesEdits
+	} else {
+		relayInfo.RequestURLPath = "/v1/images/generations"
+	}
 
 	// 价格计算与预扣费
 	meta := imageReq.GetTokenCountMeta()
@@ -302,6 +383,381 @@ func newMCPErrorResult(message string) *mcp.CallToolResult {
 	}
 }
 
+// resolveMCPImageIDs 将临时图片 ID 列表解析为本站代理 URL 列表。
+// 任一 ID 不存在或已过期则返回错误（由 MCP 工具层提示 Agent 重新上传）。
+func resolveMCPImageIDs(c *gin.Context, imageIDs []string) ([]string, error) {
+	urls := make([]string, 0, len(imageIDs))
+	for _, id := range imageIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, fmt.Errorf("empty image id in image list")
+		}
+		// 兼容 Agent 直接传代理 URL 的情况
+		if strings.HasPrefix(id, "http://") || strings.HasPrefix(id, "https://") {
+			urls = append(urls, id)
+			continue
+		}
+		entry, found := service.GetCachedImage(stripExt(id))
+		if !found {
+			return nil, fmt.Errorf("image not found or expired: %s (upload again via POST /v1/mcp-upload)", id)
+		}
+		urls = append(urls, buildImageProxyURL(c, stripExt(id), entry.MimeType))
+	}
+	return urls, nil
+}
+
+// ============================================================================
+// 视频生成工具（异步任务）
+// ============================================================================
+
+// videoToolArgs 视频提交工具的公共参数
+type videoToolArgs struct {
+	Prompt   string `json:"prompt"`
+	Duration int    `json:"duration"`
+	Size     string `json:"size"`
+}
+
+// videoToolCommonSchema 返回 prompt/duration/size 公共属性
+func videoToolCommonSchema(promptDesc string) map[string]any {
+	return map[string]any{
+		"prompt": map[string]any{
+			"type":        "string",
+			"description": promptDesc,
+		},
+		"duration": map[string]any{
+			"type":        "integer",
+			"description": "Optional. Video duration in seconds (model-dependent supported range)",
+		},
+		"size": map[string]any{
+			"type":        "string",
+			"description": "Optional. Resolution/aspect ratio (model-dependent, e.g. 1280x720, 720P, 16:9)",
+		},
+	}
+}
+
+// generateVideoInputSchema 文生视频工具的 JSON Schema
+func generateVideoInputSchema() json.RawMessage {
+	schema := map[string]any{
+		"type":       "object",
+		"properties": videoToolCommonSchema("The text description of the video to generate"),
+		"required":   []string{"prompt"},
+	}
+	data, _ := common.Marshal(schema)
+	return json.RawMessage(data)
+}
+
+// generateVideoFromFramesInputSchema 首帧/首尾帧生视频工具的 JSON Schema
+func generateVideoFromFramesInputSchema() json.RawMessage {
+	props := videoToolCommonSchema("The text description of the video to generate")
+	props["first_frame_id"] = map[string]any{
+		"type":        "string",
+		"description": "Required. Temporary image ID (or proxy URL) of the first frame, returned by POST /v1/mcp-upload",
+	}
+	props["last_frame_id"] = map[string]any{
+		"type":        "string",
+		"description": "Optional. Temporary image ID (or proxy URL) of the last frame. Providing both first and last frames performs first-last frame interpolation",
+	}
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+		"required":   []string{"prompt", "first_frame_id"},
+	}
+	data, _ := common.Marshal(schema)
+	return json.RawMessage(data)
+}
+
+// generateVideoFromReferenceInputSchema 参考图生视频工具的 JSON Schema
+func generateVideoFromReferenceInputSchema() json.RawMessage {
+	props := videoToolCommonSchema("The text description of the video to generate")
+	props["image_ids"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"minItems":    1,
+		"maxItems":    3,
+		"description": "Required. 1-3 temporary image IDs (or proxy URLs) of reference images, returned by POST /v1/mcp-upload",
+	}
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+		"required":   []string{"prompt", "image_ids"},
+	}
+	data, _ := common.Marshal(schema)
+	return json.RawMessage(data)
+}
+
+// getVideoTaskInputSchema 视频任务查询工具的 JSON Schema
+func getVideoTaskInputSchema() json.RawMessage {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "The task_id returned by a video generation tool",
+			},
+		},
+		"required": []string{"task_id"},
+	}
+	data, _ := common.Marshal(schema)
+	return json.RawMessage(data)
+}
+
+// submitMCPTask 提交 MCP 视频生成异步任务（复用 RelayTaskSubmit 完整链路：
+// 请求校验 → 模型映射 → 按次计费 + OtherRatios → 预扣费 → 上游提交 → 提交后计费调整）。
+// kind 为视频模型池类型（mcp_setting.VideoModelKind*），taskReq 为已构造的入站请求。
+// 成功返回公开 task_id；失败已自动退款并返回错误信息。
+func submitMCPTask(ginCtx *gin.Context, kind string, taskReq relaycommon.TaskSubmitReq) (string, *mcp.CallToolResult) {
+	group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
+	if group == "" {
+		group = "default"
+	}
+	videoModel := mcp_setting.GetGroupVideoModel(kind, group)
+	if videoModel == "" {
+		return "", newMCPErrorResult(fmt.Sprintf("no video model configured for group: %s (kind: %s), please configure the corresponding mcp_setting.group_video_*_models", group, kind))
+	}
+	taskReq.Model = videoModel
+
+	// 设置 original_model（MCP 路由未走 Distribute 中间件）
+	common.SetContextKey(ginCtx, constant.ContextKeyOriginalModel, videoModel)
+
+	// 构造合成 HTTP 请求，让 ValidateRequestAndSetAction / UnmarshalBodyReusable 按标准流程解析
+	bodyBytes, err := common.Marshal(taskReq)
+	if err != nil {
+		return "", newMCPErrorResult(fmt.Sprintf("failed to marshal task request: %s", err.Error()))
+	}
+	httpReq, err := http.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", newMCPErrorResult(fmt.Sprintf("failed to build synthetic request: %s", err.Error()))
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	ginCtx.Request = httpReq
+
+	relayInfo, err := relaycommon.GenRelayInfo(ginCtx, types.RelayFormatTask, nil, nil)
+	if err != nil {
+		return "", newMCPErrorResult(fmt.Sprintf("failed to build relay info: %s", err.Error()))
+	}
+
+	// 选择渠道并注入渠道元数据（按模型名路由，不限定渠道类型）
+	channel, _, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:        ginCtx,
+		TokenGroup: relayInfo.TokenGroup,
+		ModelName:  videoModel,
+		Retry:      common.GetPointer(0),
+	})
+	if err != nil {
+		return "", newMCPErrorResult(fmt.Sprintf("no available channel: %s", err.Error()))
+	}
+	if channel == nil {
+		return "", newMCPErrorResult(fmt.Sprintf("no available channel for model: %s", videoModel))
+	}
+	if newAPIErr := middleware.SetupContextForSelectedChannel(ginCtx, channel, videoModel); newAPIErr != nil {
+		return "", newMCPErrorResult(fmt.Sprintf("channel setup failed: %s", newAPIErr.Error()))
+	}
+
+	// 提交任务（内部完成校验、价格计算、预扣费、上游请求、提交后计费调整）
+	result, taskErr := relay.RelayTaskSubmit(ginCtx, relayInfo)
+	if taskErr != nil {
+		if relayInfo.Billing != nil {
+			relayInfo.Billing.Refund(ginCtx)
+		}
+		return "", newMCPErrorResult(fmt.Sprintf("task submit failed: %s", taskErr.Message))
+	}
+
+	// 成功收尾：结算 + 消费日志 + 插入任务（后台轮询器负责后续状态更新与最终结算/退款）
+	if settleErr := service.SettleBilling(ginCtx, relayInfo, result.Quota); settleErr != nil {
+		common.SysError("MCP: settle task billing error: " + settleErr.Error())
+	}
+	service.LogTaskConsumption(ginCtx, relayInfo)
+
+	task := model.InitTask(result.Platform, relayInfo)
+	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+	task.PrivateData.BillingSource = relayInfo.BillingSource
+	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
+	task.PrivateData.TokenId = relayInfo.TokenId
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		ModelPrice:      relayInfo.PriceData.ModelPrice,
+		GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+		ModelRatio:      relayInfo.PriceData.ModelRatio,
+		OtherRatios:     relayInfo.PriceData.OtherRatios,
+		OriginModelName: relayInfo.OriginModelName,
+		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+	}
+	task.Quota = result.Quota
+	task.Data = result.TaskData
+	task.Action = relayInfo.Action
+	task.Properties.Duration = relaycommon.ResolveRequestedDuration(taskReq)
+	if insertErr := task.Insert(); insertErr != nil {
+		common.SysError("MCP: insert task error: " + insertErr.Error())
+	}
+
+	// 返回提交结果
+	resultData, _ := common.Marshal(gin.H{
+		"task_id":                task.TaskID,
+		"status":                 "submitted",
+		"model":                  videoModel,
+		"message":                "Video generation task submitted. Poll get_video_task with task_id to check progress.",
+		"estimated_wait_seconds": 60,
+	})
+	return task.TaskID, &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(resultData)},
+		},
+	}
+}
+
+// handleMCPGenerateVideo 文生视频工具 handler（t2v 模型池）
+func handleMCPGenerateVideo(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
+	if !ok || ginCtx == nil {
+		return newMCPErrorResult("internal error: failed to get request context"), nil
+	}
+
+	var args videoToolArgs
+	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
+	}
+	if args.Prompt == "" {
+		return newMCPErrorResult("prompt is required"), nil
+	}
+
+	taskReq := relaycommon.TaskSubmitReq{
+		Prompt:   args.Prompt,
+		Size:     args.Size,
+		Duration: args.Duration,
+	}
+	_, result := submitMCPTask(ginCtx, mcp_setting.VideoModelKindT2V, taskReq)
+	return result, nil
+}
+
+// handleMCPGenerateVideoFromFrames 首帧/首尾帧生视频工具 handler
+// 仅传 first_frame_id → i2v 模型池；同时传 last_frame_id → kf2v 模型池
+func handleMCPGenerateVideoFromFrames(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
+	if !ok || ginCtx == nil {
+		return newMCPErrorResult("internal error: failed to get request context"), nil
+	}
+
+	var args struct {
+		videoToolArgs
+		FirstFrameID string `json:"first_frame_id"`
+		LastFrameID  string `json:"last_frame_id"`
+	}
+	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
+	}
+	if args.Prompt == "" {
+		return newMCPErrorResult("prompt is required"), nil
+	}
+	if args.FirstFrameID == "" {
+		return newMCPErrorResult("first_frame_id is required"), nil
+	}
+
+	frameURLs, resolveErr := resolveMCPImageIDs(ginCtx, []string{args.FirstFrameID, args.LastFrameID})
+	if resolveErr != nil {
+		return newMCPErrorResult(resolveErr.Error()), nil
+	}
+
+	metadata := map[string]interface{}{
+		relaycommon.MetadataKeyFirstFrame: frameURLs[0],
+	}
+	kind := mcp_setting.VideoModelKindI2V
+	if args.LastFrameID != "" {
+		metadata[relaycommon.MetadataKeyLastFrame] = frameURLs[1]
+		kind = mcp_setting.VideoModelKindKF2V
+	}
+
+	taskReq := relaycommon.TaskSubmitReq{
+		Prompt:   args.Prompt,
+		Size:     args.Size,
+		Duration: args.Duration,
+		Metadata: metadata,
+	}
+	_, result := submitMCPTask(ginCtx, kind, taskReq)
+	return result, nil
+}
+
+// handleMCPGenerateVideoFromReference 参考图生视频工具 handler（r2v 模型池，最多 3 张参考图）
+func handleMCPGenerateVideoFromReference(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
+	if !ok || ginCtx == nil {
+		return newMCPErrorResult("internal error: failed to get request context"), nil
+	}
+
+	var args struct {
+		videoToolArgs
+		ImageIDs []string `json:"image_ids"`
+	}
+	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
+	}
+	if args.Prompt == "" {
+		return newMCPErrorResult("prompt is required"), nil
+	}
+	if len(args.ImageIDs) == 0 {
+		return newMCPErrorResult("image_ids is required (1-3 reference image IDs)"), nil
+	}
+	if len(args.ImageIDs) > maxMCPReferenceImages {
+		return newMCPErrorResult(fmt.Sprintf("image_ids supports at most %d images, got %d", maxMCPReferenceImages, len(args.ImageIDs))), nil
+	}
+
+	refURLs, resolveErr := resolveMCPImageIDs(ginCtx, args.ImageIDs)
+	if resolveErr != nil {
+		return newMCPErrorResult(resolveErr.Error()), nil
+	}
+
+	taskReq := relaycommon.TaskSubmitReq{
+		Prompt:   args.Prompt,
+		Size:     args.Size,
+		Duration: args.Duration,
+		Metadata: map[string]interface{}{
+			relaycommon.MetadataKeyReferenceImages: refURLs,
+		},
+	}
+	_, result := submitMCPTask(ginCtx, mcp_setting.VideoModelKindR2V, taskReq)
+	return result, nil
+}
+
+// handleMCPGetVideoTask 视频任务查询工具 handler。
+// 直读数据库（与 GET /v1/videos/:task_id 一致），进度由后台 TaskPollingLoop 更新。
+func handleMCPGetVideoTask(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
+	if !ok || ginCtx == nil {
+		return newMCPErrorResult("internal error: failed to get request context"), nil
+	}
+
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
+		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
+	}
+	if args.TaskID == "" {
+		return newMCPErrorResult("task_id is required"), nil
+	}
+
+	// 归属校验：只能查询本人任务（与 REST 查询一致）
+	task, exist, err := model.GetByTaskId(ginCtx.GetInt("id"), args.TaskID)
+	if err != nil {
+		return newMCPErrorResult(fmt.Sprintf("failed to get task: %s", err.Error())), nil
+	}
+	if !exist {
+		return newMCPErrorResult(fmt.Sprintf("task not found: %s", args.TaskID)), nil
+	}
+
+	resultData, _ := common.Marshal(gin.H{
+		"task_id":     task.TaskID,
+		"status":      string(task.Status),
+		"progress":    task.Progress,
+		"fail_reason": task.FailReason,
+		"result_url":  task.GetResultURL(),
+		"proxy_url":   taskcommon.BuildProxyURL(task.TaskID),
+	})
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(resultData)},
+		},
+	}, nil
+}
+
 // imageSource 表示一个图片来源（URL 或 base64）
 type imageSource struct {
 	url string
@@ -428,4 +884,73 @@ func stripExt(s string) string {
 		return s[:idx]
 	}
 	return s
+}
+
+// allowedUploadMimeTypes MCP 临时上传允许的图片 MIME 类型白名单
+var allowedUploadMimeTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/webp": true,
+	"image/gif":  true,
+}
+
+// MCPUploadImage 处理 MCP 临时图片上传（POST /v1/mcp-upload，multipart/form-data）。
+// 返回临时图片 ID（2 小时后自动删除），供 generate_image / generate_video_from_* 工具
+// 以 image_ids / first_frame_id / last_frame_id 参数引用。
+func MCPUploadImage(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file field is required (multipart/form-data)"})
+		return
+	}
+	if fileHeader.Size > service.MCPUploadMaxSize {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("file too large: %d bytes, max %d bytes", fileHeader.Size, service.MCPUploadMaxSize)})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("failed to open uploaded file: %s", err.Error())})
+		return
+	}
+	defer file.Close()
+
+	// 限制读取量并检测真实内容类型（防止扩展名伪造）
+	data, err := io.ReadAll(io.LimitReader(file, service.MCPUploadMaxSize+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("failed to read uploaded file: %s", err.Error())})
+		return
+	}
+	if len(data) > service.MCPUploadMaxSize {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("file too large, max %d bytes", service.MCPUploadMaxSize)})
+		return
+	}
+	mimeType := http.DetectContentType(data)
+	if !allowedUploadMimeTypes[mimeType] {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("unsupported image type: %s (allowed: png, jpeg, webp, gif)", mimeType)})
+		return
+	}
+
+	imageID := generateImageCacheID(string(data))
+	entry := service.MCPImageEntry{
+		Data:     data,
+		MimeType: mimeType,
+		OrigSize: int64(len(data)),
+	}
+	if err := service.SetCachedImageWithTTL(imageID, entry, service.MCPUploadImageTTL); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("failed to cache image: %s", err.Error())})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"id":         imageID,
+			"url":        buildImageProxyURL(c, imageID, mimeType),
+			"mime_type":  mimeType,
+			"size":       len(data),
+			"expires_in": int(service.MCPUploadImageTTL.Seconds()),
+		},
+	})
 }

@@ -71,6 +71,11 @@ const defaultModelSettings: ModelSettings = {
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
   'mcp_setting.group_image_models': '{"default":"dall-e-3"}',
+  'mcp_setting.group_i2i_models': '{}',
+  'mcp_setting.group_video_t2v_models': '{}',
+  'mcp_setting.group_video_i2v_models': '{}',
+  'mcp_setting.group_video_kf2v_models': '{}',
+  'mcp_setting.group_video_r2v_models': '{}',
 }
 
 export function ModelSettings() {

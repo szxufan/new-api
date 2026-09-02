@@ -4754,6 +4754,23 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Select group": "Sélectionner un groupe",
+    "Select model": "Sélectionner un modèle",
+    "Text-to-image models": "Modèles texte-image",
+    "Image-to-image models": "Modèles image-image",
+    "Text-to-video models": "Modèles texte-vidéo",
+    "Image-to-video models (first frame)": "Modèles image-vidéo (premier cadre)",
+    "First-last frame video models": "Modèles vidéo premier-dernier cadre",
+    "Reference video models": "Modèles vidéo par référence",
+    "Used by generate_image without image_ids": "Utilisé par generate_image sans image_ids",
+    "Used by generate_image with image_ids (max 3)": "Utilisé par generate_image avec image_ids (max 3)",
+    "Used by generate_video": "Utilisé par generate_video",
+    "Used by generate_video_from_frames with first frame only": "Utilisé par generate_video_from_frames avec premier cadre uniquement",
+    "Used by generate_video_from_frames with first + last frames": "Utilisé par generate_video_from_frames avec premier + dernier cadres",
+    "Used by generate_video_from_reference (max 3 images)": "Utilisé par generate_video_from_reference (max 3 images)",
+    "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "Configurez les modèles par groupe pour les outils MCP (génération d'images et de vidéos). Lorsqu'un client MCP appelle un outil, le modèle du groupe de l'appelant est utilisé, avec repli sur le groupe par défaut.",
+    "Configure per-group models for MCP endpoints (image & video generation)": "Configurer les modèles par groupe pour les points de terminaison MCP (génération d'images et de vidéos)",
+    "No mapping configured. Click \"Add\" to get started.": "Aucun mappage configuré. Cliquez sur « Ajouter » pour commencer."
   }
 }

@@ -167,16 +167,34 @@ const MODELS_SECTIONS = [
     id: 'mcp-image',
     titleKey: 'MCP Image Generation',
     descriptionKey:
-      'Configure per-group image generation models for MCP endpoints',
+      'Configure per-group models for MCP endpoints (image & video generation)',
     build: (settings: ModelSettings) => (
       <McpSettingsCard
         defaultValues={{
-          mcp: {
-            group_image_models: formatJsonForEditor(
-              settings['mcp_setting.group_image_models'],
-              '{"default":"dall-e-3"}'
-            ),
-          },
+          'mcp_setting.group_image_models': formatJsonForEditor(
+            settings['mcp_setting.group_image_models'],
+            '{"default":"dall-e-3"}'
+          ),
+          'mcp_setting.group_i2i_models': formatJsonForEditor(
+            settings['mcp_setting.group_i2i_models'],
+            '{}'
+          ),
+          'mcp_setting.group_video_t2v_models': formatJsonForEditor(
+            settings['mcp_setting.group_video_t2v_models'],
+            '{}'
+          ),
+          'mcp_setting.group_video_i2v_models': formatJsonForEditor(
+            settings['mcp_setting.group_video_i2v_models'],
+            '{}'
+          ),
+          'mcp_setting.group_video_kf2v_models': formatJsonForEditor(
+            settings['mcp_setting.group_video_kf2v_models'],
+            '{}'
+          ),
+          'mcp_setting.group_video_r2v_models': formatJsonForEditor(
+            settings['mcp_setting.group_video_r2v_models'],
+            '{}'
+          ),
         }}
       />
     ),

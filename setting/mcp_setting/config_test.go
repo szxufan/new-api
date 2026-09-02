@@ -131,3 +131,123 @@ func TestGroupImageModelSetting_LoadFromDB(t *testing.T) {
 		}
 	}
 }
+
+// setI2IModels 设置图生图测试数据并返回还原函数
+func setI2IModels(m map[string]string) func() {
+	original := groupImageModelSetting.GroupI2IModels
+	groupImageModelSetting.GroupI2IModels = m
+	return func() { groupImageModelSetting.GroupI2IModels = original }
+}
+
+// TestGetGroupI2IModel 测试图生图模型获取：命中、default 回退、空配置
+func TestGetGroupI2IModel(t *testing.T) {
+	restore := setI2IModels(map[string]string{
+		"default": "qwen-image-edit",
+		"vip":     "gpt-image-1",
+	})
+	defer restore()
+
+	if got := GetGroupI2IModel("vip"); got != "gpt-image-1" {
+		t.Errorf("GetGroupI2IModel(\"vip\") = %q, want %q", got, "gpt-image-1")
+	}
+	if got := GetGroupI2IModel("unknown"); got != "qwen-image-edit" {
+		t.Errorf("GetGroupI2IModel(\"unknown\") = %q, want default %q", got, "qwen-image-edit")
+	}
+}
+
+// TestGetGroupI2IModel_Empty 测试图生图模型空配置返回空串
+func TestGetGroupI2IModel_Empty(t *testing.T) {
+	restore := setI2IModels(map[string]string{})
+	defer restore()
+
+	if got := GetGroupI2IModel("default"); got != "" {
+		t.Errorf("GetGroupI2IModel with empty config = %q, want empty string", got)
+	}
+}
+
+// setVideoModels 设置视频模型池测试数据并返回还原函数
+func setVideoModels(field string, m map[string]string) func() {
+	var original map[string]string
+	switch field {
+	case VideoModelKindT2V:
+		original = groupImageModelSetting.GroupVideoT2VModels
+		groupImageModelSetting.GroupVideoT2VModels = m
+	case VideoModelKindI2V:
+		original = groupImageModelSetting.GroupVideoI2VModels
+		groupImageModelSetting.GroupVideoI2VModels = m
+	case VideoModelKindKF2V:
+		original = groupImageModelSetting.GroupVideoKF2VModels
+		groupImageModelSetting.GroupVideoKF2VModels = m
+	case VideoModelKindR2V:
+		original = groupImageModelSetting.GroupVideoR2VModels
+		groupImageModelSetting.GroupVideoR2VModels = m
+	}
+	return func() {
+		switch field {
+		case VideoModelKindT2V:
+			groupImageModelSetting.GroupVideoT2VModels = original
+		case VideoModelKindI2V:
+			groupImageModelSetting.GroupVideoI2VModels = original
+		case VideoModelKindKF2V:
+			groupImageModelSetting.GroupVideoKF2VModels = original
+		case VideoModelKindR2V:
+			groupImageModelSetting.GroupVideoR2VModels = original
+		}
+	}
+}
+
+// TestGetGroupVideoModel_KindDispatch 测试视频模型池 kind 分发正确性
+func TestGetGroupVideoModel_KindDispatch(t *testing.T) {
+	restoreT2V := setVideoModels(VideoModelKindT2V, map[string]string{"default": "wan2.5-t2v-preview"})
+	restoreI2V := setVideoModels(VideoModelKindI2V, map[string]string{"default": "wan2.5-i2v-preview"})
+	restoreKF2V := setVideoModels(VideoModelKindKF2V, map[string]string{"default": "wan2.2-kf2v-flash"})
+	restoreR2V := setVideoModels(VideoModelKindR2V, map[string]string{"default": "happyhorse-1.0-r2v"})
+	defer restoreT2V()
+	defer restoreI2V()
+	defer restoreKF2V()
+	defer restoreR2V()
+
+	cases := []struct {
+		kind string
+		want string
+	}{
+		{VideoModelKindT2V, "wan2.5-t2v-preview"},
+		{VideoModelKindI2V, "wan2.5-i2v-preview"},
+		{VideoModelKindKF2V, "wan2.2-kf2v-flash"},
+		{VideoModelKindR2V, "happyhorse-1.0-r2v"},
+	}
+	for _, tt := range cases {
+		if got := GetGroupVideoModel(tt.kind, "default"); got != tt.want {
+			t.Errorf("GetGroupVideoModel(%q, \"default\") = %q, want %q", tt.kind, got, tt.want)
+		}
+	}
+}
+
+// TestGetGroupVideoModel_UnknownKind 未知 kind 返回空串
+func TestGetGroupVideoModel_UnknownKind(t *testing.T) {
+	if got := GetGroupVideoModel("nope", "default"); got != "" {
+		t.Errorf("GetGroupVideoModel(\"nope\", ...) = %q, want empty string", got)
+	}
+}
+
+// TestGetGroupVideoModel_Fallback 测试视频模型池分组回退：指定组 → default → 空串
+func TestGetGroupVideoModel_Fallback(t *testing.T) {
+	restore := setVideoModels(VideoModelKindT2V, map[string]string{
+		"default": "wan2.5-t2v-preview",
+		"vip":     "happyhorse-1.0-t2v",
+	})
+	defer restore()
+
+	if got := GetGroupVideoModel(VideoModelKindT2V, "vip"); got != "happyhorse-1.0-t2v" {
+		t.Errorf("GetGroupVideoModel t2v vip = %q", got)
+	}
+	if got := GetGroupVideoModel(VideoModelKindT2V, "unknown"); got != "wan2.5-t2v-preview" {
+		t.Errorf("GetGroupVideoModel t2v unknown = %q, want default", got)
+	}
+
+	restoreEmpty := setVideoModels(VideoModelKindI2V, map[string]string{})
+	defer restoreEmpty()
+	if got := GetGroupVideoModel(VideoModelKindI2V, "vip"); got != "" {
+		t.Errorf("GetGroupVideoModel i2v empty pool = %q, want empty string", got)
+	}
+}
