@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -43,6 +43,7 @@ import {
 } from './mcp-setting-validation'
 import { buildModelNameOptions } from './model-name-options'
 
+// 真实存储的 option key（提交 / 展示使用）
 const MCP_MODEL_MAP_KEYS = [
   'mcp_setting.group_image_models',
   'mcp_setting.group_i2i_models',
@@ -56,10 +57,45 @@ type McpModelMapKey = (typeof MCP_MODEL_MAP_KEYS)[number]
 
 type McpModelMapValues = Record<McpModelMapKey, string>
 
+// react-hook-form 会把字段名中的 "." 解析为嵌套路径：name 含点号（如
+// 'mcp_setting.group_image_models'）时，Controller 的 onChange 写入的是
+// values.mcp_setting.group_image_models 嵌套分支，而 handleSubmit/zodResolver
+// 按扁平 key 读取 —— 用户编辑被静默丢弃，保存发出初始值。
+// 因此表单内部统一使用无点号短字段名，仅在提交/初始化时与真实 key 映射。
+const FORM_FIELD_KEYS = [
+  'group_image_models',
+  'group_i2i_models',
+  'group_video_t2v_models',
+  'group_video_i2v_models',
+  'group_video_kf2v_models',
+  'group_video_r2v_models',
+] as const
+
+type FormFieldKey = (typeof FORM_FIELD_KEYS)[number]
+
+const OPTION_TO_FIELD: Record<McpModelMapKey, FormFieldKey> = {
+  'mcp_setting.group_image_models': 'group_image_models',
+  'mcp_setting.group_i2i_models': 'group_i2i_models',
+  'mcp_setting.group_video_t2v_models': 'group_video_t2v_models',
+  'mcp_setting.group_video_i2v_models': 'group_video_i2v_models',
+  'mcp_setting.group_video_kf2v_models': 'group_video_kf2v_models',
+  'mcp_setting.group_video_r2v_models': 'group_video_r2v_models',
+}
+
+const FIELD_TO_OPTION: Record<FormFieldKey, McpModelMapKey> = {
+  group_image_models: 'mcp_setting.group_image_models',
+  group_i2i_models: 'mcp_setting.group_i2i_models',
+  group_video_t2v_models: 'mcp_setting.group_video_t2v_models',
+  group_video_i2v_models: 'mcp_setting.group_video_i2v_models',
+  group_video_kf2v_models: 'mcp_setting.group_video_kf2v_models',
+  group_video_r2v_models: 'mcp_setting.group_video_r2v_models',
+}
+
 const schema = z.object(
-  Object.fromEntries(
-    MCP_MODEL_MAP_KEYS.map((key) => [key, z.string()])
-  ) as Record<McpModelMapKey, z.ZodString>
+  Object.fromEntries(FORM_FIELD_KEYS.map((key) => [key, z.string()])) as Record<
+    FormFieldKey,
+    z.ZodString
+  >
 )
 
 type McpSettingsFormValues = z.output<typeof schema>
@@ -73,16 +109,25 @@ function normalizeMapJson(raw: string | undefined): string {
   return convertGroupModelRowsToJson(rows)
 }
 
-function flattenMcpValues(values: McpSettingsFormValues): McpModelMapValues {
-  const flattened = {} as McpModelMapValues
-  for (const key of MCP_MODEL_MAP_KEYS) {
-    flattened[key] = normalizeMapJson(values[key])
+function toFormValues(options: McpModelMapValues): McpSettingsFormValues {
+  const values = {} as McpSettingsFormValues
+  for (const optionKey of MCP_MODEL_MAP_KEYS) {
+    values[OPTION_TO_FIELD[optionKey]] = normalizeMapJson(options[optionKey])
   }
-  return flattened
+  return values
+}
+
+function toOptionValues(values: McpSettingsFormValues): McpModelMapValues {
+  const options = {} as McpModelMapValues
+  for (const fieldKey of FORM_FIELD_KEYS) {
+    options[FIELD_TO_OPTION[fieldKey]] = normalizeMapJson(values[fieldKey])
+  }
+  return options
 }
 
 type McpSettingsCardProps = {
-  defaultValues: McpSettingsFormValues
+  /** 以真实 option key 为键的初始值（section-registry 传入） */
+  defaultValues: McpModelMapValues
 }
 
 export function McpSettingsCard(props: McpSettingsCardProps) {
@@ -113,61 +158,60 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
 
   const form = useForm<McpSettingsFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: props.defaultValues,
+    defaultValues: toFormValues(props.defaultValues),
   })
 
-  // defaultValues 是父组件每次渲染新建的对象（引用不稳定），不能直接作为
-  // reset 触发条件，否则 react-query refetch 后未保存的编辑会被静默清空。
-  // 仅当远端规范化内容真正变化时才 reset。
-  const remoteValuesRef = useRef(props.defaultValues)
-  useEffect(() => {
-    const prev = flattenMcpValues(remoteValuesRef.current)
-    const next = flattenMcpValues(props.defaultValues)
-    if (MCP_MODEL_MAP_KEYS.some((key) => prev[key] !== next[key])) {
-      remoteValuesRef.current = props.defaultValues
-      form.reset(props.defaultValues)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在远端内容变化时 reset
-  }, [props.defaultValues])
+  // 注意：这里绝不监听 props.defaultValues 去重置表单。
+  // defaultValues 引用每次渲染都变化，且保存成功后的 invalidateQueries 会在
+  // 6 个串行请求的中途 refetch 到"部分保存"的旧值——任何形式的远端覆盖
+  // （无论是否做内容比对）都会把用户正在编辑的表单改写掉，且编辑器
+  // internalChangeRef 会吞掉同步导致 UI 显示与实际提交值不一致。
+  // 按全局数据获取策略（docs/frontend-query-policy.md），表单初始化只在
+  // 挂载时进行一次；远端变更由用户手动刷新页面显式同步。
 
   const onSubmit = async (values: McpSettingsFormValues) => {
     // 点击保存即无条件提交全部配置项：不做"与服务器无差异则拦截"的判断，
-    // 避免远端值在编辑期间被 refetch 刷新后，用户的修改被误判为"无更改"
-    const flattenedValues = flattenMcpValues(values)
+    // 是否有变化由服务器判断，前端不拦截
+    const optionValues = toOptionValues(values)
     for (const key of MCP_MODEL_MAP_KEYS) {
       await updateOption.mutateAsync({
         key,
-        value: flattenedValues[key],
+        value: optionValues[key],
       })
     }
   }
 
   const modelMapSections: {
-    key: McpModelMapKey
+    optionKey: McpModelMapKey
+    fieldKey: FormFieldKey
     label: string
     description: string
     tool: string
   }[] = [
     {
-      key: 'mcp_setting.group_image_models',
+      optionKey: 'mcp_setting.group_image_models',
+      fieldKey: 'group_image_models',
       label: t('Text-to-image models'),
       description: t('Used by generate_image without image_ids'),
       tool: 'generate_image',
     },
     {
-      key: 'mcp_setting.group_i2i_models',
+      optionKey: 'mcp_setting.group_i2i_models',
+      fieldKey: 'group_i2i_models',
       label: t('Image-to-image models'),
       description: t('Used by generate_image with image_ids (max 3)'),
       tool: 'generate_image + image_ids',
     },
     {
-      key: 'mcp_setting.group_video_t2v_models',
+      optionKey: 'mcp_setting.group_video_t2v_models',
+      fieldKey: 'group_video_t2v_models',
       label: t('Text-to-video models'),
       description: t('Used by generate_video'),
       tool: 'generate_video',
     },
     {
-      key: 'mcp_setting.group_video_i2v_models',
+      optionKey: 'mcp_setting.group_video_i2v_models',
+      fieldKey: 'group_video_i2v_models',
       label: t('Image-to-video models (first frame)'),
       description: t(
         'Used by generate_video_from_frames with first frame only'
@@ -175,7 +219,8 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
       tool: 'generate_video_from_frames',
     },
     {
-      key: 'mcp_setting.group_video_kf2v_models',
+      optionKey: 'mcp_setting.group_video_kf2v_models',
+      fieldKey: 'group_video_kf2v_models',
       label: t('First-last frame video models'),
       description: t(
         'Used by generate_video_from_frames with first + last frames'
@@ -183,7 +228,8 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
       tool: 'generate_video_from_frames',
     },
     {
-      key: 'mcp_setting.group_video_r2v_models',
+      optionKey: 'mcp_setting.group_video_r2v_models',
+      fieldKey: 'group_video_r2v_models',
       label: t('Reference video models'),
       description: t('Used by generate_video_from_reference (max 3 images)'),
       tool: 'generate_video_from_reference',
@@ -201,9 +247,9 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
         <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-8'>
           {modelMapSections.map((section) => (
             <FormField
-              key={section.key}
+              key={section.optionKey}
               control={form.control}
-              name={section.key}
+              name={section.fieldKey}
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{section.label}</FormLabel>

@@ -38,10 +38,10 @@ vi.mock('@/features/users/api', () => ({
   getGroups: vi.fn().mockResolvedValue({ data: ['default'] }),
 }))
 
-// 编辑器内部依赖 combobox 与 crypto，仅打桩为占位组件
-vi.mock('./group-model-map-editor', () => ({
-  GroupModelMapEditor: () => null,
-}))
+// 注意：这里不 mock GroupModelMapEditor —— 必须走真实编辑器组件，
+// 端到端验证「添加行 → 输入 → 保存」发出的请求体内容。
+// 此前（1）打桩编辑器、（2）字段名带点号被 RHF 解析为嵌套路径，
+// 两个问题叠加导致测试全绿但线上保存丢失数据。
 
 const mockUpdate = vi.mocked(api.updateSystemOption)
 
@@ -54,17 +54,22 @@ const baseDefaults = {
   'mcp_setting.group_video_r2v_models': '{}',
 }
 
-const renderCard = (props?: {
-  defaultValues?: typeof baseDefaults
-  queryClient?: QueryClient
-}) => {
-  const queryClient = props?.queryClient ?? new QueryClient()
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <McpSettingsCard defaultValues={props?.defaultValues ?? baseDefaults} />
+const renderCard = (defaultValues: typeof baseDefaults = baseDefaults) =>
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <McpSettingsCard defaultValues={defaultValues} />
     </QueryClientProvider>
   )
+
+const clickSave = async () => {
+  fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
+  await waitFor(() => {
+    expect(mockUpdate).toHaveBeenCalledTimes(6)
+  })
 }
+
+const sentValue = (key: string) =>
+  mockUpdate.mock.calls.find((call) => call[0].key === key)?.[0].value
 
 describe('McpSettingsCard 保存行为', () => {
   beforeEach(() => {
@@ -74,76 +79,65 @@ describe('McpSettingsCard 保存行为', () => {
 
   it('点击保存应无条件提交全部 6 个配置项（即使与服务器值相同）', async () => {
     renderCard()
+    await clickSave()
 
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
-
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledTimes(6)
-    })
     // 不应出现"没有需要保存的更改"拦截
     expect(mockUpdate).toHaveBeenCalledWith({
       key: 'mcp_setting.group_image_models',
       value: '{\n  "default": "dall-e-3"\n}',
     })
+    expect(sentValue('mcp_setting.group_video_r2v_models')).toBe('{}')
   })
 
-  it('编辑后保存应提交编辑后的值', async () => {
-    // 编辑器打桩为 null，这里直接通过 defaultValues 内容变化的序列化验证
-    // 提交值来自表单规范化的输出（pretty-print）
-    renderCard({
-      defaultValues: {
-        ...baseDefaults,
-        'mcp_setting.group_image_models': '{"default":"gpt-image-1"}',
-      },
-    })
+  it('端到端：真实编辑器中添加行并输入分组/模型后保存，请求体应包含新值', async () => {
+    renderCard()
 
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
+    // 在第一个编辑器（文生图模型）中添加一行
+    const addButtons = screen.getAllByRole('button', { name: /Add/ })
+    fireEvent.click(addButtons[0])
 
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({
-        key: 'mcp_setting.group_image_models',
-        value: '{\n  "default": "gpt-image-1"\n}',
-      })
-    })
+    // 新行出现两个 combobox 输入框（分组 + 模型）
+    const comboboxes = screen.getAllByRole('combobox')
+    const groupInput = comboboxes[comboboxes.length - 2]
+    const modelInput = comboboxes[comboboxes.length - 1]
+
+    fireEvent.change(groupInput, { target: { value: 'vip' } })
+    fireEvent.change(modelInput, { target: { value: 'gpt-image-1' } })
+
+    await clickSave()
+
+    // 发出的请求体必须包含用户刚输入的内容（此前 bug：发出的是初始值）
+    expect(sentValue('mcp_setting.group_image_models')).toBe(
+      JSON.stringify({ default: 'dall-e-3', vip: 'gpt-image-1' }, null, 2)
+    )
   })
 
-  it('defaultValues 引用变化但内容不变时不应重置表单（防止 refetch 清空编辑）', async () => {
+  it('端到端：defaultValues 引用变化（refetch/重渲染）后，用户编辑不被覆盖', async () => {
     const { rerender } = renderCard()
-    // 模拟父组件 refetch 后用新引用、相同内容重新渲染
+
+    // 用户先添加一行并输入
+    fireEvent.click(screen.getAllByRole('button', { name: /Add/ })[0])
+    // 此时只有这一个编辑器有内容行，其行输入框是全部 combobox 的最后两个
+    const comboboxes = screen.getAllByRole('combobox')
+    fireEvent.change(comboboxes[comboboxes.length - 2], {
+      target: { value: 'vip' },
+    })
+    fireEvent.change(comboboxes[comboboxes.length - 1], {
+      target: { value: 'flux-1' },
+    })
+
+    // 模拟父组件重渲染（refetch 后新引用、内容相同）
     rerender(
       <QueryClientProvider client={new QueryClient()}>
         <McpSettingsCard defaultValues={{ ...baseDefaults }} />
       </QueryClientProvider>
     )
 
-    // 若误 reset，用户编辑会被清空；此处通过保存行为保持可验证：
-    // 保存仍应提交全部配置且值不变（证明表单未被清成 undefined/空）
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledTimes(6)
-    })
-  })
+    await clickSave()
 
-  it('远端内容真正变化时应重置表单默认值', async () => {
-    const queryClient = new QueryClient()
-    const { rerender } = renderCard({ queryClient })
-
-    const nextDefaults = {
-      ...baseDefaults,
-      'mcp_setting.group_i2i_models': '{"vip":"gpt-image-1"}',
-    }
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <McpSettingsCard defaultValues={nextDefaults} />
-      </QueryClientProvider>
+    // 提交的必须是用户编辑后的值，而不是被重置回的初始值
+    expect(sentValue('mcp_setting.group_image_models')).toBe(
+      JSON.stringify({ default: 'dall-e-3', vip: 'flux-1' }, null, 2)
     )
-
-    fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({
-        key: 'mcp_setting.group_i2i_models',
-        value: '{\n  "vip": "gpt-image-1"\n}',
-      })
-    })
   })
 })
