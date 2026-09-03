@@ -160,7 +160,8 @@ curl -H "Authorization: Bearer sk-xxx" -F file=@source.png \
 ## 4. 模型池配置
 
 系统设置 → 模型设置 → **MCP Image Generation**（结构化编辑器：分组下拉 + 模型下拉，
-均支持手动输入自定义值）。对应 6 个 option key（均为 `{"分组": "模型名"}` JSON）：
+均支持手动输入自定义值；新增/删除行立即生效，空分组行保存时自动忽略）。对应 6 个
+option key（均为 `{"分组": "模型名"}` JSON）：
 
 | 配置 key | 用途 | 工具 |
 |---|---|---|

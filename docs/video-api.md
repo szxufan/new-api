@@ -211,7 +211,7 @@ curl https://your.domain/v1/videos/task_20260829_abcd1234 \
 
 | HTTP | code | 场景 |
 |---|---|---|
-| 400 | `invalid_action` | vidu `metadata.action` 非法（合法值：`textGenerate` / `generate` / `firstTailGenerate` / `referenceGenerate`） |
+| 400 | `invalid_action` | vidu `metadata.action` 非法（合法值：`textGenerate` / `generate` / `firstTailGenerate` / `referenceGenerate`） |action
 | 400 | `invalid_request` | 请求体解析失败 / 缺少必要字段 |
 | 400 | `task_not_exist` | 查询不存在的任务 |
 | 401 | — | 未授权 |

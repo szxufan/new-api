@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
+import { nanoid } from 'nanoid'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -73,7 +74,9 @@ export function GroupModelMapEditor(props: GroupModelMapEditorProps) {
 
   const handleAddRow = () => {
     const newRow: GroupModelRow = {
-      id: `row-new-${rows.length}-${crypto.randomUUID()}`,
+      // nanoid 不依赖安全上下文（crypto.randomUUID 在 HTTP+IP 访问时不存在，
+      // 会导致添加按钮点击抛 TypeError），兼容所有部署环境
+      id: `row-new-${rows.length}-${nanoid()}`,
       group: '',
       model: '',
     }
