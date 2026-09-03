@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ComboboxInputOption } from '@/components/ui/combobox-input'
 import { GroupModelMapEditor } from './group-model-map-editor'
+import type { ComboboxInputOption } from '@/components/ui/combobox-input'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -57,9 +57,8 @@ describe('GroupModelMapEditor', () => {
   it('should add a row when Add button clicked without crypto.randomUUID', () => {
     render(<GroupModelMapEditor {...baseProps} value='{}' onChange={vi.fn()} />)
 
-    expect(
-      screen.getByText('No mapping configured. Click "Add" to get started.')
-    ).toBeInTheDocument()
+    expect(screen.getByText('No mapping configured. Click "Add" to get started.'))
+      .toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Add/ }))
 
@@ -71,9 +70,7 @@ describe('GroupModelMapEditor', () => {
 
   it('should emit "{}" for the new empty row via onChange', () => {
     const onChange = vi.fn()
-    render(
-      <GroupModelMapEditor {...baseProps} value='{}' onChange={onChange} />
-    )
+    render(<GroupModelMapEditor {...baseProps} value='{}' onChange={onChange} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Add/ }))
 
@@ -93,9 +90,8 @@ describe('GroupModelMapEditor', () => {
     const deleteButton = screen.getByRole('button', { name: /Delete/ })
     fireEvent.click(deleteButton)
 
-    expect(
-      screen.getByText('No mapping configured. Click "Add" to get started.')
-    ).toBeInTheDocument()
+    expect(screen.getByText('No mapping configured. Click "Add" to get started.'))
+      .toBeInTheDocument()
   })
 
   it('should keep external value in sync after add (roundtrip)', () => {

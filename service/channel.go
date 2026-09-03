@@ -31,6 +31,10 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelError.ChannelName, channelError.ChannelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
+		// 在 /usage-logs/common 普通日志页留下系统日志，记录禁用原因（归属 root 用户，便于管理员统一查看）
+		if rootUser := model.GetRootUser(); rootUser != nil {
+			model.RecordLog(rootUser.Id, model.LogTypeSystem, content)
+		}
 	}
 }
 
