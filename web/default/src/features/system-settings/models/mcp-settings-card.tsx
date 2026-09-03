@@ -16,13 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -33,16 +32,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
 import { getEnabledModels } from '@/features/channels/api'
 import { getGroups } from '@/features/users/api'
-import { buildModelNameOptions } from './model-name-options'
+import { SettingsSection } from '../components/settings-section'
+import { useUpdateOption } from '../hooks/use-update-option'
 import { GroupModelMapEditor } from './group-model-map-editor'
 import {
   parseGroupModelMap,
   convertGroupModelRowsToJson,
 } from './mcp-setting-validation'
+import { buildModelNameOptions } from './model-name-options'
 
 const MCP_MODEL_MAP_KEYS = [
   'mcp_setting.group_image_models',
@@ -117,24 +116,25 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
     defaultValues: props.defaultValues,
   })
 
+  // defaultValues 是父组件每次渲染新建的对象（引用不稳定），不能直接作为
+  // reset 触发条件，否则 react-query refetch 后未保存的编辑会被静默清空。
+  // 仅当远端规范化内容真正变化时才 reset。
+  const remoteValuesRef = useRef(props.defaultValues)
   useEffect(() => {
-    form.reset(props.defaultValues)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset when remote settings arrive
+    const prev = flattenMcpValues(remoteValuesRef.current)
+    const next = flattenMcpValues(props.defaultValues)
+    if (MCP_MODEL_MAP_KEYS.some((key) => prev[key] !== next[key])) {
+      remoteValuesRef.current = props.defaultValues
+      form.reset(props.defaultValues)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在远端内容变化时 reset
   }, [props.defaultValues])
 
   const onSubmit = async (values: McpSettingsFormValues) => {
-    const flattenedDefaults = flattenMcpValues(props.defaultValues)
+    // 点击保存即无条件提交全部配置项：不做"与服务器无差异则拦截"的判断，
+    // 避免远端值在编辑期间被 refetch 刷新后，用户的修改被误判为"无更改"
     const flattenedValues = flattenMcpValues(values)
-    const updates = MCP_MODEL_MAP_KEYS.filter(
-      (key) => flattenedValues[key] !== flattenedDefaults[key]
-    )
-
-    if (updates.length === 0) {
-      toast.info(t('No changes to save'))
-      return
-    }
-
-    for (const key of updates) {
+    for (const key of MCP_MODEL_MAP_KEYS) {
       await updateOption.mutateAsync({
         key,
         value: flattenedValues[key],
@@ -169,13 +169,17 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
     {
       key: 'mcp_setting.group_video_i2v_models',
       label: t('Image-to-video models (first frame)'),
-      description: t('Used by generate_video_from_frames with first frame only'),
+      description: t(
+        'Used by generate_video_from_frames with first frame only'
+      ),
       tool: 'generate_video_from_frames',
     },
     {
       key: 'mcp_setting.group_video_kf2v_models',
       label: t('First-last frame video models'),
-      description: t('Used by generate_video_from_frames with first + last frames'),
+      description: t(
+        'Used by generate_video_from_frames with first + last frames'
+      ),
       tool: 'generate_video_from_frames',
     },
     {
@@ -190,7 +194,7 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
     <SettingsSection
       title={t('MCP Image Generation')}
       description={t(
-        'Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller\'s group is used, falling back to the default group.'
+        "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group."
       )}
     >
       <Form {...form}>
