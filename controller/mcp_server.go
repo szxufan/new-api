@@ -74,7 +74,7 @@ func init() {
 	// 注册参考图生视频工具
 	mcpServer.AddTool(&mcp.Tool{
 		Name:        "generate_video_from_reference",
-		Description: "Generate a video guided by 1-3 reference images uploaded via POST /v1/mcp-upload (async). Returns task_id immediately; poll get_video_task",
+		Description: "Generate a video guided by 1-3 reference images (async). Returns task_id immediately; poll get_video_task. For local image files, call request_upload_ticket first and upload via POST /v1/mcp-upload",
 		InputSchema: generateVideoFromReferenceInputSchema(),
 	}, handleMCPGenerateVideoFromReference)
 
@@ -84,6 +84,13 @@ func init() {
 		Description: "Get the status, progress and result URL of a video generation task submitted by generate_video / generate_video_from_frames / generate_video_from_reference",
 		InputSchema: getVideoTaskInputSchema(),
 	}, handleMCPGetVideoTask)
+
+	// 注册上传票据签发工具（Agent 无 API 令牌，凭票据调用 POST /v1/mcp-upload 上传本地图片）
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "request_upload_ticket",
+		Description: "Get a short-lived upload ticket and URL. Call this FIRST, then run the returned example curl command (or any multipart POST) to upload a local image, and use the returned image id in generate_image / generate_video_from_frames / generate_video_from_reference. No API token needed; ticket is valid for 10 minutes",
+		InputSchema: requestUploadTicketInputSchema(),
+	}, handleMCPRequestUploadTicket)
 }
 
 // generateImageInputSchema 返回 generate_image 工具的 JSON Schema
@@ -107,6 +114,54 @@ func generateImageInputSchema() json.RawMessage {
 	}
 	data, _ := common.Marshal(schema)
 	return json.RawMessage(data)
+}
+
+// requestUploadTicketInputSchema 返回 request_upload_ticket 工具的 JSON Schema（无参数）
+func requestUploadTicketInputSchema() json.RawMessage {
+	data, _ := common.Marshal(map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	})
+	return json.RawMessage(data)
+}
+
+// handleMCPRequestUploadTicket 是 request_upload_ticket 工具的 handler。
+// 为调用方（MCP 认证写入的用户 ID）签发短时效 HMAC 上传票据，
+// Agent 凭票据（无需 API 令牌）通过 multipart POST 上传本地图片到 /v1/mcp-upload。
+func handleMCPRequestUploadTicket(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ginCtx, ok := ctx.Value(mcpGinContextKey).(*gin.Context)
+	if !ok || ginCtx == nil {
+		logger.LogError(ctx, "MCP: failed to get gin context from MCP tool handler context")
+		return newMCPErrorResult("internal error: failed to get request context"), nil
+	}
+
+	userID := ginCtx.GetInt("id")
+	if userID == 0 {
+		return newMCPErrorResult("unauthenticated: no user id in request context"), nil
+	}
+
+	ticket, expiresIn, err := service.GenerateMCPUploadTicket(userID, time.Now())
+	if err != nil {
+		return newMCPErrorResult(fmt.Sprintf("failed to generate upload ticket: %s", err.Error())), nil
+	}
+
+	uploadURL := buildMCPUploadURL(ginCtx)
+	resultData, _ := common.Marshal(gin.H{
+		"upload_url":        uploadURL,
+		"ticket":            ticket,
+		"expires_in":        expiresIn,
+		"file_field":        "file",
+		"max_size_bytes":    service.MCPUploadMaxSize,
+		"allowed_types":     []string{"image/png", "image/jpeg", "image/webp", "image/gif"},
+		"image_ttl_seconds": int(service.MCPUploadImageTTL.Seconds()),
+		"example":           fmt.Sprintf("curl -F file=@image.png '%s?ticket=%s'", uploadURL, ticket),
+		"next_step":         "Use the returned data.id in generate_image (image_ids), generate_video_from_frames (first_frame_id/last_frame_id) or generate_video_from_reference (image_ids)",
+	})
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(resultData)},
+		},
+	}, nil
 }
 
 // handleMCPGenerateImage 是 generate_image 工具的 handler。
@@ -827,6 +882,15 @@ func buildImageProxyURL(c *gin.Context, imageID string, mimeType string) string 
 	return fmt.Sprintf("%s://%s/v1/mcp-image/%s%s", scheme, c.Request.Host, imageID, ext)
 }
 
+// buildMCPUploadURL 构造临时图片上传接口地址（scheme/Host 逻辑同 buildImageProxyURL）
+func buildMCPUploadURL(c *gin.Context) string {
+	scheme := "https"
+	if c.Request.TLS == nil && c.GetHeader("X-Forwarded-Proto") != "https" {
+		scheme = "http"
+	}
+	return fmt.Sprintf("%s://%s/v1/mcp-upload", scheme, c.Request.Host)
+}
+
 // generateImageCacheID 根据数据内容生成唯一缓存 ID
 func generateImageCacheID(data string) string {
 	h := sha256.New()
@@ -895,6 +959,8 @@ var allowedUploadMimeTypes = map[string]bool{
 }
 
 // MCPUploadImage 处理 MCP 临时图片上传（POST /v1/mcp-upload，multipart/form-data）。
+// 认证由 middleware.MCPUploadAuth 完成：MCP 工具 request_upload_ticket 签发的上传票据，
+// 或回退到 API 令牌（TokenAuth，供人工 curl 调试）。
 // 返回临时图片 ID（2 小时后自动删除），供 generate_image / generate_video_from_* 工具
 // 以 image_ids / first_frame_id / last_frame_id 参数引用。
 func MCPUploadImage(c *gin.Context) {

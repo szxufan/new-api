@@ -89,6 +89,27 @@ func (cm *ConfigManager) SaveToDB(updateFunc func(key, value string) error) erro
 	return nil
 }
 
+// jsonConfigKey 返回字段在配置存储中的键名（json tag 去掉 options 部分后的第一段）。
+// 例如 `json:"group_video_t2v_models,omitempty"` 的存储键是 "group_video_t2v_models"。
+// json tag 为 "-" 时返回空串（调用方应跳过该字段，与 encoding/json 语义一致）；
+// tag 缺失或仅有 options（如 `json:",omitempty"`）时回退字段名。
+// 注意：json tag 形如 "name[,opt1,opt2]"，必须截取第一段，
+// 否则带 omitempty/string 等选项的 tag 会带着后缀去匹配存储键，
+// 导致 LoadFromDB / handleConfigUpdate 静默丢弃该字段的更新。
+func jsonConfigKey(field reflect.StructField) string {
+	key := field.Tag.Get("json")
+	if key == "-" {
+		return ""
+	}
+	if idx := strings.IndexByte(key, ','); idx >= 0 {
+		key = key[:idx]
+	}
+	if key == "" {
+		return field.Name
+	}
+	return key
+}
+
 // 辅助函数：将配置对象转换为map
 func configToMap(config interface{}) (map[string]string, error) {
 	result := make(map[string]string)
@@ -112,10 +133,10 @@ func configToMap(config interface{}) (map[string]string, error) {
 			continue
 		}
 
-		// 获取json标签作为键名
-		key := fieldType.Tag.Get("json")
-		if key == "" || key == "-" {
-			key = fieldType.Name
+		// 获取json标签作为键名（去除 options 部分后再匹配存储键）
+		key := jsonConfigKey(fieldType)
+		if key == "" {
+			continue
 		}
 
 		// 处理不同类型的字段
@@ -183,10 +204,10 @@ func updateConfigFromMap(config interface{}, configMap map[string]string) error 
 			continue
 		}
 
-		// 获取json标签作为键名
-		key := fieldType.Tag.Get("json")
-		if key == "" || key == "-" {
-			key = fieldType.Name
+		// 获取json标签作为键名（去除 options 部分后再匹配存储键）
+		key := jsonConfigKey(fieldType)
+		if key == "" {
+			continue
 		}
 
 		// 检查map中是否有对应的值

@@ -8,7 +8,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
@@ -647,5 +649,84 @@ func TestBuildVideoToolCommonSchema_Properties(t *testing.T) {
 		if _, ok := props[key]; !ok {
 			t.Errorf("expected %q property in common video schema", key)
 		}
+	}
+}
+
+// TestHandleMCPRequestUploadTicket 测试上传票据签发工具正常返回
+func TestHandleMCPRequestUploadTicket(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Request.Host = "example.com"
+	c.Set("id", 42)
+	ctx := context.WithValue(context.Background(), mcpGinContextKey, c)
+
+	result, err := handleMCPRequestUploadTicket(ctx, newVideoToolRequest(`{}`))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected non-error result, got: %v", result.Content)
+	}
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+
+	var data struct {
+		UploadURL string `json:"upload_url"`
+		Ticket    string `json:"ticket"`
+		ExpiresIn int    `json:"expires_in"`
+		Example   string `json:"example"`
+	}
+	if err := common.Unmarshal([]byte(textContent.Text), &data); err != nil {
+		t.Fatalf("unmarshal result failed: %v", err)
+	}
+	if !strings.Contains(data.UploadURL, "/v1/mcp-upload") {
+		t.Errorf("expected upload_url to contain /v1/mcp-upload, got %s", data.UploadURL)
+	}
+	if data.ExpiresIn != 600 {
+		t.Errorf("expected expires_in 600 (10min), got %d", data.ExpiresIn)
+	}
+	if !strings.Contains(data.Example, "curl") {
+		t.Errorf("expected example to contain curl, got %s", data.Example)
+	}
+	// 票据可校验通过且用户 ID 一致
+	userID, err := service.ValidateMCPUploadTicket(data.Ticket, time.Now())
+	if err != nil {
+		t.Fatalf("validate returned ticket failed: %v", err)
+	}
+	if userID != 42 {
+		t.Errorf("expected ticket user id 42, got %d", userID)
+	}
+}
+
+// TestHandleMCPRequestUploadTicket_NoUser 测试认证信息缺失时返回错误
+func TestHandleMCPRequestUploadTicket_NoUser(t *testing.T) {
+	ctx := newVideoToolTestContext(t)
+	result, err := handleMCPRequestUploadTicket(ctx, newVideoToolRequest(`{}`))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError when user id missing")
+	}
+}
+
+// TestRequestUploadTicketInputSchema 测试 schema 无必填参数
+func TestRequestUploadTicketInputSchema(t *testing.T) {
+	var schema struct {
+		Type       string   `json:"type"`
+		Required   []string `json:"required"`
+		Properties map[string]any
+	}
+	if err := common.Unmarshal(requestUploadTicketInputSchema(), &schema); err != nil {
+		t.Fatalf("unmarshal schema failed: %v", err)
+	}
+	if schema.Type != "object" {
+		t.Errorf("expected type object, got %s", schema.Type)
+	}
+	if len(schema.Required) != 0 {
+		t.Errorf("expected no required fields, got %v", schema.Required)
 	}
 }

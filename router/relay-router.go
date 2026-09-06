@@ -216,10 +216,11 @@ func SetRelayRouter(router *gin.Engine) {
 	// MCP 临时图片上传路由（独立分组，避免与 /v1/mcp/*path 通配符冲突）
 	// 供 MCP Agent 在调用 generate_image / generate_video_from_* 工具前上传参考图/首尾帧，
 	// 返回临时图片 ID（2 小时后自动删除），工具参数中以该 ID 引用图片。
+	// 双模式认证：携带 MCP 工具 request_upload_ticket 签发的票据，或 API 令牌（TokenAuth 回退）。
 	mcpUploadRouter := router.Group("/v1/mcp-upload")
 	mcpUploadRouter.Use(middleware.RouteTag("relay"))
 	mcpUploadRouter.Use(middleware.SystemPerformanceCheck())
-	mcpUploadRouter.Use(middleware.TokenAuth())
+	mcpUploadRouter.Use(middleware.MCPUploadAuth())
 	{
 		mcpUploadRouter.POST("", controller.MCPUploadImage)
 		mcpUploadRouter.POST("/upload", controller.MCPUploadImage)
