@@ -13,9 +13,8 @@ import (
 )
 
 var (
-	maskURLPattern    = regexp.MustCompile(`(http|https)://[^\s/$.?#].[^\s]*`)
-	maskDomainPattern = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
-	maskIPPattern     = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	maskURLPattern = regexp.MustCompile(`(http|https)://[^\s/$.?#].[^\s]*`)
+	maskIPPattern  = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	// maskApiKeyPattern matches patterns like 'api_key:xxx' or "api_key:xxx" to mask the API key value
 	maskApiKeyPattern = regexp.MustCompile(`(['"]?)api_key:([^\s'"]+)(['"]?)`)
 )
@@ -137,114 +136,76 @@ func MaskEmail(email string) string {
 	return "***@" + email[atIndex+1:]
 }
 
-// maskHostTail returns the tail parts of a domain/host that should be preserved.
-// It keeps 2 parts for likely country-code TLDs (e.g., co.uk, com.cn), otherwise keeps only the TLD.
-func maskHostTail(parts []string) []string {
-	if len(parts) < 2 {
-		return parts
-	}
-	lastPart := parts[len(parts)-1]
-	secondLastPart := parts[len(parts)-2]
-	if len(lastPart) == 2 && len(secondLastPart) <= 3 {
-		// Likely country code TLD like co.uk, com.cn
-		return []string{secondLastPart, lastPart}
-	}
-	return []string{lastPart}
+// sensitiveQueryParamKeywords lists query parameter name keywords that carry secrets.
+// Matching is case-insensitive substring based, so variants like access_key,
+// client_secret or AUTH_TOKEN are also covered.
+var sensitiveQueryParamKeywords = []string{
+	"key", "secret", "token", "password", "passwd", "pwd", "credential", "auth", "signature", "sign", "sig", "apikey", "api_key", "access_token", "refresh_token",
 }
 
-// maskHostForURL collapses subdomains and keeps only masked prefix + preserved tail.
-// Example: api.openai.com -> ***.com, sub.domain.co.uk -> ***.co.uk
-func maskHostForURL(host string) string {
-	parts := strings.Split(host, ".")
-	if len(parts) < 2 {
-		return "***"
+func isSensitiveQueryParam(key string) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	if lower == "" {
+		return false
 	}
-	tail := maskHostTail(parts)
-	return "***." + strings.Join(tail, ".")
+	for _, keyword := range sensitiveQueryParamKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
-// maskHostForPlainDomain masks a plain domain and reflects subdomain depth with multiple ***.
-// Example: openai.com -> ***.com, api.openai.com -> ***.***.com, sub.domain.co.uk -> ***.***.co.uk
-func maskHostForPlainDomain(domain string) string {
-	parts := strings.Split(domain, ".")
-	if len(parts) < 2 {
-		return domain
-	}
-	tail := maskHostTail(parts)
-	numStars := len(parts) - len(tail)
-	if numStars < 1 {
-		numStars = 1
-	}
-	stars := strings.TrimSuffix(strings.Repeat("***.", numStars), ".")
-	return stars + "." + strings.Join(tail, ".")
-}
-
-// MaskSensitiveInfo masks sensitive information like URLs, IPs, and domain names in a string
+// MaskSensitiveInfo masks sensitive information in a string.
+// For URLs, only query parameters with sensitive names (e.g. key, token,
+// secret, password) are masked; the host, path and other query parameters
+// are preserved as-is for debuggability. Bare domains and IPs are still
+// masked.
 // Example:
-// http://example.com -> http://***.com
-// https://api.test.org/v1/users/123?key=secret -> https://***.org/***/***/?key=***
-// https://sub.domain.co.uk/path/to/resource -> https://***.co.uk/***/***
+// https://api.test.org/v1/users/123?key=secret -> https://api.test.org/v1/users/123?key=***
+// https://api.test.org/v1/chat?model=gpt-4 -> https://api.test.org/v1/chat?model=gpt-4
+// https://sub.domain.co.uk/path?id=1&token=abc -> https://sub.domain.co.uk/path?id=1&token=***
 // 192.168.1.1 -> ***.***.***.***
-// openai.com -> ***.com
-// www.openai.com -> ***.***.com
-// api.openai.com -> ***.***.com
+// api_key:AIza*** -> api_key:***
 func MaskSensitiveInfo(str string) string {
-	// Mask URLs
+	// Mask sensitive query parameters in URLs
 	str = maskURLPattern.ReplaceAllStringFunc(str, func(urlStr string) string {
 		u, err := url.Parse(urlStr)
 		if err != nil {
 			return urlStr
 		}
 
-		host := u.Host
-		if host == "" {
+		if u.RawQuery == "" {
 			return urlStr
 		}
 
-		// Mask host with unified logic
-		maskedHost := maskHostForURL(host)
-
-		result := u.Scheme + "://" + maskedHost
-
-		// Mask path
-		if u.Path != "" && u.Path != "/" {
-			pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
-			maskedPathParts := make([]string, len(pathParts))
-			for i := range pathParts {
-				if pathParts[i] != "" {
-					maskedPathParts[i] = "***"
-				}
-			}
-			if len(maskedPathParts) > 0 {
-				result += "/" + strings.Join(maskedPathParts, "/")
-			}
-		} else if u.Path == "/" {
-			result += "/"
+		values, err := url.ParseQuery(u.RawQuery)
+		if err != nil {
+			// If can't parse query, mask the whole query string
+			return u.Scheme + "://" + u.Host + u.Path + "?***"
 		}
 
-		// Mask query parameters
-		if u.RawQuery != "" {
-			values, err := url.ParseQuery(u.RawQuery)
-			if err != nil {
-				// If can't parse query, just mask the whole query string
-				result += "?***"
-			} else {
-				maskedParams := make([]string, 0, len(values))
-				for key := range values {
-					maskedParams = append(maskedParams, key+"=***")
-				}
-				if len(maskedParams) > 0 {
-					result += "?" + strings.Join(maskedParams, "&")
-				}
+		maskedParams := make([]string, 0, len(values))
+		changed := false
+		for key, vals := range values {
+			if isSensitiveQueryParam(key) {
+				maskedParams = append(maskedParams, key+"=***")
+				changed = true
+				continue
+			}
+			for _, v := range vals {
+				maskedParams = append(maskedParams, key+"="+v)
 			}
 		}
+		if !changed {
+			return urlStr
+		}
 
+		result := u.Scheme + "://" + u.Host + u.Path
+		if len(maskedParams) > 0 {
+			result += "?" + strings.Join(maskedParams, "&")
+		}
 		return result
-	})
-
-	// Mask domain names without protocol (like openai.com, www.openai.com)
-	str = maskDomainPattern.ReplaceAllStringFunc(str, func(domain string) string {
-		return maskHostForPlainDomain(domain)
 	})
 
 	// Mask IP addresses
