@@ -237,6 +237,47 @@ curl -H "Authorization: Bearer sk-xxx" -F file=@source.png \
 回退规则：调用方分组未配置时回退 `default` 分组的模型；`default` 也未配置时该工具返回
 错误（提示缺少哪个配置项）。视频模型池默认全部为空，需按需配置。
 
+### 4.1 通过请求头指定模型
+
+每次 MCP 调用可通过 HTTP 请求头临时指定本次使用的模型（6 个场景各一个独立请求头，
+命名风格对齐 `X-MCP-Upload-Ticket`）：
+
+| 请求头 | 场景 | 对应工具 | 未传头时的默认配置 |
+|---|---|---|---|
+| `X-MCP-Image-Model` | 文生图 | `generate_image` | `group_image_models` |
+| `X-MCP-I2I-Model` | 图生图 | `generate_image` + `image_ids` | `group_i2i_models` |
+| `X-MCP-T2V-Model` | 文生视频 | `generate_video` | `group_video_t2v_models` |
+| `X-MCP-I2V-Model` | 图生视频（首帧） | `generate_video_from_frames` 仅首帧 | `group_video_i2v_models` |
+| `X-MCP-KF2V-Model` | 首尾帧生视频 | `generate_video_from_frames` 首帧+尾帧 | `group_video_kf2v_models` |
+| `X-MCP-R2V-Model` | 参考图生视频 | `generate_video_from_reference` | `group_video_r2v_models` |
+
+每次调用只解析场景对应的一个头（如 `generate_image` 带 `image_ids` 时只读
+`X-MCP-I2I-Model`），其余头即使传入也会被忽略。
+
+**权限规则**：以**用户账号分组**展开的全部可用分组为准（与令牌分组无关，
+等价于控制台"可用模型"列表的口径），任一可用分组拥有该模型即放行。多个分组
+命中时优先当前分组，其次按分组名字典序，保证结果确定。
+
+**分组与计费**：命中的分组即本次使用分组——后续渠道选择、分组倍率、消费日志
+均按该分组执行。因此即使令牌分组无该模型，只要用户某个可用分组有，就能正常调用。
+
+**回退行为**：未传头、头为空白、或权限校验未通过时，回退到上表的模型池分组配置
+（分组 → `default` 分组 → 报错）。无权限且回退配置也为空时，工具返回错误并附上
+被拒的模型名。
+
+服务端对覆盖成功（INFO）与回退（WARN）均记录日志，便于排查。
+
+curl 示例（直接 HTTP 调用 MCP 端点）：
+
+```bash
+curl -X POST https://your-server/v1/mcp \
+  -H "Authorization: Bearer sk-xxx" \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-Image-Model: flux-dev" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"generate_image","arguments":{"prompt":"a cat"}}}'
+```
+
+
 ## 5. 计费
 
 - 图片（文生图/图生图）：按图片模型计费（价格/倍率体系与 `/v1/images/*` 一致），

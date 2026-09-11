@@ -41,6 +41,96 @@ var mcpGinContextKey = MCPGinContextKey{}
 // maxMCPReferenceImages MCP 图生图/参考图最多引用的临时图片数量
 const maxMCPReferenceImages = 3
 
+// MCP 场景常量：6 个能力场景各对应一个模型指定请求头与一个模型池配置。
+// 图片场景为 image/i2i；视频场景复用 mcp_setting.VideoModelKind*（t2v/i2v/kf2v/r2v）。
+const (
+	mcpSceneImage = "image"
+	mcpSceneI2I   = "i2i"
+)
+
+// mcpSceneModelHeader 返回场景对应的模型指定请求头（命名风格对齐 X-MCP-Upload-Ticket）：
+//
+//	image → X-MCP-Image-Model     i2i  → X-MCP-I2I-Model
+//	t2v   → X-MCP-T2V-Model       i2v  → X-MCP-I2V-Model
+//	kf2v  → X-MCP-KF2V-Model      r2v  → X-MCP-R2V-Model
+func mcpSceneModelHeader(scene string) string {
+	switch scene {
+	case mcpSceneImage:
+		return "X-MCP-Image-Model"
+	case mcpSceneI2I:
+		return "X-MCP-I2I-Model"
+	case mcp_setting.VideoModelKindT2V:
+		return "X-MCP-T2V-Model"
+	case mcp_setting.VideoModelKindI2V:
+		return "X-MCP-I2V-Model"
+	case mcp_setting.VideoModelKindKF2V:
+		return "X-MCP-KF2V-Model"
+	case mcp_setting.VideoModelKindR2V:
+		return "X-MCP-R2V-Model"
+	default:
+		return ""
+	}
+}
+
+// mcpSceneConfiguredModel 返回场景在指定分组下配置的默认模型（模型池配置回退：分组 → default → 空串）
+func mcpSceneConfiguredModel(scene, group string) string {
+	switch scene {
+	case mcpSceneImage:
+		return mcp_setting.GetGroupImageModel(group)
+	case mcpSceneI2I:
+		return mcp_setting.GetGroupI2IModel(group)
+	default:
+		return mcp_setting.GetGroupVideoModel(scene, group)
+	}
+}
+
+// resolveMCPModel 解析场景实际使用的模型，并处理请求头指定模型的权限校验与回退。
+//
+// 规则：
+//  1. requested 为空（未传头或空白）→ 使用模型池分组配置的默认模型，行为与未加此功能时一致
+//  2. requested 非空 → 以用户账号分组（ContextKeyUserGroup）展开的全部可用分组做权限校验
+//     （不受令牌分组限制）：任一可用分组拥有该模型即放行，优先当前分组，其次字典序
+//  3. 命中分组与当前分组不同时，更新 ContextKeyUsingGroup / ContextKeyTokenGroup，
+//     使后续 GenRelayInfo 计费倍率、CacheGetRandomSatisfiedChannel 渠道选择均按该分组执行
+//  4. 无权限或配置为空 → 回退模型池分组配置（分组 → default 分组 → 空串，由调用方报错）
+//
+// 返回 (最终模型, 头指定的模型名)。
+func resolveMCPModel(c *gin.Context, scene string) (string, string) {
+	group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	if group == "" {
+		group = "default"
+	}
+	configured := mcpSceneConfiguredModel(scene, group)
+
+	header := mcpSceneModelHeader(scene)
+	if header == "" {
+		return configured, ""
+	}
+	requested := strings.TrimSpace(c.GetHeader(header))
+	if requested == "" {
+		return configured, ""
+	}
+
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	targetGroup, ok := service.FindGroupForModel(userGroup, requested)
+	if !ok {
+		logger.LogWarn(c, fmt.Sprintf("MCP: requested model %q via %s is not available in user groups (userGroup=%s), fallback to configured model %q for group %s",
+			requested, header, userGroup, configured, group))
+		return configured, requested
+	}
+
+	if targetGroup != group {
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, targetGroup)
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, targetGroup)
+		logger.LogInfo(c, fmt.Sprintf("MCP: requested model %q via %s resolved to group %s (was %s)",
+			requested, header, targetGroup, group))
+	} else {
+		logger.LogInfo(c, fmt.Sprintf("MCP: using requested model %q via %s from group %s",
+			requested, header, group))
+	}
+	return requested, requested
+}
+
 // mcpServer 是单例 MCP Server
 var mcpServer *mcp.Server
 
@@ -194,23 +284,26 @@ func handleMCPGenerateImage(ctx context.Context, req *mcp.CallToolRequest) (*mcp
 		return newMCPErrorResult(fmt.Sprintf("image_ids supports at most %d images, got %d", maxMCPReferenceImages, len(args.ImageIDs))), nil
 	}
 
-	// 从配置获取该分组的文生图/图生图模型
-	group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
-	if group == "" {
-		group = "default"
-	}
+	// 解析本次使用的模型：优先场景请求头指定（权限校验通过后生效），否则使用模型池分组配置
 	isI2I := len(args.ImageIDs) > 0
-	var model string
+	scene := mcpSceneImage
 	if isI2I {
-		model = mcp_setting.GetGroupI2IModel(group)
-		if model == "" {
+		scene = mcpSceneI2I
+	}
+	model, requestedModel := resolveMCPModel(ginCtx, scene)
+	if model == "" {
+		group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
+		if group == "" {
+			group = "default"
+		}
+		if requestedModel != "" {
+			return newMCPErrorResult(fmt.Sprintf("requested model %q is not available for your groups and no %s model is configured for group: %s",
+				requestedModel, scene, group)), nil
+		}
+		if isI2I {
 			return newMCPErrorResult(fmt.Sprintf("no image-to-image model configured for group: %s, please configure mcp_setting.group_i2i_models", group)), nil
 		}
-	} else {
-		model = mcp_setting.GetGroupImageModel(group)
-		if model == "" {
-			return newMCPErrorResult(fmt.Sprintf("no image model configured for group: %s", group)), nil
-		}
+		return newMCPErrorResult(fmt.Sprintf("no image model configured for group: %s", group)), nil
 	}
 
 	// 解析临时图片 ID 为本站代理 URL（仅图生图）
@@ -561,12 +654,17 @@ func getVideoTaskInputSchema() json.RawMessage {
 // kind 为视频模型池类型（mcp_setting.VideoModelKind*），taskReq 为已构造的入站请求。
 // 成功返回公开 task_id；失败已自动退款并返回错误信息。
 func submitMCPTask(ginCtx *gin.Context, kind string, taskReq relaycommon.TaskSubmitReq) (string, *mcp.CallToolResult) {
-	group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
-	if group == "" {
-		group = "default"
-	}
-	videoModel := mcp_setting.GetGroupVideoModel(kind, group)
+	// 解析本次使用的模型：优先场景请求头指定（权限校验通过后生效），否则使用模型池分组配置
+	videoModel, requestedModel := resolveMCPModel(ginCtx, kind)
 	if videoModel == "" {
+		group := common.GetContextKeyString(ginCtx, constant.ContextKeyUsingGroup)
+		if group == "" {
+			group = "default"
+		}
+		if requestedModel != "" {
+			return "", newMCPErrorResult(fmt.Sprintf("requested model %q is not available for your groups and no %s video model is configured for group: %s",
+				requestedModel, kind, group))
+		}
 		return "", newMCPErrorResult(fmt.Sprintf("no video model configured for group: %s (kind: %s), please configure the corresponding mcp_setting.group_video_*_models", group, kind))
 	}
 	taskReq.Model = videoModel

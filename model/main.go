@@ -25,6 +25,12 @@ var commonFalseVal string
 var logKeyCol string
 var logGroupCol string
 
+// InitCommonColumnNames 初始化跨数据库兼容的列名/布尔值变量。
+// 正常启动路径由 chooseDB 自动调用；供测试环境在直接注入 DB 后手动调用。
+func InitCommonColumnNames() {
+	initCol()
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingPostgreSQL {

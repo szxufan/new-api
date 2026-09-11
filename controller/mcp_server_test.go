@@ -13,10 +13,15 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/mcp_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -728,5 +733,244 @@ func TestRequestUploadTicketInputSchema(t *testing.T) {
 	}
 	if len(schema.Required) != 0 {
 		t.Errorf("expected no required fields, got %v", schema.Required)
+	}
+}
+
+// ============================================================================
+// 场景请求头指定模型（resolveMCPModel）测试
+// ============================================================================
+
+// TestMcpSceneModelHeader 测试 6 个场景对应的请求头名
+func TestMcpSceneModelHeader(t *testing.T) {
+	cases := []struct {
+		scene string
+		want  string
+	}{
+		{mcpSceneImage, "X-MCP-Image-Model"},
+		{mcpSceneI2I, "X-MCP-I2I-Model"},
+		{mcp_setting.VideoModelKindT2V, "X-MCP-T2V-Model"},
+		{mcp_setting.VideoModelKindI2V, "X-MCP-I2V-Model"},
+		{mcp_setting.VideoModelKindKF2V, "X-MCP-KF2V-Model"},
+		{mcp_setting.VideoModelKindR2V, "X-MCP-R2V-Model"},
+		{"unknown", ""},
+	}
+	for _, tt := range cases {
+		if got := mcpSceneModelHeader(tt.scene); got != tt.want {
+			t.Errorf("mcpSceneModelHeader(%q) = %q, want %q", tt.scene, got, tt.want)
+		}
+	}
+}
+
+// newMCPModelTestGinContext 构造带分组上下文与请求头的 gin 测试 context
+func newMCPModelTestGinContext(t *testing.T, userGroup, usingGroup, tokenGroup, sceneModelHeader, headerValue string) *gin.Context {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/mcp", nil)
+	if headerValue != "" {
+		c.Request.Header.Set(sceneModelHeader, headerValue)
+	}
+	common.SetContextKey(c, constant.ContextKeyUserGroup, userGroup)
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+	if tokenGroup != "" {
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, tokenGroup)
+	}
+	return c
+}
+
+// setupMCPModelAbilityDB 初始化 abilities 表的内存 DB，返回还原函数
+func setupMCPModelAbilityDB(t *testing.T) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	origDB := model.DB
+	model.DB = db
+	model.InitCommonColumnNames()
+	require.NoError(t, model.DB.AutoMigrate(&model.Ability{}))
+	t.Cleanup(func() {
+		model.DB = origDB
+	})
+}
+
+// seedMCPModelAbility 向 abilities 表写入一条记录
+func seedMCPModelAbility(t *testing.T, group, modelName string, enabled bool) {
+	t.Helper()
+	require.NoError(t, model.DB.Create(&model.Ability{
+		Group:     group,
+		Model:     modelName,
+		ChannelId: 1,
+		Enabled:   enabled,
+	}).Error)
+}
+
+// TestResolveMCPModel_NoHeader 无请求头时使用模型池配置（现状行为）
+func TestResolveMCPModel_NoHeader(t *testing.T) {
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{"default": "dall-e-3"}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "", "X-MCP-Image-Model", "")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "dall-e-3" {
+		t.Errorf("expected configured model dall-e-3, got %q", modelName)
+	}
+	if requested != "" {
+		t.Errorf("expected empty requested model, got %q", requested)
+	}
+}
+
+// TestResolveMCPModel_BlankHeaderEqualsNoHeader 空白头等同无头
+func TestResolveMCPModel_BlankHeaderEqualsNoHeader(t *testing.T) {
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{"default": "dall-e-3"}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "", "X-MCP-Image-Model", "   ")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "dall-e-3" || requested != "" {
+		t.Errorf("expected fallback (dall-e-3, \"\"), got (%q, %q)", modelName, requested)
+	}
+}
+
+// TestResolveMCPModel_HeaderAllowedInCurrentGroup 请求当前分组拥有的模型，分组不变
+func TestResolveMCPModel_HeaderAllowedInCurrentGroup(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "default", "flux-dev", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{"default": "dall-e-3"}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "default", "X-MCP-Image-Model", "flux-dev")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "flux-dev" || requested != "flux-dev" {
+		t.Errorf("expected (flux-dev, flux-dev), got (%q, %q)", modelName, requested)
+	}
+	if g := common.GetContextKeyString(c, constant.ContextKeyUsingGroup); g != "default" {
+		t.Errorf("expected using group unchanged default, got %q", g)
+	}
+}
+
+// TestResolveMCPModel_HeaderAllowedInOtherGroup 请求另一可用分组拥有的模型，分组切换
+func TestResolveMCPModel_HeaderAllowedInOtherGroup(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "vip", "flux-pro", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{"default": "dall-e-3"}
+
+	// token 分组为 vip（与用户分组不同），验证按用户分组展开的可用集合校验
+	c := newMCPModelTestGinContext(t, "default", "vip", "vip", "X-MCP-Image-Model", "flux-pro")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "flux-pro" || requested != "flux-pro" {
+		t.Errorf("expected (flux-pro, flux-pro), got (%q, %q)", modelName, requested)
+	}
+	if g := common.GetContextKeyString(c, constant.ContextKeyUsingGroup); g != "vip" {
+		t.Errorf("expected using group switched to vip, got %q", g)
+	}
+	if g := common.GetContextKeyString(c, constant.ContextKeyTokenGroup); g != "vip" {
+		t.Errorf("expected token group switched to vip, got %q", g)
+	}
+}
+
+// TestResolveMCPModel_HeaderDeniedFallsBack 无权限时回退模型池配置
+func TestResolveMCPModel_HeaderDeniedFallsBack(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "private-group", "secret-model", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{"default": "dall-e-3"}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "", "X-MCP-Image-Model", "secret-model")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "dall-e-3" {
+		t.Errorf("expected fallback to dall-e-3, got %q", modelName)
+	}
+	if requested != "secret-model" {
+		t.Errorf("expected requested secret-model, got %q", requested)
+	}
+}
+
+// TestResolveMCPModel_HeaderDeniedNoConfig 无权限且无配置时返回空串（调用方报错路径）
+func TestResolveMCPModel_HeaderDeniedNoConfig(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "private-group", "secret-model", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "", "X-MCP-Image-Model", "secret-model")
+	modelName, requested := resolveMCPModel(c, mcpSceneImage)
+	if modelName != "" {
+		t.Errorf("expected empty model for caller error path, got %q", modelName)
+	}
+	if requested != "secret-model" {
+		t.Errorf("expected requested secret-model, got %q", requested)
+	}
+}
+
+// TestResolveMCPModel_VideoSceneHeader 视频场景头正常生效
+func TestResolveMCPModel_VideoSceneHeader(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "default", "wan-t2v", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupVideoT2VModels
+	defer func() { settingPtr.GroupVideoT2VModels = original }()
+	settingPtr.GroupVideoT2VModels = map[string]string{"default": "wan-v2"}
+
+	c := newMCPModelTestGinContext(t, "default", "default", "", "X-MCP-T2V-Model", "wan-t2v")
+	modelName, requested := resolveMCPModel(c, mcp_setting.VideoModelKindT2V)
+	if modelName != "wan-t2v" || requested != "wan-t2v" {
+		t.Errorf("expected (wan-t2v, wan-t2v), got (%q, %q)", modelName, requested)
+	}
+}
+
+// TestHandleMCPGenerateImage_RequestedModelDeniedAndNoConfig 无权限且回退配置为空时返回错误
+func TestHandleMCPGenerateImage_RequestedModelDeniedAndNoConfig(t *testing.T) {
+	setupMCPModelAbilityDB(t)
+	seedMCPModelAbility(t, "private-group", "secret-model", true)
+
+	settingPtr := mcp_setting.GetGroupImageModelSetting()
+	original := settingPtr.GroupImageModels
+	defer func() { settingPtr.GroupImageModels = original }()
+	settingPtr.GroupImageModels = map[string]string{}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/mcp", nil)
+	c.Request.Header.Set("X-MCP-Image-Model", "secret-model")
+	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+	ctx := context.WithValue(context.Background(), mcpGinContextKey, c)
+
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Arguments: json.RawMessage(`{"prompt":"a cat"}`),
+		},
+	}
+
+	result, err := handleMCPGenerateImage(ctx, req)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError when requested model denied and no fallback configured")
+	}
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+	if !contains(textContent.Text, "secret-model") {
+		t.Errorf("expected error message to mention requested model, got: %s", textContent.Text)
 	}
 }
