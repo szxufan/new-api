@@ -184,8 +184,6 @@ export interface ChannelBalanceResponse {
   message?: string
   balance?: number
   currency?: string
-  /** 渠道已用额度（内部 quota 单位） */
-  used_quota?: number
 }
 
 export interface FetchModelsResponse {

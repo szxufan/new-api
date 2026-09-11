@@ -2791,7 +2791,7 @@
       "get": {
         "summary": "更新指定渠道余额",
         "deprecated": false,
-        "description": "👨‍💼 需要管理员权限（Admin）。返回渠道实时余额（USD）与已用额度（quota）",
+        "description": "👨‍💼 需要管理员权限（Admin）",
         "tags": [
           "渠道管理"
         ],
@@ -2810,30 +2810,7 @@
         "responses": {
           "200": {
             "description": "成功",
-            "headers": {},
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "balance": {
-                      "type": "number",
-                      "description": "渠道实时余额（USD）"
-                    },
-                    "used_quota": {
-                      "type": "integer",
-                      "description": "渠道已用额度（内部 quota 单位）"
-                    }
-                  }
-                }
-              }
-            }
+            "headers": {}
           }
         },
         "security": [

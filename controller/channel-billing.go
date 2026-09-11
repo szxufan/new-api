@@ -391,17 +391,10 @@ func UpdateChannelBalance(c *gin.Context) {
 	}
 	// 上游查询返回的余额可能已更新 BalanceEverNonZero 标志，检查是否需要禁用
 	service.DisableChannelIfBalanceDepleted(channel, "余额不足")
-	// 内存缓存开启时缓存对象的 used_quota 可能滞后，从 DB 读取最新值
-	usedQuota := channel.UsedQuota
-	dbChannel, err := model.GetChannelById(id, false)
-	if err == nil {
-		usedQuota = dbChannel.UsedQuota
-	}
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"message":    "",
-		"balance":    balance,
-		"used_quota": usedQuota,
+		"success": true,
+		"message": "",
+		"balance": balance,
 	})
 }
 
