@@ -56,6 +56,7 @@ const (
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
 	ChannelTypeXunfeiMaaS     = 58
+	ChannelTypeMimo           = 59
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -119,7 +120,8 @@ var ChannelBaseURLs = []string{
 	"https://api.openai.com",                    //55
 	"https://api.replicate.com",                 //56
 	"https://chatgpt.com",                       //57
-	"https://maas-api.cn-huabei-1.xf-yun.com",  //58
+	"https://maas-api.cn-huabei-1.xf-yun.com", //58
+	"https://api.xiaomimimo.com",              //59
 }
 
 var ChannelTypeNames = map[int]string{
@@ -178,6 +180,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeCodex:          "Codex",
 	ChannelTypeXunfeiMaaS:     "XunfeiMaaS",
+	ChannelTypeMimo:           "Xiaomi MiMo",
 }
 
 func GetChannelTypeName(channelType int) string {
