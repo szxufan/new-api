@@ -17,6 +17,22 @@ var (
 		"flux-",
 		"flux.1-",
 	}
+	TTSSpeechModels = []string{
+		"tts",
+		"fish-speech",
+		"cosyvoice",
+		"minimax-speech",
+		"speech-2.5",
+		"speech-02",
+		"speech-01",
+	}
+	ASRSpeechModels = []string{
+		"whisper",
+		"asr",
+		"sensevoice",
+		"paraformer",
+		"transcription",
+	}
 	OpenAITextModels = []string{
 		"gpt-",
 		"o1",
@@ -48,12 +64,24 @@ func IsImageGenerationModel(modelName string) bool {
 	return false
 }
 
-func IsOpenAITextModel(modelName string) bool {
+func IsTTSSpeechModel(modelName string) bool {
+	return containsAnyLower(modelName, TTSSpeechModels)
+}
+
+func IsASRSpeechModel(modelName string) bool {
+	return containsAnyLower(modelName, ASRSpeechModels)
+}
+
+func containsAnyLower(modelName string, patterns []string) bool {
 	modelName = strings.ToLower(modelName)
-	for _, m := range OpenAITextModels {
+	for _, m := range patterns {
 		if strings.Contains(modelName, m) {
 			return true
 		}
 	}
 	return false
+}
+
+func IsOpenAITextModel(modelName string) bool {
+	return containsAnyLower(modelName, OpenAITextModels)
 }

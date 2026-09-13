@@ -174,6 +174,8 @@ export const ENDPOINT_TEMPLATES: Record<
   'image-edit': { path: '/v1/images/edit', method: 'POST' },
   'openai-video': { path: '/v1/videos', method: 'POST' },
   embeddings: { path: '/v1/embeddings', method: 'POST' },
+  tts: { path: '/v1/audio/speech', method: 'POST' },
+  asr: { path: '/v1/audio/transcriptions', method: 'POST' },
 }
 
 // ============================================================================

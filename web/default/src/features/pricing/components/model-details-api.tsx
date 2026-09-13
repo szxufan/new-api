@@ -596,6 +596,137 @@ function buildImageEditSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+  const text = 'Today is a wonderful day to build something people love!'
+
+  if (lang === 'curl') {
+    const body = JSON.stringify(
+      { model: ctx.modelName, input: text, voice: 'alloy' },
+      null,
+      2
+    )
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${body.replace(/\n/g, '\n     ')}' \\`,
+      `  --output speech.mp3`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'from openai import OpenAI',
+      '',
+      `client = OpenAI(base_url="${ctx.baseUrl}/v1", api_key="<YOUR_API_KEY>")`,
+      '',
+      'with client.audio.speech.with_streaming_response.create(',
+      `    model="${ctx.modelName}",`,
+      '    voice="alloy",',
+      `    input="${text}",`,
+      ') as response:',
+      '    response.stream_to_file("speech.mp3")',
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `import OpenAI from 'openai'`,
+      '',
+      `const client = new OpenAI({`,
+      `  baseURL: '${ctx.baseUrl}/v1',`,
+      `  apiKey: process.env.${ctx.apiKeyEnv},`,
+      `})`,
+      '',
+      `const response = await client.audio.speech.create({`,
+      `  model: '${ctx.modelName}',`,
+      `  voice: 'alloy',`,
+      `  input: '${text}',`,
+      `})`,
+      '',
+      `const buffer = Buffer.from(await response.arrayBuffer())`,
+      `console.log(buffer.length)`,
+    ].join('\n')
+  }
+  return [
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type: application/json',`,
+    `  },`,
+    `  body: JSON.stringify({`,
+    `    model: '${ctx.modelName}',`,
+    `    input: '${text}',`,
+    `    voice: 'alloy',`,
+    `  }),`,
+    `})`,
+    '',
+    `const audio = await response.arrayBuffer()`,
+    `console.log(audio.byteLength)`,
+  ].join('\n')
+}
+
+function buildTranscriptionSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+
+  if (lang === 'curl') {
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -F file="@audio.mp3" \\`,
+      `  -F model="${ctx.modelName}"`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'from openai import OpenAI',
+      '',
+      `client = OpenAI(base_url="${ctx.baseUrl}/v1", api_key="<YOUR_API_KEY>")`,
+      '',
+      'response = client.audio.transcriptions.create(',
+      `    model="${ctx.modelName}",`,
+      '    file=open("audio.mp3", "rb"),',
+      ')',
+      '',
+      'print(response.text)',
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `import OpenAI from 'openai'`,
+      `import fs from 'node:fs'`,
+      '',
+      `const client = new OpenAI({`,
+      `  baseURL: '${ctx.baseUrl}/v1',`,
+      `  apiKey: process.env.${ctx.apiKeyEnv},`,
+      `})`,
+      '',
+      `const response = await client.audio.transcriptions.create({`,
+      `  model: '${ctx.modelName}',`,
+      `  file: fs.createReadStream('audio.mp3'),`,
+      `})`,
+      '',
+      `console.log(response.text)`,
+    ].join('\n')
+  }
+  return [
+    `const formData = new FormData()`,
+    `formData.append('file', new Blob([audioBytes]), 'audio.mp3')`,
+    `formData.append('model', '${ctx.modelName}')`,
+    '',
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `  },`,
+    `  body: formData,`,
+    `})`,
+    '',
+    `const data = await response.json()`,
+    `console.log(data.text)`,
+  ].join('\n')
+}
+
 export function buildSample(
   lang: Lang,
   endpointType: string,
@@ -607,6 +738,8 @@ export function buildSample(
   if (endpointType === 'jina-rerank') return buildRerankSample(lang, ctx)
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
   if (endpointType === 'image-edit') return buildImageEditSample(lang, ctx)
+  if (endpointType === 'tts') return buildSpeechSample(lang, ctx)
+  if (endpointType === 'asr') return buildTranscriptionSample(lang, ctx)
   return buildChatSample(lang, ctx)
 }
 

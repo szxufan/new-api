@@ -40,10 +40,13 @@ const TEXT_INPUT_ENDPOINTS = new Set([
   'gemini',
   'embeddings',
   'jina-rerank',
+  'tts',
 ])
 
 const IMAGE_OUTPUT_ENDPOINTS = new Set(['image-generation'])
 const VIDEO_OUTPUT_ENDPOINTS = new Set(['openai-video'])
+const AUDIO_OUTPUT_ENDPOINTS = new Set(['tts'])
+const AUDIO_INPUT_ENDPOINTS = new Set(['asr'])
 const EMBEDDING_ENDPOINTS = new Set(['embeddings', 'jina-rerank'])
 
 const REASONING_NAME_PATTERNS = [
@@ -167,7 +170,11 @@ function inferInputModalities(
   if (model.image_ratio != null || nameMatches(name, VISION_NAME_PATTERNS)) {
     set.add('image')
   }
-  if (model.audio_ratio != null || nameMatches(name, AUDIO_NAME_PATTERNS)) {
+  if (
+    model.audio_ratio != null ||
+    nameMatches(name, AUDIO_NAME_PATTERNS) ||
+    endpoints.some((e) => AUDIO_INPUT_ENDPOINTS.has(e))
+  ) {
     set.add('audio')
   }
   if (nameMatches(name, VIDEO_NAME_PATTERNS)) {
@@ -192,6 +199,7 @@ function inferOutputModalities(
 
   if (endpoints.some((e) => IMAGE_OUTPUT_ENDPOINTS.has(e))) set.add('image')
   if (endpoints.some((e) => VIDEO_OUTPUT_ENDPOINTS.has(e))) set.add('video')
+  if (endpoints.some((e) => AUDIO_OUTPUT_ENDPOINTS.has(e))) set.add('audio')
   if (endpoints.some((e) => EMBEDDING_ENDPOINTS.has(e))) set.add('text')
 
   if (
@@ -222,7 +230,9 @@ function inferCapabilities(
   if (
     !endpoints.includes('image-generation') &&
     !endpoints.includes('embeddings') &&
-    !endpoints.includes('jina-rerank')
+    !endpoints.includes('jina-rerank') &&
+    !endpoints.includes('tts') &&
+    !endpoints.includes('asr')
   ) {
     set.add('function_calling')
     set.add('tools')
