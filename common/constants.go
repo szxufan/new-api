@@ -258,6 +258,7 @@ const (
 	ChannelStatusAutoDisabled        = 3
 	ChannelStatusRateLimited429      = 4 // 429自动短时限流
 	ChannelStatusManuallyRateLimited = 5 // 手动小时级限流
+	ChannelStatusScheduledDisabled   = 6 // 定时关闭中：不在渠道配置的定时开启时段内（峰谷时段调度）
 )
 
 const (

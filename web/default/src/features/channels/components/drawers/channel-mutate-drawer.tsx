@@ -50,6 +50,7 @@ import {
   SlidersHorizontal,
   Wand2,
   ShieldCheck,
+  Clock,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -162,6 +163,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { TimeWindowsEditor } from '../time-windows-editor'
 
 type ChannelMutateDrawerProps = {
   open: boolean
@@ -1272,6 +1274,34 @@ export function ChannelMutateDrawer({
                     )}
                   />
                 )}
+              </div>
+
+              {/* ── Scheduled Switching ── */}
+              <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
+                <CardHeading
+                  title={t('Scheduled Switching')}
+                  icon={<Clock className='h-4 w-4' />}
+                />
+                <FormField
+                  control={form.control}
+                  name='timeWindows'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormDescription className='text-xs'>
+                        {t(
+                          'When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.'
+                        )}
+                      </FormDescription>
+                      <FormControl>
+                        <TimeWindowsEditor
+                          value={field.value || []}
+                          onChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               {/* ── API Access ── */}

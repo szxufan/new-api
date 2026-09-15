@@ -4773,6 +4773,13 @@
     "Used by generate_video_from_reference (max 3 images)": "generate_video_from_reference 使用（最多 3 张图）",
     "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "配置 MCP 工具（图像与视频生成）各分组使用的模型。MCP 客户端调用工具时使用调用方分组的模型，未配置时回退到 default 分组。",
     "Configure per-group models for MCP endpoints (image & video generation)": "配置 MCP 端点各分组使用的模型（图像与视频生成）",
-    "No mapping configured. Click \"Add\" to get started.": "尚未配置映射，点击「添加」开始。"
+    "No mapping configured. Click \"Add\" to get started.": "尚未配置映射，点击「添加」开始。",
+    "Scheduled Switching": "定时开关",
+    "Scheduled Off": "定时关闭",
+    "Add Time Window": "添加时段",
+    "Scheduled time windows": "定时开启时段",
+    "next day": "次日",
+    "When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.": "配置后，渠道将在所选时段内自动启用，时段外自动停用，适用于峰谷电价等场景。结束时间早于开始时间表示跨天（如 22:00 - 次日 08:00）。使用服务器本地时间。留空则不启用定时开关。注意：时段外手动启用的渠道会在下次检查时被重新停用。",
+    "No time windows configured. The channel is not affected by scheduled switching.": "未配置时段，渠道不受定时开关影响。"
   }
 }

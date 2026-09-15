@@ -1097,7 +1097,8 @@ func testAllChannels(notify bool) error {
 		}()
 
 		for _, channel := range channels {
-			if channel.Status == common.ChannelStatusManuallyDisabled {
+			// 定时关闭的渠道同样跳过测试，避免测试失败把定时关闭状态覆写为自动禁用
+			if channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusScheduledDisabled {
 				continue
 			}
 			isChannelEnabled := channel.Status == common.ChannelStatusEnabled

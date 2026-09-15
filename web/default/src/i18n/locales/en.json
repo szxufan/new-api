@@ -429,6 +429,7 @@
     "Args (space separated)": "Args (space separated)",
     "Array of chat client presets. Each item is an object with one key-value pair: client name and its URL.": "Array of chat client presets. Each item is an object with one key-value pair: client name and its URL.",
     "Asc": "Asc",
+    "ASR": "语音识别",
     "Ask anything": "Ask anything",
     "Aspect Ratio": "Aspect Ratio",
     "Assigned by administrator only": "Assigned by administrator only",
@@ -4328,6 +4329,7 @@
     "TTL": "TTL",
     "TTL (seconds, 0 = default)": "TTL (seconds, 0 = default)",
     "TTL (seconds)": "TTL (seconds)",
+    "TTS": "语音合成",
     "Tune selection priority, testing, status handling, and request overrides.": "Tune selection priority, testing, status handling, and request overrides.",
     "Turnstile is enabled but site key is empty.": "Turnstile is enabled but site key is empty.",
     "Tutoring, learning aids, assessment": "Tutoring, learning aids, assessment",
@@ -4771,6 +4773,13 @@
     "Used by generate_video_from_reference (max 3 images)": "Used by generate_video_from_reference (max 3 images)",
     "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.",
     "Configure per-group models for MCP endpoints (image & video generation)": "Configure per-group models for MCP endpoints (image & video generation)",
-    "No mapping configured. Click \"Add\" to get started.": "No mapping configured. Click \"Add\" to get started."
+    "No mapping configured. Click \"Add\" to get started.": "No mapping configured. Click \"Add\" to get started.",
+    "Scheduled Switching": "Scheduled Switching",
+    "Scheduled Off": "Scheduled Off",
+    "Add Time Window": "Add Time Window",
+    "Scheduled time windows": "Scheduled time windows",
+    "next day": "next day",
+    "When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.": "When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.",
+    "No time windows configured. The channel is not affected by scheduled switching.": "No time windows configured. The channel is not affected by scheduled switching."
   }
 }

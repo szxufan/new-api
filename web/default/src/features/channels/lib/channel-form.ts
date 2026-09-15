@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 import { CHANNEL_STATUS, MODEL_FETCHABLE_TYPES } from '../constants'
-import type { Channel } from '../types'
+import type { Channel, ChannelTimeWindow } from '../types'
 
 // ============================================================================
 // Form Validation Schema
@@ -54,6 +54,20 @@ export const channelFormSchema = z.object({
   header_override: z.string().optional(),
   settings: z.string().optional(),
   other: z.string().optional(),
+  // Scheduled time windows (serialized into time_windows JSON)
+  timeWindows: z
+    .array(
+      z
+        .object({
+          start: z.string().min(1, 'Start time is required'),
+          end: z.string().min(1, 'End time is required'),
+        })
+        .refine((w) => w.start !== w.end, {
+          message: 'Start time and end time cannot be the same',
+          path: ['end'],
+        })
+    )
+    .optional(),
   // Multi-key options (not sent to backend directly)
   multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
   multi_key_type: z.enum(['random', 'polling']).optional(),
@@ -127,6 +141,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   header_override: '',
   settings: '{}',
   other: '',
+  timeWindows: [],
   multi_key_mode: 'single',
   multi_key_type: 'random',
   batch_add_set_key_prefix_2_name: false,
@@ -283,6 +298,9 @@ export function transformChannelToFormDefaults(
     }
   }
 
+  // Parse scheduled time windows from time_windows JSON
+  const timeWindows = parseTimeWindowsJson(channel.time_windows || '')
+
   return {
     name: channel.name || '',
     type: channel.type,
@@ -330,7 +348,42 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     fallback_channel_ids: fallbackChannelIds,
+    timeWindows,
   }
+}
+
+/**
+ * Parse time_windows JSON string into time window rows for the form editor
+ */
+export function parseTimeWindowsJson(value: string): ChannelTimeWindow[] {
+  if (!value || value.trim() === '') return []
+  try {
+    const parsed = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(
+        (w) =>
+          w &&
+          typeof w.start === 'string' &&
+          typeof w.end === 'string' &&
+          w.start !== '' &&
+          w.end !== ''
+      )
+      .map((w) => ({ start: w.start, end: w.end }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Serialize form time window rows into the time_windows JSON string.
+ * Returns an empty string when no valid windows remain (feature disabled).
+ */
+export function formatTimeWindowsJson(
+  windows: ChannelTimeWindow[] | undefined
+): string {
+  const valid = (windows || []).filter((w) => w.start && w.end)
+  return valid.length > 0 ? JSON.stringify(valid) : ''
 }
 
 /**
@@ -513,6 +566,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
+    time_windows: formatTimeWindowsJson(formData.timeWindows),
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
   }
@@ -574,6 +628,7 @@ export function transformFormDataToUpdatePayload(
     setting: buildSettingJSON(formData),
     param_override: formData.param_override || null,
     header_override: formData.header_override || null,
+    time_windows: formatTimeWindowsJson(formData.timeWindows),
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
   }
@@ -601,6 +656,8 @@ export function transformFormDataToUpdatePayload(
   payload.status_code_mapping = formData.status_code_mapping || ''
   payload.param_override = formData.param_override || ''
   payload.header_override = formData.header_override || ''
+  // time_windows 为空时提交空字符串（而非 null），让 GORM Updates 能清空该字段
+  payload.time_windows = formatTimeWindowsJson(formData.timeWindows)
 
   // Write fallback_channel_ids into other_info
   if (

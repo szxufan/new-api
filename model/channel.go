@@ -56,7 +56,11 @@ type Channel struct {
 	Setting           *string `json:"setting" gorm:"type:text"` // 渠道额外设置
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
-	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	// TimeWindows 定时开启时段 JSON 数组，如 [{"start":"22:00","end":"08:00"},{"start":"12:00","end":"14:00"}]。
+	// 时段内渠道自动启用、时段外自动置为定时关闭状态（峰谷时段调度）；空字符串表示未启用。
+	// 使用指针类型以便编辑渠道时能清空（gorm struct Updates 跳过零值字段，前端清空时需提交空字符串而非 null）。
+	TimeWindows *string `json:"time_windows" gorm:"type:text"`
+	Remark      *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -879,6 +883,57 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	return true
 }
 
+// GetTimeWindowChannels 查询需要参与定时调度判定的渠道：
+// 配置了定时开启时段的渠道，以及仍处于定时关闭状态的渠道
+//（时段配置可能已被清空或非法，需要恢复为启用以免渠道卡死）。
+func GetTimeWindowChannels() ([]*Channel, error) {
+	var channels []*Channel
+	err := DB.Where("time_windows IS NOT NULL AND time_windows != ''").
+		Or("status = ?", common.ChannelStatusScheduledDisabled).
+		Find(&channels).Error
+	return channels, err
+}
+
+// UpdateChannelScheduleStatus 定时调度专用的整体状态切换：只修改渠道整体 Status，
+// 不触碰多Key渠道的 key 级状态（区别于 UpdateChannelStatus 的 usingKey 路径），
+// 供定时开启/关闭任务使用。
+func UpdateChannelScheduleStatus(channelId int, status int, reason string) bool {
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+		if channelCache.Status == status {
+			return false
+		}
+		CacheUpdateChannelStatus(channelId, status)
+	}
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false
+	}
+	if channel.Status == status {
+		return false
+	}
+	info := channel.GetOtherInfo()
+	info["status_reason"] = reason
+	info["status_time"] = common.GetTimestamp()
+	channel.SetOtherInfo(info)
+	channel.Status = status
+	if err = channel.SaveWithoutKey(); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel schedule status: channel_id=%d, status=%d, error=%v", channelId, status, err))
+		return false
+	}
+	if err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+	}
+	return true
+}
+
 // RateLimitChannel 对整个渠道设置限流状态
 func RateLimitChannel(channelId int, status int, rateLimitUntil int64, reason string) bool {
 	if common.MemoryCacheEnabled {
@@ -1225,6 +1280,24 @@ func (channel *Channel) SetOtherSettings(setting dto.ChannelOtherSettings) {
 		return
 	}
 	channel.OtherSettings = string(settingBytes)
+}
+
+// GetTimeWindows 返回定时开启时段的原始 JSON 字符串，未配置时为空字符串
+func (channel *Channel) GetTimeWindows() string {
+	if channel.TimeWindows == nil {
+		return ""
+	}
+	return *channel.TimeWindows
+}
+
+// GetTimeWindowList 解析定时开启时段，未配置或格式非法时返回 nil
+func (channel *Channel) GetTimeWindowList() []dto.TimeWindow {
+	windows, err := dto.ParseTimeWindows(channel.GetTimeWindows())
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to parse time_windows: channel_id=%d, error=%v", channel.Id, err))
+		return nil
+	}
+	return windows
 }
 
 func (channel *Channel) GetParamOverride() map[string]interface{} {

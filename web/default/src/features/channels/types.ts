@@ -67,6 +67,7 @@ export const channelSchema = z.object({
   setting: z.string().nullish(),
   param_override: z.string().nullish(),
   header_override: z.string().nullish(),
+  time_windows: z.string().nullish(), // 定时开启时段 JSON 数组 [{"start":"22:00","end":"08:00"}]
   remark: z.string().default(''),
   max_input_tokens: z.number().default(0),
   channel_info: channelInfoSchema.default({
@@ -80,6 +81,15 @@ export const channelSchema = z.object({
 })
 
 export type Channel = z.infer<typeof channelSchema>
+
+// ============================================================================
+// Channel Time Window Types (scheduled on/off)
+// ============================================================================
+
+export interface ChannelTimeWindow {
+  start: string // HH:mm
+  end: string // HH:mm，早于 start 表示跨天（次日）
+}
 
 // ============================================================================
 // Channel Settings Types

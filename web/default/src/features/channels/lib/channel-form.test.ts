@@ -271,6 +271,88 @@ describe('transformChannelToFormDefaults', () => {
     expect(transformChannelToFormDefaults(forbidden).retry_times).toBe(-1)
     expect(transformChannelToFormDefaults(override).retry_times).toBe(5)
   })
+
+  it('should parse time_windows JSON into timeWindows rows', () => {
+    const channel = createMockChannel({
+      time_windows: JSON.stringify([
+        { start: '12:00', end: '14:00' },
+        { start: '22:00', end: '08:00' },
+      ]),
+    })
+
+    const result = transformChannelToFormDefaults(channel)
+
+    expect(result.timeWindows).toEqual([
+      { start: '12:00', end: '14:00' },
+      { start: '22:00', end: '08:00' },
+    ])
+  })
+
+  it('should handle nullish/invalid time_windows with empty array', () => {
+    const channelNull = createMockChannel({ time_windows: null })
+    const channelInvalid = createMockChannel({ time_windows: 'invalid json' })
+    const channelNotArray = createMockChannel({ time_windows: '{"a":1}' })
+
+    expect(transformChannelToFormDefaults(channelNull).timeWindows).toEqual([])
+    expect(
+      transformChannelToFormDefaults(channelInvalid).timeWindows
+    ).toEqual([])
+    expect(
+      transformChannelToFormDefaults(channelNotArray).timeWindows
+    ).toEqual([])
+  })
+})
+
+describe('time_windows payloads', () => {
+  it('should serialize timeWindows to JSON on create', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      timeWindows: [
+        { start: '12:00', end: '14:00' },
+        { start: '22:00', end: '08:00' },
+      ],
+    })
+
+    expect(payload.channel.time_windows).toBe(
+      JSON.stringify([
+        { start: '12:00', end: '14:00' },
+        { start: '22:00', end: '08:00' },
+      ])
+    )
+  })
+
+  it('should send empty time_windows string on update so backend can clear it', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        timeWindows: [],
+      },
+      1
+    )
+
+    expect(payload.time_windows).toBe('')
+  })
+
+  it('should serialize timeWindows to JSON on update', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        timeWindows: [{ start: '22:00', end: '08:00' }],
+      },
+      1
+    )
+
+    expect(payload.time_windows).toBe(
+      JSON.stringify([{ start: '22:00', end: '08:00' }])
+    )
+  })
 })
 
 describe('group_blacklist payloads', () => {

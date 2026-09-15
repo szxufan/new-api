@@ -655,8 +655,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				continue
 			}
 
-			// 手动禁用的渠道跳过，其他状态（429限流/自动禁用等）仍尝试
-			if channel.Status == common.ChannelStatusManuallyDisabled {
+			// 手动禁用和定时关闭的渠道跳过，其他状态（429限流/自动禁用等）仍尝试
+			if channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusScheduledDisabled {
 				continue
 			}
 

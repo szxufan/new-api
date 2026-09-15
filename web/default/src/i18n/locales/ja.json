@@ -429,6 +429,7 @@
     "Args (space separated)": "引数 (スペース区切り)",
     "Array of chat client presets. Each item is an object with one key-value pair: client name and its URL.": "チャットクライアントプリセットの配列。各項目は、クライアント名とそのURLという1つのキーと値のペアを持つオブジェクトです。",
     "Asc": "昇順",
+    "ASR": "语音识别",
     "Ask anything": "何でも質問する",
     "Aspect Ratio": "アスペクト比",
     "Assigned by administrator only": "管理者のみ割り当て",
@@ -4328,6 +4329,7 @@
     "TTL": "TTL",
     "TTL (seconds, 0 = default)": "TTL（秒、0 = デフォルト）",
     "TTL (seconds)": "TTL（秒）",
+    "TTS": "语音合成",
     "Tune selection priority, testing, status handling, and request overrides.": "選択優先度、テスト、ステータス処理、リクエスト上書きを調整します。",
     "Turnstile is enabled but site key is empty.": "Turnstile が有効ですが、サイトキーが空です。",
     "Tutoring, learning aids, assessment": "個別指導・学習補助・評価",
@@ -4771,6 +4773,13 @@
     "Used by generate_video_from_reference (max 3 images)": "generate_video_from_reference で使用（最大 3 枚）",
     "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "MCP ツール（画像・動画生成）のグループ別モデルを設定します。MCP クライアントがツールを呼び出す際、呼び出し元グループのモデルが使用され、未設定の場合は default グループにフォールバックします。",
     "Configure per-group models for MCP endpoints (image & video generation)": "MCP エンドポイントのグループ別モデルを設定（画像・動画生成）",
-    "No mapping configured. Click \"Add\" to get started.": "マッピングが未設定です。「追加」をクリックして開始してください。"
+    "No mapping configured. Click \"Add\" to get started.": "マッピングが未設定です。「追加」をクリックして開始してください。",
+    "Scheduled Switching": "定時切り替え",
+    "Scheduled Off": "定時オフ",
+    "Add Time Window": "時間帯を追加",
+    "Scheduled time windows": "定時有効時間帯",
+    "next day": "翌日",
+    "When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.": "設定すると、チャネルは設定した時間帯に自動的に有効になり、時間帯外では自動的に無効になります（例：電力のオフピーク時間帯）。終了時刻が開始時刻より前の場合は日をまたぎます（例：22:00 - 翌日 08:00）。サーバーのローカル時刻が使用されます。空のままにすると定時切り替えは無効になります。注意：時間帯外で手動で有効にしたチャネルは、次回チェック時に再度無効化されます。",
+    "No time windows configured. The channel is not affected by scheduled switching.": "時間帯が設定されていません。チャネルは定時切り替えの影響を受けません。"
   }
 }

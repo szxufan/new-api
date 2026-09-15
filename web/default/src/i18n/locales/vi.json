@@ -429,6 +429,7 @@
     "Args (space separated)": "Đối số (cách nhau bằng khoảng trắng)",
     "Array of chat client presets. Each item is an object with one key-value pair: client name and its URL.": "Mảng các thiết lập sẵn của ứng dụng trò chuyện. Mỗi mục là một đối tượng với",
     "Asc": "Asc",
+    "ASR": "语音识别",
     "Ask anything": "Hỏi gì cũng được",
     "Aspect Ratio": "Tỷ lệ khung hình",
     "Assigned by administrator only": "Chỉ quản trị viên gán",
@@ -4328,6 +4329,7 @@
     "TTL": "TTL",
     "TTL (seconds, 0 = default)": "TTL (giây, 0 = mặc định)",
     "TTL (seconds)": "TTL (giây)",
+    "TTS": "语音合成",
     "Tune selection priority, testing, status handling, and request overrides.": "Tinh chỉnh ưu tiên chọn, kiểm thử, xử lý trạng thái và ghi đè yêu cầu.",
     "Turnstile is enabled but site key is empty.": "Turnstile đã được bật nhưng khóa trang web trống.",
     "Tutoring, learning aids, assessment": "Gia sư, hỗ trợ học tập, đánh giá",
@@ -4771,6 +4773,13 @@
     "Used by generate_video_from_reference (max 3 images)": "Dùng bởi generate_video_from_reference (tối đa 3 ảnh)",
     "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group.": "Cấu hình mô hình theo nhóm cho các công cụ MCP (tạo hình ảnh & video). Khi MCP client gọi công cụ, mô hình của nhóm gọi sẽ được dùng, nếu không có sẽ fallback về nhóm default.",
     "Configure per-group models for MCP endpoints (image & video generation)": "Cấu hình mô hình theo nhóm cho các MCP endpoint (tạo hình ảnh & video)",
-    "No mapping configured. Click \"Add\" to get started.": "Chưa cấu hình ánh xạ. Nhấn \"Thêm\" để bắt đầu."
+    "No mapping configured. Click \"Add\" to get started.": "Chưa cấu hình ánh xạ. Nhấn \"Thêm\" để bắt đầu.",
+    "Scheduled Switching": "Hẹn giờ bật/tắt",
+    "Scheduled Off": "Tắt theo lịch",
+    "Add Time Window": "Thêm khung giờ",
+    "Scheduled time windows": "Khung giờ bật theo lịch",
+    "next day": "ngày hôm sau",
+    "When configured, the channel is automatically enabled during the configured time windows and automatically disabled outside them, e.g. for off-peak electricity pricing. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). Server local time is used. Leave empty to disable scheduled switching. Note: manually enabling a channel outside its windows will be overridden at the next check.": "Khi được cấu hình, kênh sẽ tự động bật trong các khung giờ đã cấu hình và tự động tắt ngoài khung giờ, ví dụ cho giá điện thấp điểm. Thời gian kết thúc sớm hơn thời gian bắt đầu nghĩa là sang ngày hôm sau (ví dụ: 22:00 - 08:00). Sử dụng giờ địa phương của máy chủ. Để trống để tắt hẹn giờ bật/tắt. Lưu ý: việc bật kênh thủ công ngoài khung giờ sẽ bị ghi đè ở lần kiểm tra tiếp theo.",
+    "No time windows configured. The channel is not affected by scheduled switching.": "Chưa cấu hình khung giờ. Kênh không bị ảnh hưởng bởi hẹn giờ bật/tắt."
   }
 }

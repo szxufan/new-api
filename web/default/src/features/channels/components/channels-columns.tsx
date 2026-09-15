@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  Clock,
   ListOrdered,
   Shuffle,
 } from 'lucide-react'
@@ -74,6 +75,7 @@ import {
   isTagAggregateRow,
   type TagRow,
 } from '../lib'
+import { parseTimeWindowsJson } from '../lib/channel-form'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
 import { useChannels } from './channels-provider'
@@ -639,6 +641,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
         // Regular channel row
         const settings = parseChannelSettings(channel.setting)
         const isPassThrough = settings.pass_through_body_enabled === true
+        const timeWindows = parseTimeWindowsJson(channel.time_windows || '')
 
         return (
           <div className='flex items-center gap-2'>
@@ -661,6 +664,30 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
                         {t(
                           'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
                         )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {timeWindows.length > 0 && (
+                  <TooltipProvider delay={100}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Clock className='h-3.5 w-3.5 flex-shrink-0 text-blue-500' />
+                        }
+                      ></TooltipTrigger>
+                      <TooltipContent side='top'>
+                        <div className='space-y-1 text-xs'>
+                          <div className='font-medium'>
+                            {t('Scheduled time windows')}
+                          </div>
+                          {timeWindows.map((w, i) => (
+                            <div key={i}>
+                              {w.start} - {w.end < w.start ? `${t('next day')} ` : ''}
+                              {w.end}
+                            </div>
+                          ))}
+                        </div>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -867,8 +894,8 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
             ? `${t(config.label)} (${enabledCount}/${keySize})`
             : t(config.label)
 
-        // Auto-disabled: show reason and time tooltip
-        if (status === 3) {
+        // Auto-disabled / scheduled-disabled: show reason and time tooltip
+        if (status === 3 || status === 6) {
           let statusReason = ''
           let statusTime = ''
           try {

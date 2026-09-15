@@ -58,6 +58,8 @@ func parseStatusFilter(statusParam string) int {
 		return common.ChannelStatusEnabled
 	case "disabled", "0":
 		return 0
+	case "scheduled", "6":
+		return common.ChannelStatusScheduledDisabled
 	default:
 		return -1
 	}
@@ -76,6 +78,9 @@ func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	}
 	if statusFilter == 0 {
 		return query.Where("status != ?", common.ChannelStatusEnabled)
+	}
+	if statusFilter == common.ChannelStatusScheduledDisabled {
+		return query.Where("status = ?", common.ChannelStatusScheduledDisabled)
 	}
 	return query
 }
@@ -588,6 +593,17 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+	}
+
+	// 校验定时开启时段：HH:mm 格式、start != end、段数上限；空数组规范化为空字符串
+	if channel.TimeWindows != nil {
+		windows, err := dto.ParseTimeWindows(*channel.TimeWindows)
+		if err != nil {
+			return fmt.Errorf("定时开启时段[time_windows] 格式错误：%s", err.Error())
+		}
+		if len(windows) == 0 {
+			channel.TimeWindows = common.GetPointer[string]("")
+		}
 	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
