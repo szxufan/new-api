@@ -140,6 +140,54 @@ func TestIsMimoThinkingModel(t *testing.T) {
 	}
 }
 
+func TestIsOllamaThinkingModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		modelName string
+		want      bool
+	}{
+		{
+			name:      "pro with latest tag",
+			modelName: "pro:latest",
+			want:      true,
+		},
+		{
+			name:      "pro without tag",
+			modelName: "pro",
+			want:      true,
+		},
+		{
+			name:      "pro with custom tag",
+			modelName: "pro:8b",
+			want:      true,
+		},
+		{
+			name:      "qwen3 with tag should not match",
+			modelName: "qwen3:32b",
+			want:      false,
+		},
+		{
+			name:      "namespaced pro should not match",
+			modelName: "library/pro:latest",
+			want:      false,
+		},
+		{
+			name:      "deepseek-v4-flash should not match",
+			modelName: "deepseek-v4-flash",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsOllamaThinkingModel(tt.modelName)
+			if got != tt.want {
+				t.Errorf("IsOllamaThinkingModel(%q) = %v, want %v", tt.modelName, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsThinkingModel(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -164,6 +212,11 @@ func TestIsThinkingModel(t *testing.T) {
 		{
 			name:      "mimo-v2-flash",
 			modelName: "mimo-v2-flash",
+			want:      true,
+		},
+		{
+			name:      "ollama pro:latest",
+			modelName: "pro:latest",
 			want:      true,
 		},
 		{

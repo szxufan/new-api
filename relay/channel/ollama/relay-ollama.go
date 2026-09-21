@@ -120,6 +120,11 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 		if m.Role == "tool" && m.Name != nil {
 			cm.ToolName = *m.Name
 		}
+		if rc := m.GetReasoningContent(); rc != "" {
+			if b, err := common.Marshal(rc); err == nil {
+				cm.Thinking = b
+			}
+		}
 		if m.ToolCalls != nil && len(m.ToolCalls) > 0 {
 			parsed := m.ParseToolCalls()
 			if len(parsed) > 0 {

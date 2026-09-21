@@ -1,6 +1,7 @@
 package ollama
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -295,4 +298,92 @@ func TestFrtInLogIsNoLongerNegative(t *testing.T) {
 
 	afterStream := info.FirstResponseTime.Sub(info.StartTime).Milliseconds()
 	assert.GreaterOrEqual(t, afterStream, int64(0), "after stream, frt should be non-negative, got %dms", afterStream)
+}
+
+func TestOllamaStreamHandler_CachesReasoningContent(t *testing.T) {
+	info := newTestRelayInfo(true)
+	info.TokenKey = "tok-stream-thinking"
+	info.ChannelMeta.UpstreamModelName = "deepseek-reasoner"
+	c, _ := newTestContext()
+
+	chunks := []string{
+		`{"model":"deepseek-reasoner","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","thinking":"step one"},"done":false}`,
+		`{"model":"deepseek-reasoner","created_at":"2025-01-01T00:00:01Z","message":{"role":"assistant","content":"The answer is 42"},"done":false}`,
+		`{"model":"deepseek-reasoner","created_at":"2025-01-01T00:00:02Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":5}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	_, apiErr := ollamaStreamHandler(c, info, resp)
+	require.Nil(t, apiErr)
+
+	rc, found := service.LookupReasoningContent(info.TokenKey, "The answer is 42", nil)
+	require.True(t, found, "reasoning content should be cached after stream")
+	assert.Equal(t, "step one", rc)
+}
+
+func TestOllamaStreamHandler_NoCacheForNonThinkingModel(t *testing.T) {
+	info := newTestRelayInfo(true)
+	info.TokenKey = "tok-stream-no-thinking"
+	info.ChannelMeta.UpstreamModelName = "llama3"
+	c, _ := newTestContext()
+
+	chunks := []string{
+		`{"model":"llama3","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","thinking":"hm"},"done":false}`,
+		`{"model":"llama3","created_at":"2025-01-01T00:00:01Z","message":{"role":"assistant","content":"answer"},"done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":1}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	_, apiErr := ollamaStreamHandler(c, info, resp)
+	require.Nil(t, apiErr)
+
+	_, found := service.LookupReasoningContent(info.TokenKey, "answer", nil)
+	assert.False(t, found, "reasoning content should not be cached for non-thinking models")
+}
+
+func TestOllamaNonStreamHandler_CachesReasoningContent(t *testing.T) {
+	info := newTestRelayInfo(false)
+	info.TokenKey = "tok-nonstream-thinking"
+	info.ChannelMeta.UpstreamModelName = "deepseek-reasoner"
+	c, _ := newTestContext()
+
+	body := `{"model":"deepseek-reasoner","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"Hello world","thinking":"step one"},"done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":5}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       newReadCloser(body),
+	}
+
+	usage, apiErr := ollamaChatHandler(c, info, resp)
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+
+	rc, found := service.LookupReasoningContent(info.TokenKey, "Hello world", nil)
+	require.True(t, found, "reasoning content should be cached for non-stream response")
+	assert.Equal(t, "step one", rc)
+}
+
+func TestOpenAIChatToOllamaChat_MapsReasoningContentToThinking(t *testing.T) {
+	c, _ := newTestContext()
+	rc := "prior reasoning"
+	req := &dto.GeneralOpenAIRequest{
+		Model: "deepseek-reasoner",
+		Messages: []dto.Message{
+			{Role: "assistant", Content: "hi", ReasoningContent: &rc},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	require.Len(t, chatReq.Messages, 1)
+
+	require.NotNil(t, chatReq.Messages[0].Thinking)
+	var thinking string
+	require.Nil(t, json.Unmarshal(chatReq.Messages[0].Thinking, &thinking))
+	assert.Equal(t, "prior reasoning", thinking)
+
+	// message without reasoning content should keep thinking unset
+	req.Messages[0].ReasoningContent = nil
+	chatReq, err = openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	assert.Nil(t, chatReq.Messages[0].Thinking)
 }

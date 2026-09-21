@@ -25,10 +25,20 @@ func IsMimoThinkingModel(modelName string) bool {
 	}
 }
 
+// IsOllamaThinkingModel checks locally deployed (ollama-style) models that emit
+// thinking content, addressed by name with an optional tag ("pro", "pro:latest").
+func IsOllamaThinkingModel(modelName string) bool {
+	base := modelName
+	if idx := strings.LastIndex(base, ":"); idx >= 0 {
+		base = base[:idx]
+	}
+	return base == "pro"
+}
+
 // IsThinkingModel checks if the model supports reasoning content caching.
-// It includes DeepSeek thinking models and mimo thinking models.
+// It includes DeepSeek thinking models, mimo thinking models and ollama thinking models.
 func IsThinkingModel(modelName string) bool {
-	return IsDeepSeekThinkingModel(modelName) || IsMimoThinkingModel(modelName)
+	return IsDeepSeekThinkingModel(modelName) || IsMimoThinkingModel(modelName) || IsOllamaThinkingModel(modelName)
 }
 
 func trimDeepSeekSuffix(modelName string) string {

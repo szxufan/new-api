@@ -14,6 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -75,6 +76,11 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var responseId = common.GetUUID()
 	var created = time.Now().Unix()
 	var toolCallIndex int
+	var (
+		contentBuilder     strings.Builder
+		reasoningBuilder   strings.Builder
+		collectedToolCalls []dto.ToolCallResponse
+	)
 	start := helper.GenerateStartEmptyResponse(responseId, created, model, nil)
 	if data, err := common.Marshal(start); err == nil {
 		_ = helper.StringData(c, string(data))
@@ -116,6 +122,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			}
 			if content != "" {
 				delta.Choices[0].Delta.SetContentString(content)
+				contentBuilder.WriteString(content)
 			}
 			if chunk.Message != nil && len(chunk.Message.Thinking) > 0 {
 				raw := strings.TrimSpace(string(chunk.Message.Thinking))
@@ -124,9 +131,11 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 					var thinkingContent string
 					if err := json.Unmarshal(chunk.Message.Thinking, &thinkingContent); err == nil {
 						delta.Choices[0].Delta.SetReasoningContent(thinkingContent)
+						reasoningBuilder.WriteString(thinkingContent)
 					} else {
 						// Fallback to raw string if it's not a JSON string
 						delta.Choices[0].Delta.SetReasoningContent(raw)
+						reasoningBuilder.WriteString(raw)
 					}
 				}
 			}
@@ -141,6 +150,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 					tr.SetIndex(toolCallIndex)
 					toolCallIndex++
 					delta.Choices[0].Delta.ToolCalls = append(delta.Choices[0].Delta.ToolCalls, tr)
+					collectedToolCalls = append(collectedToolCalls, tr)
 				}
 			}
 			if data, err := common.Marshal(delta); err == nil {
@@ -173,10 +183,30 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		helper.Done(c)
 		break
 	}
+	cacheReasoningContentForOllama(c, info, contentBuilder.String(), reasoningBuilder.String(), collectedToolCalls)
 	if err := scanner.Err(); err != nil && err != io.EOF {
 		logger.LogError(c, "ollama stream scan error: "+err.Error())
 	}
 	return usage, nil
+}
+
+// cacheReasoningContentForOllama stores reasoning content so multi-turn
+// requests through fillReasoningContentForDeepSeekThinking can restore it.
+func cacheReasoningContentForOllama(c *gin.Context, info *relaycommon.RelayInfo, content string, reasoningContent string, toolCalls []dto.ToolCallResponse) {
+	if !reasoning.IsThinkingModel(info.UpstreamModelName) && !reasoning.IsThinkingModel(info.OriginModelName) {
+		return
+	}
+	if reasoningContent == "" && content == "" {
+		return
+	}
+	var toolCallsJSON json.RawMessage
+	if len(toolCalls) > 0 {
+		if b, err := common.Marshal(toolCalls); err == nil {
+			toolCallsJSON = b
+		}
+	}
+	service.StoreReasoningContent(info.TokenKey, content, toolCallsJSON, reasoningContent)
+	logger.LogDebug(c, "ollama thinking: cached reasoning_content, content_len=%d reasoning_len=%d", len(content), len(reasoningContent))
 }
 
 // non-stream handler for chat/generate
@@ -288,6 +318,7 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	out, _ := common.Marshal(full)
 	service.IOCopyBytesGracefully(c, resp, out)
+	cacheReasoningContentForOllama(c, info, content, reasoningBuilder.String(), nil)
 	return usage, nil
 }
 
