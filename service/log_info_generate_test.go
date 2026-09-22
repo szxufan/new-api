@@ -10,6 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 )
 
 func newTestGinContext(userAgent string) *gin.Context {
@@ -68,6 +71,45 @@ func TestGenerateTextOtherInfoIncludesUserAgent(t *testing.T) {
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok, "admin_info should exist")
 	assert.Equal(t, "my-client/2.3", adminInfo["user_agent"])
+}
+
+func TestGenerateTextOtherInfoIncludesUpstreamRequestPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := newTestGinContext("")
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamRequestPath, "/api/chat")
+	relayInfo := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	other := GenerateTextOtherInfo(ctx, relayInfo, 1.0, 1.0, 1.0, 0, 1.0, 0.0, 1.0)
+	assert.Equal(t, "/api/chat", other["upstream_request_path"])
+
+	// 未记录出站路径时不写入该字段
+	ctx2 := newTestGinContext("")
+	other2 := GenerateTextOtherInfo(ctx2, relayInfo, 1.0, 1.0, 1.0, 0, 1.0, 0.0, 1.0)
+	_, exists := other2["upstream_request_path"]
+	assert.False(t, exists, "upstream_request_path should be omitted when not recorded")
+}
+
+func TestGenerateTextOtherInfoIncludesReasoningFillStats(t *testing.T) {
+	t.Parallel()
+
+	ctx := newTestGinContext("")
+	RecordReasoningFillStats(ctx, ReasoningFillStats{Filled: 3, FromTag: 1, FromCache: 1, FromEmpty: 1})
+	relayInfo := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	other := GenerateTextOtherInfo(ctx, relayInfo, 1.0, 1.0, 1.0, 0, 1.0, 0.0, 1.0)
+	stats, ok := other["reasoning_fill"].(ReasoningFillStats)
+	require.True(t, ok, "reasoning_fill should be a ReasoningFillStats")
+	assert.Equal(t, 3, stats.Filled)
+	assert.Equal(t, 1, stats.FromTag)
+	assert.Equal(t, 1, stats.FromCache)
+	assert.Equal(t, 1, stats.FromEmpty)
+
+	// 未回填时不写入该字段
+	ctx2 := newTestGinContext("")
+	other2 := GenerateTextOtherInfo(ctx2, relayInfo, 1.0, 1.0, 1.0, 0, 1.0, 0.0, 1.0)
+	_, exists := other2["reasoning_fill"]
+	assert.False(t, exists, "reasoning_fill should be omitted when no fill happened")
 }
 
 func TestAppendRequestConversionChainFriendlyNames(t *testing.T) {

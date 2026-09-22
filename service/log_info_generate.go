@@ -76,6 +76,12 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
+	if upstreamPath := common.GetContextKeyString(ctx, constant.ContextKeyUpstreamRequestPath); upstreamPath != "" {
+		other["upstream_request_path"] = upstreamPath
+	}
+	if stats, ok := GetReasoningFillStats(ctx); ok {
+		other["reasoning_fill"] = stats
+	}
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)

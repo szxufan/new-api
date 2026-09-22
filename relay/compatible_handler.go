@@ -268,6 +268,7 @@ func fillReasoningContentForDeepSeekThinking(c *gin.Context, info *relaycommon.R
 		fromEmpty++
 	}
 	if filled > 0 {
+		service.RecordReasoningFillStats(c, service.ReasoningFillStats{Filled: filled, FromTag: fromTag, FromCache: fromCache, FromEmpty: fromEmpty})
 		logger.LogInfo(c, fmt.Sprintf("deepseek thinking: filled reasoning_content for %d assistant message(s), from_tag=%d from_cache=%d from_empty=%d", filled, fromTag, fromCache, fromEmpty))
 	}
 }

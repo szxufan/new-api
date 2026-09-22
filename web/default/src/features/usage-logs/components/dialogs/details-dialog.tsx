@@ -478,7 +478,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const showConversion =
     props.isAdmin &&
     props.log.type !== 6 &&
-    (other?.request_path || conversionChain.length > 0)
+    (other?.request_path ||
+      other?.upstream_request_path ||
+      conversionChain.length > 0)
+  const reasoningFill = other?.reasoning_fill
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
@@ -693,6 +696,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
                         mono
                       />
                     )}
+                    {other?.upstream_request_path && (
+                      <DetailRow
+                        label={t('Upstream Path')}
+                        value={other.upstream_request_path}
+                        mono
+                      />
+                    )}
                     <div className='flex min-w-0 items-center gap-1.5 text-xs'>
                       <Route
                         className='text-muted-foreground size-3'
@@ -704,6 +714,31 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     </div>
                   </div>
                 </div>
+              </DetailSection>
+            )}
+
+            {/* Reasoning content backfill stats */}
+            {reasoningFill && reasoningFill.filled > 0 && (
+              <DetailSection
+                icon={<Info className='size-3.5' aria-hidden='true' />}
+                label={t('Reasoning Content Backfill')}
+              >
+                <DetailRow
+                  label={t('Backfilled Messages')}
+                  value={String(reasoningFill.filled)}
+                />
+                <DetailRow
+                  label={t('From Think Tag')}
+                  value={String(reasoningFill.from_tag ?? 0)}
+                />
+                <DetailRow
+                  label={t('From Cache')}
+                  value={String(reasoningFill.from_cache ?? 0)}
+                />
+                <DetailRow
+                  label={t('Empty Fill')}
+                  value={String(reasoningFill.from_empty ?? 0)}
+                />
               </DetailSection>
             )}
 

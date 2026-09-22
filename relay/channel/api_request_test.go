@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	common2 "github.com/QuantumNous/new-api/common"
+	appconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -318,4 +320,41 @@ func TestStartPingKeepAlive_StopWaitsForGoroutineExit(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	require.Equal(t, bodyLenAfterStop, recorder.Body.Len(),
 		"no ping data should be written after stop returns")
+}
+
+func TestRecordUpstreamRequestPath(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	newCtx := func() *gin.Context {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		return ctx
+	}
+
+	// 完整 URL 只取 path 部分
+	ctx := newCtx()
+	recordUpstreamRequestPath(ctx, "http://127.0.0.1:11434/api/chat")
+	require.Equal(t, "/api/chat", common2.GetContextKeyString(ctx, appconstant.ContextKeyUpstreamRequestPath))
+
+	// Ollama generate 与 embed 接口应能区分
+	ctx = newCtx()
+	recordUpstreamRequestPath(ctx, "http://127.0.0.1:11434/api/generate")
+	require.Equal(t, "/api/generate", common2.GetContextKeyString(ctx, appconstant.ContextKeyUpstreamRequestPath))
+
+	// 带 query 的 URL 丢弃 query
+	ctx = newCtx()
+	recordUpstreamRequestPath(ctx, "https://api.example.com/v1/chat/completions?api-version=2024")
+	require.Equal(t, "/v1/chat/completions", common2.GetContextKeyString(ctx, appconstant.ContextKeyUpstreamRequestPath))
+
+	// 非法 URL 保留原串
+	ctx = newCtx()
+	recordUpstreamRequestPath(ctx, "::bad-url")
+	require.Equal(t, "::bad-url", common2.GetContextKeyString(ctx, appconstant.ContextKeyUpstreamRequestPath))
+
+	// 空参数不写入
+	ctx = newCtx()
+	recordUpstreamRequestPath(ctx, "")
+	require.Empty(t, common2.GetContextKeyString(ctx, appconstant.ContextKeyUpstreamRequestPath))
 }

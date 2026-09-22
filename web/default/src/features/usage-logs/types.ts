@@ -115,7 +115,14 @@ export interface LogOtherData {
     admin_id?: number | string
   }
   request_path?: string
+  upstream_request_path?: string
   request_conversion?: string[]
+  reasoning_fill?: {
+    filled: number
+    from_tag: number
+    from_cache: number
+    from_empty: number
+  }
   ws?: boolean
   audio?: boolean
   audio_input?: number

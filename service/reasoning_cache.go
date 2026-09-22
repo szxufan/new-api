@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/samber/hot"
+
+	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -77,4 +80,33 @@ func LookupReasoningContent(tokenKey string, content string, toolCalls json.RawM
 		return "", false
 	}
 	return entry.ReasoningContent, true
+}
+
+// ReasoningFillStats 记录一次请求中 reasoning_content 回填的条数与来源，
+// 由各入口的 fillReasoningContent* 写入，经 GenerateTextOtherInfo 落到日志 other.reasoning_fill。
+type ReasoningFillStats struct {
+	Filled    int `json:"filled"`
+	FromTag   int `json:"from_tag"`
+	FromCache int `json:"from_cache"`
+	FromEmpty int `json:"from_empty"`
+}
+
+// RecordReasoningFillStats 将回填统计写入 gin context（多次调用以最后一次为准）。
+func RecordReasoningFillStats(c *gin.Context, stats ReasoningFillStats) {
+	if c == nil || stats.Filled <= 0 {
+		return
+	}
+	common.SetContextKey(c, constant.ContextKeyReasoningFillStats, stats)
+}
+
+func GetReasoningFillStats(c *gin.Context) (ReasoningFillStats, bool) {
+	if c == nil {
+		return ReasoningFillStats{}, false
+	}
+	v, ok := common.GetContextKey(c, constant.ContextKeyReasoningFillStats)
+	if !ok {
+		return ReasoningFillStats{}, false
+	}
+	stats, ok := v.(ReasoningFillStats)
+	return stats, ok
 }

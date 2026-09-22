@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
@@ -328,12 +330,27 @@ func applyDefaultUserAgent(c *gin.Context, info *common.RelayInfo, headers *http
 	headers.Set("User-Agent", operation_setting.GetGeneralSetting().GetDefaultUserAgent())
 }
 
+// recordUpstreamRequestPath 将实际出站请求的 URL path 记入 gin context，
+// 供 GenerateTextOtherInfo 写入日志 other.upstream_request_path，
+// 用于区分同一渠道内被调用的不同上游接口（如 Ollama 的 /api/chat、/api/generate、/api/embed）。
+func recordUpstreamRequestPath(c *gin.Context, fullRequestURL string) {
+	if c == nil || fullRequestURL == "" {
+		return
+	}
+	path := fullRequestURL
+	if u, err := url.Parse(fullRequestURL); err == nil && u.Path != "" {
+		path = u.Path
+	}
+	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestPath, path)
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
+	recordUpstreamRequestPath(c, fullRequestURL)
 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
@@ -365,6 +382,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", fullRequestURL)
+	recordUpstreamRequestPath(c, fullRequestURL)
 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
@@ -397,6 +415,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
+	recordUpstreamRequestPath(c, fullRequestURL)
 	targetHeader := http.Header{}
 	err = a.SetupRequestHeader(c, &targetHeader, info)
 	if err != nil {
@@ -577,6 +596,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, err
 	}
+	recordUpstreamRequestPath(c, fullRequestURL)
 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)

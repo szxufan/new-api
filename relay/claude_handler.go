@@ -255,6 +255,7 @@ func fillReasoningContentForClaudeThinking(c *gin.Context, info *relaycommon.Rel
 		fromEmpty++
 	}
 	if filled > 0 {
+		service.RecordReasoningFillStats(c, service.ReasoningFillStats{Filled: filled, FromCache: fromCache, FromEmpty: fromEmpty})
 		logger.LogInfo(c, fmt.Sprintf("claude thinking: filled thinking content for %d assistant message(s), from_cache=%d from_empty=%d", filled, fromCache, fromEmpty))
 	}
 }
