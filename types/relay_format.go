@@ -16,4 +16,10 @@ const (
 
 	RelayFormatTask    = "task"
 	RelayFormatMjProxy = "mj_proxy"
+
+	// 渠道私有协议格式：客户端中继格式转换到渠道自有线上协议时登记，
+	// 用于日志展示请求转换链（other.request_conversion）。
+	RelayFormatOllama RelayFormat = "ollama"
+	RelayFormatDify   RelayFormat = "dify"
+	RelayFormatCoze   RelayFormat = "coze"
 )

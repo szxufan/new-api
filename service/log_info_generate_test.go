@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,4 +68,64 @@ func TestGenerateTextOtherInfoIncludesUserAgent(t *testing.T) {
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok, "admin_info should exist")
 	assert.Equal(t, "my-client/2.3", adminInfo["user_agent"])
+}
+
+func TestAppendRequestConversionChainFriendlyNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		chain []types.RelayFormat
+		want  []string
+	}{
+		{
+			name:  "openai only stays native",
+			chain: []types.RelayFormat{types.RelayFormatOpenAI},
+			want:  []string{"OpenAI Compatible"},
+		},
+		{
+			name:  "openai to ollama",
+			chain: []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatOllama},
+			want:  []string{"OpenAI Compatible", "Ollama"},
+		},
+		{
+			name:  "claude to ollama",
+			chain: []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOllama},
+			want:  []string{"Claude Messages", "Ollama"},
+		},
+		{
+			name:  "openai to dify",
+			chain: []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatDify},
+			want:  []string{"OpenAI Compatible", "Dify"},
+		},
+		{
+			name:  "openai to coze",
+			chain: []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatCoze},
+			want:  []string{"OpenAI Compatible", "Coze"},
+		},
+		{
+			name:  "unknown format falls back to raw value",
+			chain: []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormat("custom")},
+			want:  []string{"OpenAI Compatible", "custom"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			other := map[string]interface{}{}
+			appendRequestConversionChain(&relaycommon.RelayInfo{RequestConversionChain: tt.chain}, other)
+			chain, ok := other["request_conversion"].([]string)
+			require.True(t, ok, "request_conversion should be a []string")
+			assert.Equal(t, tt.want, chain)
+		})
+	}
+}
+
+func TestAppendRequestConversionChainEmptyChainOmitted(t *testing.T) {
+	t.Parallel()
+
+	other := map[string]interface{}{}
+	appendRequestConversionChain(&relaycommon.RelayInfo{}, other)
+	_, exists := other["request_conversion"]
+	assert.False(t, exists, "empty chain should not write request_conversion")
 }

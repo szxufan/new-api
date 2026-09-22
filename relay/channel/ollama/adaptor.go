@@ -33,7 +33,12 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 		IncludeUsage: true,
 	}
 	// map to ollama chat request (Claude -> OpenAI -> Ollama chat)
-	return openAIChatToOllamaChat(c, openaiRequest.(*dto.GeneralOpenAIRequest))
+	chatRequest, err := openAIChatToOllamaChat(c, openaiRequest.(*dto.GeneralOpenAIRequest))
+	if err != nil {
+		return nil, err
+	}
+	info.AppendRequestConversion(types.RelayFormatOllama)
+	return chatRequest, nil
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
@@ -69,9 +74,19 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 	// decide generate or chat
 	if strings.Contains(info.RequestURLPath, "/v1/completions") || info.RelayMode == relayconstant.RelayModeCompletions {
-		return openAIToGenerate(c, request)
+		genRequest, err := openAIToGenerate(c, request)
+		if err != nil {
+			return nil, err
+		}
+		info.AppendRequestConversion(types.RelayFormatOllama)
+		return genRequest, nil
 	}
-	return openAIChatToOllamaChat(c, request)
+	chatRequest, err := openAIChatToOllamaChat(c, request)
+	if err != nil {
+		return nil, err
+	}
+	info.AppendRequestConversion(types.RelayFormatOllama)
+	return chatRequest, nil
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -79,6 +94,7 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
+	info.AppendRequestConversion(types.RelayFormatOllama)
 	return requestOpenAI2Embeddings(request), nil
 }
 
