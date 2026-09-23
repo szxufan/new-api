@@ -579,3 +579,49 @@ func TestOllamaNonStreamHandler_ToolCallsExtracted(t *testing.T) {
 	assert.JSONEq(t, `{"city":"Toronto"}`, out.Choices[0].Message.ToolCalls[0].Function.Arguments)
 	assert.Equal(t, "tool_calls", out.Choices[0].FinishReason)
 }
+
+func TestOpenAIChatToOllamaChat_MultiRoundToolCallIdScoping(t *testing.T) {
+	c, _ := newTestContext()
+	// 多轮工具调用：网关生成的 call_N 每轮从 0 重新编号，历史中存在重复 id。
+	// 每条 tool 消息必须解析到它紧邻前一条 assistant 的工具名，而不是全局最后注册的。
+	req := &dto.GeneralOpenAIRequest{
+		Model: "pro:latest",
+		Messages: []dto.Message{
+			{Role: "user", Content: "generate an image then tell the time"},
+			{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_0","type":"function","function":{"name":"generate_image","arguments":"{\"prompt\":\"cat\"}"}},{"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}}]`)},
+			{Role: "tool", ToolCallId: "call_0", Content: "img.png"},
+			{Role: "tool", ToolCallId: "call_1", Content: "10:00"},
+			{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_0","type":"function","function":{"name":"search","arguments":"{}"}}]`)},
+			{Role: "tool", ToolCallId: "call_0", Content: "results"},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	require.Len(t, chatReq.Messages, 6)
+
+	assert.Equal(t, "generate_image", chatReq.Messages[2].ToolName, "round-1 tool result must resolve to round-1 tool name")
+	assert.Equal(t, "get_time", chatReq.Messages[3].ToolName)
+	assert.Equal(t, "search", chatReq.Messages[5].ToolName)
+}
+
+func TestOpenAIChatToOllamaChat_ObjectArgumentsTolerated(t *testing.T) {
+	c, _ := newTestContext()
+	// 部分 Agent 回传 assistant tool_calls 时 arguments 是对象而非字符串
+	req := &dto.GeneralOpenAIRequest{
+		Model: "pro:latest",
+		Messages: []dto.Message{
+			{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_0","type":"function","function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]`)},
+			{Role: "tool", ToolCallId: "call_0", Content: "11 degrees"},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	require.Len(t, chatReq.Messages, 2)
+
+	require.Len(t, chatReq.Messages[0].ToolCalls, 1)
+	assert.Equal(t, "get_weather", chatReq.Messages[0].ToolCalls[0].Function.Name)
+	assert.Equal(t, map[string]any{"city": "Toronto"}, chatReq.Messages[0].ToolCalls[0].Function.Arguments)
+	assert.Equal(t, "get_weather", chatReq.Messages[1].ToolName, "tool_name must still resolve when arguments are object-form")
+}

@@ -19,6 +19,48 @@ import (
 	"github.com/samber/lo"
 )
 
+// ollamaRawToolCall 对齐 OpenAI tool_calls，但 arguments 保留原始 JSON：
+// 标准客户端回传字符串形态，部分 Agent 直接回传对象形态；strict 的
+// ParseToolCalls 遇到对象会整组解析失败并静默丢弃 tool_calls。
+type ollamaRawToolCall struct {
+	ID       string `json:"id"`
+	Function struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
+}
+
+func parseOllamaToolCalls(raw json.RawMessage) []ollamaRawToolCall {
+	var calls []ollamaRawToolCall
+	if err := common.Unmarshal(raw, &calls); err != nil {
+		return nil
+	}
+	return calls
+}
+
+// toolCallArguments 把 arguments（字符串或对象形态）归一化为对象，空值或
+// 无法解析时回退为空对象。
+func toolCallArguments(raw json.RawMessage) interface{} {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return map[string]any{}
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := common.Unmarshal(raw, &s); err == nil {
+			trimmed = strings.TrimSpace(s)
+		}
+	}
+	if trimmed == "" || trimmed == "null" {
+		return map[string]any{}
+	}
+	var args interface{}
+	if err := json.Unmarshal([]byte(trimmed), &args); err != nil || args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
 func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*OllamaChatRequest, error) {
 	chatReq := &OllamaChatRequest{
 		Model:   r.Model,
@@ -89,9 +131,10 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 	}
 
 	chatReq.Messages = make([]OllamaChatMessage, 0, len(r.Messages))
-	// OpenAI 用 tool_call_id 关联工具结果，Ollama 用 tool_name；
-	// 按消息顺序记录 assistant tool_calls 的 id→工具名 映射，供后续 tool 消息反查。
-	toolNameByID := make(map[string]string)
+	// OpenAI 用 tool_call_id 关联工具结果，Ollama 用 tool_name。
+	// tool 消息只与紧邻其前的 assistant tool_calls 配对：每遇到带 tool_calls 的
+	// assistant 消息就重建映射，避免多轮对话里不同轮次复用相同 call_N 时跨轮错配。
+	pendingToolNames := make(map[string]string)
 	for _, m := range r.Messages {
 		var textBuilder strings.Builder
 		var images []string
@@ -123,7 +166,7 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 		if m.Role == "tool" {
 			toolName := ""
 			if m.ToolCallId != "" {
-				toolName = toolNameByID[m.ToolCallId]
+				toolName = pendingToolNames[m.ToolCallId]
 			}
 			if toolName == "" && m.Name != nil {
 				toolName = *m.Name
@@ -137,24 +180,18 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 				cm.Thinking = b
 			}
 		}
-		if m.ToolCalls != nil && len(m.ToolCalls) > 0 {
-			parsed := m.ParseToolCalls()
+		if len(m.ToolCalls) > 0 {
+			parsed := parseOllamaToolCalls(m.ToolCalls)
 			if len(parsed) > 0 {
+				pendingToolNames = make(map[string]string, len(parsed))
 				calls := make([]OllamaToolCall, 0, len(parsed))
 				for _, tc := range parsed {
 					if tc.ID != "" {
-						toolNameByID[tc.ID] = tc.Function.Name
-					}
-					var args interface{}
-					if tc.Function.Arguments != "" {
-						_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
-					}
-					if args == nil {
-						args = map[string]any{}
+						pendingToolNames[tc.ID] = tc.Function.Name
 					}
 					oc := OllamaToolCall{}
 					oc.Function.Name = tc.Function.Name
-					oc.Function.Arguments = args
+					oc.Function.Arguments = toolCallArguments(tc.Function.Arguments)
 					calls = append(calls, oc)
 				}
 				cm.ToolCalls = calls
