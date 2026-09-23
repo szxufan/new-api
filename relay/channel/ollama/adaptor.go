@@ -33,7 +33,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 		IncludeUsage: true,
 	}
 	// map to ollama chat request (Claude -> OpenAI -> Ollama chat)
-	chatRequest, err := openAIChatToOllamaChat(c, openaiRequest.(*dto.GeneralOpenAIRequest))
+	chatRequest, err := openAIChatToOllamaChat(c, info, openaiRequest.(*dto.GeneralOpenAIRequest))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		info.AppendRequestConversion(types.RelayFormatOllama)
 		return genRequest, nil
 	}
-	chatRequest, err := openAIChatToOllamaChat(c, request)
+	chatRequest, err := openAIChatToOllamaChat(c, info, request)
 	if err != nil {
 		return nil, err
 	}

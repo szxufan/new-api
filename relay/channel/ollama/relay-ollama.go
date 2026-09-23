@@ -61,24 +61,97 @@ func toolCallArguments(raw json.RawMessage) interface{} {
 	return args
 }
 
-func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*OllamaChatRequest, error) {
+// unwrapJsonSchema 取出 OpenAI json_schema 包装（{name, strict, schema}）中的
+// 内层 schema 作为 Ollama 的 format；客户端直接传裸 schema 时原样返回。
+// 对齐 Ollama 官方 OpenAI 兼容层 openai.FromChatRequest 的行为。
+func unwrapJsonSchema(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var wrapper struct {
+		Schema json.RawMessage `json:"schema"`
+	}
+	if err := common.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Schema) > 0 {
+		return wrapper.Schema
+	}
+	return raw
+}
+
+// mapReasoningEffortToThink 把 OpenAI reasoning_effort 映射为 Ollama 的 think
+// 字段（对齐官方 ThinkingFromReasoningEffort）：none 关闭思考，minimal 归一为
+// low，xhigh/ultra 归一为 max，其余命名档位透传；空值返回 nil 表示不干预
+// （保留显式 think 字段），非法值同样返回 nil 交由服务端默认行为处理。
+func mapReasoningEffortToThink(effort string) json.RawMessage {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "none":
+		return json.RawMessage("false")
+	case "minimal":
+		return json.RawMessage(`"low"`)
+	case "xhigh", "ultra":
+		return json.RawMessage(`"max"`)
+	case "low", "medium", "high", "max":
+		return json.RawMessage("\"" + strings.ToLower(strings.TrimSpace(effort)) + "\"")
+	default:
+		return nil
+	}
+}
+
+// resolveOllamaThink 综合三个来源决定 think（优先级对齐官方 FromChatRequest）：
+// openrouter 风格 Reasoning.Effort > reasoning_effort 字段 > 模型后缀推导的
+// info.ReasoningEffort > 客户端显式 think 字段透传。
+func resolveOllamaThink(r *dto.GeneralOpenAIRequest, info *relaycommon.RelayInfo) json.RawMessage {
+	effort := ""
+	if len(r.Reasoning) > 0 {
+		// openrouter 风格 {"reasoning": {"effort": "..."}}
+		var or struct {
+			Effort string `json:"effort"`
+		}
+		if err := common.Unmarshal(r.Reasoning, &or); err == nil {
+			effort = strings.TrimSpace(or.Effort)
+		}
+	}
+	if effort == "" {
+		effort = strings.TrimSpace(r.ReasoningEffort)
+	}
+	if effort == "" && info != nil {
+		effort = strings.TrimSpace(info.ReasoningEffort)
+	}
+	if effort == "" {
+		return r.Think
+	}
+	if mapped := mapReasoningEffortToThink(effort); mapped != nil {
+		return mapped
+	}
+	return r.Think
+}
+
+// applyResponseFormat 把 OpenAI response_format 转换为 Ollama 的 format 字段
+// （json / json_object 别名 / json_schema 解包）。
+func applyResponseFormat(format *interface{}, responseFormat *dto.ResponseFormat) {
+	if responseFormat == nil {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(responseFormat.Type)) {
+	case "json":
+		*format = json.RawMessage(`"json"`)
+	case "json_object":
+		// OpenAI 旧类型别名
+		*format = json.RawMessage(`"json"`)
+	case "json_schema":
+		if unwrapped := unwrapJsonSchema(responseFormat.JsonSchema); len(unwrapped) > 0 {
+			*format = unwrapped
+		}
+	}
+}
+
+func openAIChatToOllamaChat(c *gin.Context, info *relaycommon.RelayInfo, r *dto.GeneralOpenAIRequest) (*OllamaChatRequest, error) {
 	chatReq := &OllamaChatRequest{
 		Model:   r.Model,
 		Stream:  lo.FromPtrOr(r.Stream, false),
 		Options: map[string]any{},
-		Think:   r.Think,
+		Think:   resolveOllamaThink(r, info),
 	}
-	if r.ResponseFormat != nil {
-		if r.ResponseFormat.Type == "json" {
-			chatReq.Format = "json"
-		} else if r.ResponseFormat.Type == "json_schema" {
-			if len(r.ResponseFormat.JsonSchema) > 0 {
-				var schema any
-				_ = json.Unmarshal(r.ResponseFormat.JsonSchema, &schema)
-				chatReq.Format = schema
-			}
-		}
-	}
+	applyResponseFormat(&chatReq.Format, r.ResponseFormat)
 
 	// options mapping
 	if r.Temperature != nil {
@@ -86,6 +159,9 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 	}
 	if r.TopP != nil {
 		chatReq.Options["top_p"] = lo.FromPtr(r.TopP)
+	} else {
+		// OpenAI 语义默认 1.0；Ollama 服务端默认 0.9，需显式对齐
+		chatReq.Options["top_p"] = 1.0
 	}
 	if r.TopK != nil {
 		chatReq.Options["top_k"] = lo.FromPtr(r.TopK)
@@ -237,19 +313,16 @@ func openAIToGenerate(c *gin.Context, r *dto.GeneralOpenAIRequest) (*OllamaGener
 		}
 	}
 	if r.ResponseFormat != nil {
-		if r.ResponseFormat.Type == "json" {
-			gen.Format = "json"
-		} else if r.ResponseFormat.Type == "json_schema" {
-			var schema any
-			_ = json.Unmarshal(r.ResponseFormat.JsonSchema, &schema)
-			gen.Format = schema
-		}
+		applyResponseFormat(&gen.Format, r.ResponseFormat)
 	}
 	if r.Temperature != nil {
 		gen.Options["temperature"] = r.Temperature
 	}
 	if r.TopP != nil {
 		gen.Options["top_p"] = lo.FromPtr(r.TopP)
+	} else {
+		// OpenAI 语义默认 1.0；Ollama 服务端默认 0.9，需显式对齐
+		gen.Options["top_p"] = 1.0
 	}
 	if r.TopK != nil {
 		gen.Options["top_k"] = lo.FromPtr(r.TopK)

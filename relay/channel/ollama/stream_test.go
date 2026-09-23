@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -372,7 +373,7 @@ func TestOpenAIChatToOllamaChat_MapsReasoningContentToThinking(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	require.Len(t, chatReq.Messages, 1)
 
@@ -383,7 +384,7 @@ func TestOpenAIChatToOllamaChat_MapsReasoningContentToThinking(t *testing.T) {
 
 	// message without reasoning content should keep thinking unset
 	req.Messages[0].ReasoningContent = nil
-	chatReq, err = openAIChatToOllamaChat(c, req)
+	chatReq, err = openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	assert.Nil(t, chatReq.Messages[0].Thinking)
 }
@@ -476,7 +477,7 @@ func TestOpenAIChatToOllamaChat_ToolCallIdMapsToToolName(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	require.Len(t, chatReq.Messages, 4)
 
@@ -500,7 +501,7 @@ func TestOpenAIChatToOllamaChat_ToolNameFallback(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	assert.Equal(t, "legacy_tool", chatReq.Messages[0].ToolName, "Name should be used when tool_call_id cannot be resolved")
 }
@@ -596,7 +597,7 @@ func TestOpenAIChatToOllamaChat_MultiRoundToolCallIdScoping(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	require.Len(t, chatReq.Messages, 6)
 
@@ -616,7 +617,7 @@ func TestOpenAIChatToOllamaChat_ObjectArgumentsTolerated(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	require.Len(t, chatReq.Messages, 2)
 
@@ -654,7 +655,97 @@ func TestOpenAIChatToOllamaChat_ToolCallIdPassthrough(t *testing.T) {
 		},
 	}
 
-	chatReq, err := openAIChatToOllamaChat(c, req)
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
 	require.Nil(t, err)
 	assert.Equal(t, "call_vy6wblcb", chatReq.Messages[0].ToolCallID, "tool_call_id should pass through to ollama request")
+}
+
+func TestOpenAIChatToOllamaChat_JsonSchemaUnwrapped(t *testing.T) {
+	c, _ := newTestContext()
+	req := &dto.GeneralOpenAIRequest{
+		Model:    "pro:latest",
+		Messages: []dto.Message{{Role: "user", Content: "hi"}},
+		ResponseFormat: &dto.ResponseFormat{
+			Type:       "json_schema",
+			JsonSchema: json.RawMessage(`{"name":"weather","strict":true,"schema":{"type":"object","properties":{"city":{"type":"string"}}}}`),
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
+	require.Nil(t, err)
+
+	format, ok := chatReq.Format.(json.RawMessage)
+	require.True(t, ok, "format should be raw schema")
+	var schema map[string]any
+	require.Nil(t, json.Unmarshal(format, &schema))
+	assert.Equal(t, "object", schema["type"], "inner schema should be extracted, not the openai wrapper")
+	assert.Nil(t, schema["schema"], "wrapper keys must not leak into format")
+
+	// 裸 schema 原样保留
+	req.ResponseFormat.JsonSchema = json.RawMessage(`{"type":"object"}`)
+	chatReq, err = openAIChatToOllamaChat(c, nil, req)
+	require.Nil(t, err)
+	assert.JSONEq(t, `{"type":"object"}`, string(chatReq.Format.(json.RawMessage)))
+}
+
+func TestOpenAIChatToOllamaChat_JsonObjectAlias(t *testing.T) {
+	c, _ := newTestContext()
+	req := &dto.GeneralOpenAIRequest{
+		Model:          "pro:latest",
+		Messages:       []dto.Message{{Role: "user", Content: "hi"}},
+		ResponseFormat: &dto.ResponseFormat{Type: "json_object"},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
+	require.Nil(t, err)
+	assert.JSONEq(t, `"json"`, string(chatReq.Format.(json.RawMessage)))
+}
+
+func TestResolveOllamaThink(t *testing.T) {
+	mkReq := func(effort string, think json.RawMessage, reasoning json.RawMessage) *dto.GeneralOpenAIRequest {
+		r := &dto.GeneralOpenAIRequest{Think: think, ReasoningEffort: effort}
+		if reasoning != nil {
+			r.Reasoning = reasoning
+		}
+		return r
+	}
+
+	// openrouter Reasoning.Effort 优先于 reasoning_effort 字段（对齐官方）
+	assert.JSONEq(t, `"medium"`, string(resolveOllamaThink(mkReq("low", json.RawMessage("true"), json.RawMessage(`{"effort":"medium"}`)), nil)))
+	assert.JSONEq(t, "false", string(resolveOllamaThink(mkReq("none", json.RawMessage("true"), nil), nil)))
+	// minimal → low
+	assert.JSONEq(t, `"low"`, string(resolveOllamaThink(mkReq("minimal", nil, nil), nil)))
+	// xhigh/ultra → max
+	assert.JSONEq(t, `"max"`, string(resolveOllamaThink(mkReq("xhigh", nil, nil), nil)))
+	assert.JSONEq(t, `"max"`, string(resolveOllamaThink(mkReq("ultra", nil, nil), nil)))
+	// 常规档位透传
+	assert.JSONEq(t, `"high"`, string(resolveOllamaThink(mkReq("high", nil, nil), nil)))
+	// openrouter 风格 Reasoning.Effort 生效
+	assert.JSONEq(t, `"medium"`, string(resolveOllamaThink(mkReq("", nil, json.RawMessage(`{"effort":"medium"}`)), nil)))
+	// 非法 effort 回退显式 think
+	assert.JSONEq(t, "true", string(resolveOllamaThink(mkReq("bogus", json.RawMessage("true"), nil), nil)))
+	// 无 effort 时透传显式 think
+	assert.JSONEq(t, "false", string(resolveOllamaThink(mkReq("", json.RawMessage("false"), nil), nil)))
+	// 全空为 nil（不设置 think 字段）
+	assert.Nil(t, resolveOllamaThink(mkReq("", nil, nil), nil))
+	// 模型后缀 effort（info.ReasoningEffort）兜底
+	info := &relaycommon.RelayInfo{ReasoningEffort: "high"}
+	assert.JSONEq(t, `"high"`, string(resolveOllamaThink(mkReq("", nil, nil), info)))
+}
+
+func TestOpenAIChatToOllamaChat_TopPDefaultsToOne(t *testing.T) {
+	c, _ := newTestContext()
+	req := &dto.GeneralOpenAIRequest{
+		Model:    "pro:latest",
+		Messages: []dto.Message{{Role: "user", Content: "hi"}},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, nil, req)
+	require.Nil(t, err)
+	assert.Equal(t, 1.0, chatReq.Options["top_p"], "top_p should default to 1.0 per OpenAI semantics, not ollama's 0.9")
+
+	req.TopP = lo.ToPtr(0.5)
+	chatReq, err = openAIChatToOllamaChat(c, nil, req)
+	require.Nil(t, err)
+	assert.Equal(t, 0.5, chatReq.Options["top_p"])
 }
