@@ -387,3 +387,79 @@ func TestOpenAIChatToOllamaChat_MapsReasoningContentToThinking(t *testing.T) {
 	require.Nil(t, err)
 	assert.Nil(t, chatReq.Messages[0].Thinking)
 }
+
+func TestOllamaStreamHandler_CachedTokensExtracted(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, _ := newTestContext()
+
+	chunks := []string{
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"Hi"},"done":false}`,
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:01Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":10,"prompt_eval_cached_count":6,"eval_count":5}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	usage, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	assert.Equal(t, 10, usage.PromptTokens)
+	assert.Equal(t, 6, usage.PromptTokensDetails.CachedTokens, "cached tokens should be surfaced in usage")
+}
+
+func TestOllamaStreamHandler_CachedTokensClamped(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, _ := newTestContext()
+
+	chunks := []string{
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"Hi"},"done":true,"done_reason":"stop","prompt_eval_count":10,"prompt_eval_cached_count":99,"eval_count":5}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	usage, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	assert.Equal(t, 10, usage.PromptTokensDetails.CachedTokens, "cached tokens should be clamped to prompt total")
+}
+
+func TestOllamaStreamHandler_CachedTokensAbsent(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, _ := newTestContext()
+
+	chunks := []string{
+		`{"model":"llama3","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"Hi"},"done":true,"done_reason":"stop","prompt_eval_count":10,"eval_count":5}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	usage, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	assert.Equal(t, 0, usage.PromptTokensDetails.CachedTokens, "old ollama without cached count should leave cached tokens zero")
+}
+
+func TestOllamaNonStreamHandler_CachedTokensExtracted(t *testing.T) {
+	info := newTestRelayInfo(false)
+	c, _ := newTestContext()
+
+	body := `{"model":"pro:latest","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"Hello"},"done":true,"done_reason":"stop","prompt_eval_count":10,"prompt_eval_cached_count":4,"eval_count":5}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       newReadCloser(body),
+	}
+
+	usage, apiErr := ollamaChatHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, 10, usage.PromptTokens)
+	assert.Equal(t, 4, usage.PromptTokensDetails.CachedTokens)
+}
+
+func TestPromptEvalCachedTokens(t *testing.T) {
+	six, zero, negative := 6, 0, -3
+	assert.Equal(t, 0, promptEvalCachedTokens(nil, 10), "nil should yield 0")
+	assert.Equal(t, 0, promptEvalCachedTokens(&zero, 10), "non-positive should yield 0")
+	assert.Equal(t, 0, promptEvalCachedTokens(&negative, 10), "negative should yield 0")
+	assert.Equal(t, 6, promptEvalCachedTokens(&six, 10), "in-range value should pass through")
+	assert.Equal(t, 5, promptEvalCachedTokens(&six, 5), "value over prompt total should clamp")
+	assert.Equal(t, 0, promptEvalCachedTokens(&six, 0), "zero prompt should yield 0")
+}

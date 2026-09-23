@@ -42,9 +42,23 @@ type ollamaChatStreamChunk struct {
 	TotalDuration      int64  `json:"total_duration"`
 	LoadDuration       int64  `json:"load_duration"`
 	PromptEvalCount    int    `json:"prompt_eval_count"`
+	PromptEvalCached   *int   `json:"prompt_eval_cached_count"`
 	EvalCount          int    `json:"eval_count"`
 	PromptEvalDuration int64  `json:"prompt_eval_duration"`
 	EvalDuration       int64  `json:"eval_duration"`
+}
+
+// promptEvalCachedTokens 将 Ollama 的 prompt_eval_cached_count 归一化为可安全
+// 计费的缓存命中 token 数：旧版 Ollama 不上报该字段（nil）或数值非正时不采信，
+// 越界时钳制到 prompt 总数。
+func promptEvalCachedTokens(cachedCount *int, promptTokens int) int {
+	if cachedCount == nil || *cachedCount <= 0 || promptTokens <= 0 {
+		return 0
+	}
+	if *cachedCount > promptTokens {
+		return promptTokens
+	}
+	return *cachedCount
 }
 
 func toUnix(ts string) int64 {
@@ -163,6 +177,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		usage.PromptTokens = chunk.PromptEvalCount
 		usage.CompletionTokens = chunk.EvalCount
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		usage.PromptTokensDetails.CachedTokens = promptEvalCachedTokens(chunk.PromptEvalCached, usage.PromptTokens)
 		finishReason := chunk.DoneReason
 		if finishReason == "" {
 			finishReason = "stop"
@@ -294,6 +309,7 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	created := toUnix(lastChunk.CreatedAt)
 	usage := &dto.Usage{PromptTokens: lastChunk.PromptEvalCount, CompletionTokens: lastChunk.EvalCount, TotalTokens: lastChunk.PromptEvalCount + lastChunk.EvalCount}
+	usage.PromptTokensDetails.CachedTokens = promptEvalCachedTokens(lastChunk.PromptEvalCached, usage.PromptTokens)
 	content := aggContent.String()
 	finishReason := lastChunk.DoneReason
 	if finishReason == "" {
