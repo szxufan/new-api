@@ -263,16 +263,16 @@ func TaskGetAllUserTask(userId int, startIdx int, num int, queryParams SyncTaskQ
 	query := DB.Where("user_id = ?", userId)
 
 	if queryParams.TaskID != "" {
-		query = query.Where("task_id = ?", queryParams.TaskID)
+		query = query.Where("LOWER(task_id) = LOWER(?)", queryParams.TaskID)
 	}
 	if queryParams.Action != "" {
-		query = query.Where("action = ?", queryParams.Action)
+		query = query.Where("LOWER(action) = LOWER(?)", queryParams.Action)
 	}
 	if queryParams.Status != "" {
-		query = query.Where("status = ?", queryParams.Status)
+		query = query.Where("LOWER(status) = LOWER(?)", queryParams.Status)
 	}
 	if queryParams.Platform != "" {
-		query = query.Where("platform = ?", queryParams.Platform)
+		query = query.Where("LOWER(platform) = LOWER(?)", queryParams.Platform)
 	}
 	if queryParams.StartTimestamp != 0 {
 		// 假设您已将前端传来的时间戳转换为数据库所需的时间格式，并处理了时间戳的验证和解析
@@ -303,7 +303,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
 	if queryParams.Platform != "" {
-		query = query.Where("platform = ?", queryParams.Platform)
+		query = query.Where("LOWER(platform) = LOWER(?)", queryParams.Platform)
 	}
 	if queryParams.UserID != "" {
 		query = query.Where("user_id = ?", queryParams.UserID)
@@ -312,13 +312,13 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 		query = query.Where("user_id in (?)", queryParams.UserIDs)
 	}
 	if queryParams.TaskID != "" {
-		query = query.Where("task_id = ?", queryParams.TaskID)
+		query = query.Where("LOWER(task_id) = LOWER(?)", queryParams.TaskID)
 	}
 	if queryParams.Action != "" {
-		query = query.Where("action = ?", queryParams.Action)
+		query = query.Where("LOWER(action) = LOWER(?)", queryParams.Action)
 	}
 	if queryParams.Status != "" {
-		query = query.Where("status = ?", queryParams.Status)
+		query = query.Where("LOWER(status) = LOWER(?)", queryParams.Status)
 	}
 	if queryParams.StartTimestamp != 0 {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
@@ -504,7 +504,7 @@ func TaskCountAllTasks(queryParams SyncTaskQueryParams) int64 {
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
 	if queryParams.Platform != "" {
-		query = query.Where("platform = ?", queryParams.Platform)
+		query = query.Where("LOWER(platform) = LOWER(?)", queryParams.Platform)
 	}
 	if queryParams.UserID != "" {
 		query = query.Where("user_id = ?", queryParams.UserID)
@@ -513,13 +513,13 @@ func TaskCountAllTasks(queryParams SyncTaskQueryParams) int64 {
 		query = query.Where("user_id in (?)", queryParams.UserIDs)
 	}
 	if queryParams.TaskID != "" {
-		query = query.Where("task_id = ?", queryParams.TaskID)
+		query = query.Where("LOWER(task_id) = LOWER(?)", queryParams.TaskID)
 	}
 	if queryParams.Action != "" {
-		query = query.Where("action = ?", queryParams.Action)
+		query = query.Where("LOWER(action) = LOWER(?)", queryParams.Action)
 	}
 	if queryParams.Status != "" {
-		query = query.Where("status = ?", queryParams.Status)
+		query = query.Where("LOWER(status) = LOWER(?)", queryParams.Status)
 	}
 	if queryParams.StartTimestamp != 0 {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
@@ -536,16 +536,16 @@ func TaskCountAllUserTask(userId int, queryParams SyncTaskQueryParams) int64 {
 	var total int64
 	query := DB.Model(&Task{}).Where("user_id = ?", userId)
 	if queryParams.TaskID != "" {
-		query = query.Where("task_id = ?", queryParams.TaskID)
+		query = query.Where("LOWER(task_id) = LOWER(?)", queryParams.TaskID)
 	}
 	if queryParams.Action != "" {
-		query = query.Where("action = ?", queryParams.Action)
+		query = query.Where("LOWER(action) = LOWER(?)", queryParams.Action)
 	}
 	if queryParams.Status != "" {
-		query = query.Where("status = ?", queryParams.Status)
+		query = query.Where("LOWER(status) = LOWER(?)", queryParams.Status)
 	}
 	if queryParams.Platform != "" {
-		query = query.Where("platform = ?", queryParams.Platform)
+		query = query.Where("LOWER(platform) = LOWER(?)", queryParams.Platform)
 	}
 	if queryParams.StartTimestamp != 0 {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)

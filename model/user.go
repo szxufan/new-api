@@ -244,8 +244,8 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	// 构建基础查询
 	query := tx.Unscoped().Model(&User{})
 
-	// 构建搜索条件
-	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
+	// 构建搜索条件（大小写不敏感）
+	likeCondition := "LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) OR LOWER(display_name) LIKE LOWER(?)"
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -253,7 +253,7 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 		// 如果是数字，同时搜索ID和其他字段
 		likeCondition = "id = ? OR " + likeCondition
 		if group != "" {
-			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
+			query = query.Where("("+likeCondition+") AND LOWER("+commonGroupCol+") = LOWER(?)",
 				keywordInt, "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
 		} else {
 			query = query.Where(likeCondition,
@@ -262,7 +262,7 @@ func SearchUsers(keyword string, group string, startIdx int, num int) ([]*User, 
 	} else {
 		// 非数字关键字，只搜索字符串字段
 		if group != "" {
-			query = query.Where("("+likeCondition+") AND "+commonGroupCol+" = ?",
+			query = query.Where("("+likeCondition+") AND LOWER("+commonGroupCol+") = LOWER(?)",
 				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", group)
 		} else {
 			query = query.Where(likeCondition,

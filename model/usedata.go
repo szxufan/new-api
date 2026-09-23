@@ -104,7 +104,7 @@ func increaseQuotaData(userId int, username string, modelName string, count int,
 func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
-	err = DB.Table("quota_data").Where("username = ? and created_at >= ? and created_at <= ?", username, startTime, endTime).Find(&quotaDatas).Error
+	err = DB.Table("quota_data").Where("LOWER(username) = LOWER(?) and created_at >= ? and created_at <= ?", username, startTime, endTime).Find(&quotaDatas).Error
 	return quotaDatas, err
 }
 

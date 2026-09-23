@@ -255,7 +255,7 @@ func SearchUserTopUps(userId int, keyword string, pageInfo *common.PageInfo) (to
 			tx.Rollback()
 			return nil, 0, perr
 		}
-		query = query.Where("trade_no LIKE ? ESCAPE '!'", pattern)
+		query = query.Where("LOWER(trade_no) LIKE LOWER(?) ESCAPE '!'", pattern)
 	}
 
 	if err = query.Limit(searchTopUpCountHardLimit).Count(&total).Error; err != nil {
@@ -295,7 +295,7 @@ func SearchAllTopUps(keyword string, pageInfo *common.PageInfo) (topups []*TopUp
 			tx.Rollback()
 			return nil, 0, perr
 		}
-		query = query.Where("trade_no LIKE ? ESCAPE '!'", pattern)
+		query = query.Where("LOWER(trade_no) LIKE LOWER(?) ESCAPE '!'", pattern)
 	}
 
 	if err = query.Limit(searchTopUpCountHardLimit).Count(&total).Error; err != nil {

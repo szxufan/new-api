@@ -159,14 +159,14 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where("name LIKE ? ESCAPE '!'", keywordPattern)
+		baseQuery = baseQuery.Where("LOWER(name) LIKE LOWER(?) ESCAPE '!'", keywordPattern)
 	}
 	if token != "" {
 		tokenPattern, err := sanitizeLikePattern(token)
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where("LOWER("+commonKeyCol+") LIKE LOWER(?) ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）

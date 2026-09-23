@@ -166,9 +166,9 @@ func NormalizeChannelGroupFilter(group string) string {
 
 func channelGroupFilterCondition() string {
 	if common.UsingMySQL {
-		return `CONCAT(',', ` + commonGroupCol + `, ',') LIKE ? ESCAPE '!'`
+		return `LOWER(CONCAT(',', ` + commonGroupCol + `, ',')) LIKE LOWER(?) ESCAPE '!'`
 	}
-	return `(',' || ` + commonGroupCol + ` || ',') LIKE ? ESCAPE '!'`
+	return `LOWER(',' || ` + commonGroupCol + ` || ',') LIKE LOWER(?) ESCAPE '!'`
 }
 
 func channelGroupFilterPattern(group string) string {
@@ -477,7 +477,7 @@ func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOpti
 func GetChannelsByTag(tag string, idSort bool, selectAll bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	order := resolveChannelSortOptions(idSort, sortOptions)
-	query := order.Apply(DB.Where("tag = ?", tag))
+	query := order.Apply(DB.Where("LOWER(tag) = LOWER(?)", tag))
 	if !selectAll {
 		query = query.Omit("key")
 	}
@@ -506,7 +506,7 @@ func SearchChannels(keyword string, group string, model string, idSort bool, sor
 	baseQuery := DB.Model(&Channel{}).Omit("key")
 
 	// 构造WHERE子句
-	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
+	whereClause := "(id = ? OR LOWER(name) LIKE LOWER(?) OR LOWER(" + commonKeyCol + ") = LOWER(?) OR LOWER(" + baseURLCol + ") LIKE LOWER(?)) AND LOWER(" + modelsCol + ") LIKE LOWER(?)"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
 	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
 
@@ -1199,7 +1199,7 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 	baseQuery := DB.Model(&Channel{}).Omit("key")
 
 	// 构造WHERE子句
-	whereClause := "(id = ? OR name LIKE ? OR " + commonKeyCol + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
+	whereClause := "(id = ? OR LOWER(name) LIKE LOWER(?) OR LOWER(" + commonKeyCol + ") = LOWER(?) OR LOWER(" + baseURLCol + ") LIKE LOWER(?)) AND LOWER(" + modelsCol + ") LIKE LOWER(?)"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
 	baseQuery = ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
 

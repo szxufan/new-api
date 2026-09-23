@@ -41,7 +41,7 @@ func GetAllUserTask(userId int, startIdx int, num int, queryParams TaskQueryPara
 	query := DB.Where("user_id = ?", userId)
 
 	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
+		query = query.Where("LOWER(mj_id) = LOWER(?)", queryParams.MjID)
 	}
 	if queryParams.StartTimestamp != "" {
 		// 假设您已将前端传来的时间戳转换为数据库所需的时间格式，并处理了时间戳的验证和解析
@@ -72,7 +72,7 @@ func GetAllTasks(startIdx int, num int, queryParams TaskQueryParams) []*Midjourn
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
 	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
+		query = query.Where("LOWER(mj_id) = LOWER(?)", queryParams.MjID)
 	}
 	if queryParams.StartTimestamp != "" {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
@@ -190,7 +190,7 @@ func CountAllTasks(queryParams TaskQueryParams) int64 {
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
 	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
+		query = query.Where("LOWER(mj_id) = LOWER(?)", queryParams.MjID)
 	}
 	if queryParams.StartTimestamp != "" {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
@@ -207,7 +207,7 @@ func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	var total int64
 	query := DB.Model(&Midjourney{}).Where("user_id = ?", userId)
 	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
+		query = query.Where("LOWER(mj_id) = LOWER(?)", queryParams.MjID)
 	}
 	if queryParams.StartTimestamp != "" {
 		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
