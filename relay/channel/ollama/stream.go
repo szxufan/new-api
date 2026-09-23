@@ -20,21 +20,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type ollamaChatStreamToolCall struct {
+	Function struct {
+		Name      string      `json:"name"`
+		Arguments interface{} `json:"arguments"`
+	} `json:"function"`
+}
+
+type ollamaChatStreamMessage struct {
+	Role      string                     `json:"role"`
+	Content   string                     `json:"content"`
+	Thinking  json.RawMessage            `json:"thinking"`
+	ToolCalls []ollamaChatStreamToolCall `json:"tool_calls"`
+}
+
 type ollamaChatStreamChunk struct {
 	Model     string `json:"model"`
 	CreatedAt string `json:"created_at"`
 	// chat
-	Message *struct {
-		Role      string          `json:"role"`
-		Content   string          `json:"content"`
-		Thinking  json.RawMessage `json:"thinking"`
-		ToolCalls []struct {
-			Function struct {
-				Name      string      `json:"name"`
-				Arguments interface{} `json:"arguments"`
-			} `json:"function"`
-		} `json:"tool_calls"`
-	} `json:"message"`
+	Message *ollamaChatStreamMessage `json:"message"`
 	// generate
 	Response           string `json:"response"`
 	Done               bool   `json:"done"`
@@ -59,6 +63,22 @@ func promptEvalCachedTokens(cachedCount *int, promptTokens int) int {
 		return promptTokens
 	}
 	return *cachedCount
+}
+
+// toolCallResponses 将 Ollama 的 tool_calls（arguments 为已解析对象）转换为
+// OpenAI 格式（arguments 为 JSON 字符串），id 按 startIndex 起顺序生成 call_N。
+func toolCallResponses(calls []ollamaChatStreamToolCall, startIndex int) []dto.ToolCallResponse {
+	trs := make([]dto.ToolCallResponse, 0, len(calls))
+	for i, tc := range calls {
+		argBytes, _ := json.Marshal(tc.Function.Arguments)
+		tr := dto.ToolCallResponse{
+			ID:       fmt.Sprintf("call_%d", startIndex+i),
+			Type:     "function",
+			Function: dto.FunctionResponse{Name: tc.Function.Name, Arguments: string(argBytes)},
+		}
+		trs = append(trs, tr)
+	}
+	return trs
 }
 
 func toUnix(ts string) int64 {
@@ -155,17 +175,13 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			}
 			// tool calls
 			if chunk.Message != nil && len(chunk.Message.ToolCalls) > 0 {
-				delta.Choices[0].Delta.ToolCalls = make([]dto.ToolCallResponse, 0, len(chunk.Message.ToolCalls))
-				for _, tc := range chunk.Message.ToolCalls {
-					// arguments -> string
-					argBytes, _ := json.Marshal(tc.Function.Arguments)
-					toolId := fmt.Sprintf("call_%d", toolCallIndex)
-					tr := dto.ToolCallResponse{ID: toolId, Type: "function", Function: dto.FunctionResponse{Name: tc.Function.Name, Arguments: string(argBytes)}}
-					tr.SetIndex(toolCallIndex)
-					toolCallIndex++
-					delta.Choices[0].Delta.ToolCalls = append(delta.Choices[0].Delta.ToolCalls, tr)
-					collectedToolCalls = append(collectedToolCalls, tr)
+				trs := toolCallResponses(chunk.Message.ToolCalls, toolCallIndex)
+				for i := range trs {
+					trs[i].SetIndex(toolCallIndex + i)
 				}
+				toolCallIndex += len(trs)
+				delta.Choices[0].Delta.ToolCalls = trs
+				collectedToolCalls = append(collectedToolCalls, trs...)
 			}
 			if data, err := common.Marshal(delta); err == nil {
 				_ = helper.StringData(c, string(data))
@@ -178,9 +194,35 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		usage.CompletionTokens = chunk.EvalCount
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 		usage.PromptTokensDetails.CachedTokens = promptEvalCachedTokens(chunk.PromptEvalCached, usage.PromptTokens)
+		// done 帧本身也可能直接携带 tool_calls（Ollama 一次性下发时不分片）
+		if chunk.Message != nil && len(chunk.Message.ToolCalls) > 0 {
+			trs := toolCallResponses(chunk.Message.ToolCalls, toolCallIndex)
+			for i := range trs {
+				trs[i].SetIndex(toolCallIndex + i)
+			}
+			toolCallIndex += len(trs)
+			collectedToolCalls = append(collectedToolCalls, trs...)
+			delta := dto.ChatCompletionsStreamResponse{
+				Id:      responseId,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []dto.ChatCompletionsStreamResponseChoice{{
+					Index: 0,
+					Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Role: "assistant", ToolCalls: trs},
+				}},
+			}
+			if data, err := common.Marshal(delta); err == nil {
+				_ = helper.StringData(c, string(data))
+			}
+		}
 		finishReason := chunk.DoneReason
 		if finishReason == "" {
 			finishReason = "stop"
+		}
+		// OpenAI 语义：响应含工具调用时 finish_reason 应为 tool_calls
+		if len(collectedToolCalls) > 0 && finishReason == "stop" {
+			finishReason = "tool_calls"
 		}
 		// emit stop delta
 		if stop := helper.GenerateStopResponse(responseId, created, model, finishReason); stop != nil {
@@ -238,11 +280,16 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 	lines := strings.Split(raw, "\n")
 	var (
-		aggContent       strings.Builder
-		reasoningBuilder strings.Builder
-		lastChunk        ollamaChatStreamChunk
-		parsedAny        bool
+		aggContent         strings.Builder
+		reasoningBuilder   strings.Builder
+		collectedToolCalls []dto.ToolCallResponse
+		lastChunk          ollamaChatStreamChunk
+		parsedAny          bool
 	)
+	appendToolCalls := func(calls []ollamaChatStreamToolCall) {
+		trs := toolCallResponses(calls, len(collectedToolCalls))
+		collectedToolCalls = append(collectedToolCalls, trs...)
+	}
 	for _, ln := range lines {
 		ln = strings.TrimSpace(ln)
 		if ln == "" {
@@ -257,21 +304,26 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		}
 		parsedAny = true
 		lastChunk = ck
-		if ck.Message != nil && len(ck.Message.Thinking) > 0 {
-			raw := strings.TrimSpace(string(ck.Message.Thinking))
-			if raw != "" && raw != "null" {
-				// Unmarshal the JSON string to get the actual content without quotes
-				var thinkingContent string
-				if err := json.Unmarshal(ck.Message.Thinking, &thinkingContent); err == nil {
-					reasoningBuilder.WriteString(thinkingContent)
-				} else {
-					// Fallback to raw string if it's not a JSON string
-					reasoningBuilder.WriteString(raw)
+		if ck.Message != nil {
+			if len(ck.Message.Thinking) > 0 {
+				raw := strings.TrimSpace(string(ck.Message.Thinking))
+				if raw != "" && raw != "null" {
+					// Unmarshal the JSON string to get the actual content without quotes
+					var thinkingContent string
+					if err := json.Unmarshal(ck.Message.Thinking, &thinkingContent); err == nil {
+						reasoningBuilder.WriteString(thinkingContent)
+					} else {
+						// Fallback to raw string if it's not a JSON string
+						reasoningBuilder.WriteString(raw)
+					}
 				}
 			}
-		}
-		if ck.Message != nil && ck.Message.Content != "" {
-			aggContent.WriteString(ck.Message.Content)
+			if ck.Message.Content != "" {
+				aggContent.WriteString(ck.Message.Content)
+			}
+			if len(ck.Message.ToolCalls) > 0 {
+				appendToolCalls(ck.Message.ToolCalls)
+			}
 		} else if ck.Response != "" {
 			aggContent.WriteString(ck.Response)
 		}
@@ -298,6 +350,9 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 				}
 			}
 			aggContent.WriteString(single.Message.Content)
+			if len(single.Message.ToolCalls) > 0 {
+				appendToolCalls(single.Message.ToolCalls)
+			}
 		} else {
 			aggContent.WriteString(single.Response)
 		}
@@ -315,10 +370,19 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	if finishReason == "" {
 		finishReason = "stop"
 	}
+	// OpenAI 语义：响应含工具调用时 finish_reason 应为 tool_calls
+	if len(collectedToolCalls) > 0 && finishReason == "stop" {
+		finishReason = "tool_calls"
+	}
 
 	msg := dto.Message{Role: "assistant", Content: contentPtr(content)}
 	if rc := reasoningBuilder.String(); rc != "" {
 		msg.ReasoningContent = &rc
+	}
+	if len(collectedToolCalls) > 0 {
+		if b, err := common.Marshal(collectedToolCalls); err == nil {
+			msg.ToolCalls = b
+		}
 	}
 	full := dto.OpenAITextResponse{
 		Id:      common.GetUUID(),
@@ -334,7 +398,7 @@ func ollamaChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	out, _ := common.Marshal(full)
 	service.IOCopyBytesGracefully(c, resp, out)
-	cacheReasoningContentForOllama(c, info, content, reasoningBuilder.String(), nil)
+	cacheReasoningContentForOllama(c, info, content, reasoningBuilder.String(), collectedToolCalls)
 	return usage, nil
 }
 

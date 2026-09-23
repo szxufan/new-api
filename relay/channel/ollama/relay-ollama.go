@@ -89,6 +89,9 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 	}
 
 	chatReq.Messages = make([]OllamaChatMessage, 0, len(r.Messages))
+	// OpenAI 用 tool_call_id 关联工具结果，Ollama 用 tool_name；
+	// 按消息顺序记录 assistant tool_calls 的 id→工具名 映射，供后续 tool 消息反查。
+	toolNameByID := make(map[string]string)
 	for _, m := range r.Messages {
 		var textBuilder strings.Builder
 		var images []string
@@ -117,8 +120,17 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 		if len(images) > 0 {
 			cm.Images = images
 		}
-		if m.Role == "tool" && m.Name != nil {
-			cm.ToolName = *m.Name
+		if m.Role == "tool" {
+			toolName := ""
+			if m.ToolCallId != "" {
+				toolName = toolNameByID[m.ToolCallId]
+			}
+			if toolName == "" && m.Name != nil {
+				toolName = *m.Name
+			}
+			if toolName != "" {
+				cm.ToolName = toolName
+			}
 		}
 		if rc := m.GetReasoningContent(); rc != "" {
 			if b, err := common.Marshal(rc); err == nil {
@@ -130,6 +142,9 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 			if len(parsed) > 0 {
 				calls := make([]OllamaToolCall, 0, len(parsed))
 				for _, tc := range parsed {
+					if tc.ID != "" {
+						toolNameByID[tc.ID] = tc.Function.Name
+					}
 					var args interface{}
 					if tc.Function.Arguments != "" {
 						_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)

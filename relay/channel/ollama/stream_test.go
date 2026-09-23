@@ -463,3 +463,119 @@ func TestPromptEvalCachedTokens(t *testing.T) {
 	assert.Equal(t, 5, promptEvalCachedTokens(&six, 5), "value over prompt total should clamp")
 	assert.Equal(t, 0, promptEvalCachedTokens(&six, 0), "zero prompt should yield 0")
 }
+
+func TestOpenAIChatToOllamaChat_ToolCallIdMapsToToolName(t *testing.T) {
+	c, _ := newTestContext()
+	req := &dto.GeneralOpenAIRequest{
+		Model: "pro:latest",
+		Messages: []dto.Message{
+			{Role: "user", Content: "what is the weather in Toronto?"},
+			{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_0","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Toronto\"}"}},{"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}}]`)},
+			{Role: "tool", ToolCallId: "call_0", Content: "11 degrees celsius"},
+			{Role: "tool", ToolCallId: "call_1", Content: "10:00"},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	require.Len(t, chatReq.Messages, 4)
+
+	// assistant tool_calls 的 arguments 应转为对象
+	require.Len(t, chatReq.Messages[1].ToolCalls, 2)
+	assert.Equal(t, "get_weather", chatReq.Messages[1].ToolCalls[0].Function.Name)
+	assert.Equal(t, map[string]any{"city": "Toronto"}, chatReq.Messages[1].ToolCalls[0].Function.Arguments)
+
+	// tool 消息按 tool_call_id 反查 tool_name（OpenAI 约定，无 name 字段）
+	assert.Equal(t, "get_weather", chatReq.Messages[2].ToolName)
+	assert.Equal(t, "get_time", chatReq.Messages[3].ToolName)
+}
+
+func TestOpenAIChatToOllamaChat_ToolNameFallback(t *testing.T) {
+	c, _ := newTestContext()
+	name := "legacy_tool"
+	req := &dto.GeneralOpenAIRequest{
+		Model: "pro:latest",
+		Messages: []dto.Message{
+			{Role: "tool", ToolCallId: "call_unknown", Name: &name, Content: "result"},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	assert.Equal(t, "legacy_tool", chatReq.Messages[0].ToolName, "Name should be used when tool_call_id cannot be resolved")
+}
+
+func TestOllamaStreamHandler_DoneFrameToolCalls(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, w := newTestContext()
+
+	// Ollama 一次性下发：done:true 帧直接携带 tool_calls
+	chunks := []string{
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":true,"done_reason":"stop","prompt_eval_count":15,"eval_count":8}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	usage, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	body := w.Body.String()
+	assert.Contains(t, body, `"name":"get_weather"`, "tool call delta should be emitted for done-frame tool calls")
+	assert.Contains(t, body, `"finish_reason":"tool_calls"`, "finish reason should be tool_calls when tool calls present")
+}
+
+func TestOllamaStreamHandler_ToolCallsFinishReason(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, w := newTestContext()
+
+	chunks := []string{
+		`{"model":"llama3","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Beijing"}}}]},"done":false}`,
+		`{"model":"llama3","created_at":"2025-01-01T00:00:01Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":15,"eval_count":8}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	_, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	assert.Contains(t, w.Body.String(), `"finish_reason":"tool_calls"`)
+}
+
+func TestOllamaNonStreamHandler_ToolCallsExtracted(t *testing.T) {
+	info := newTestRelayInfo(false)
+	c, w := newTestContext()
+
+	body := `{"model":"llama3.2","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":true,"done_reason":"stop","prompt_eval_count":15,"eval_count":8}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       newReadCloser(body),
+	}
+
+	usage, apiErr := ollamaChatHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+
+	var out struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	require.Nil(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out.Choices, 1)
+	require.Len(t, out.Choices[0].Message.ToolCalls, 1)
+	assert.Equal(t, "call_0", out.Choices[0].Message.ToolCalls[0].ID)
+	assert.Equal(t, "get_weather", out.Choices[0].Message.ToolCalls[0].Function.Name)
+	assert.JSONEq(t, `{"city":"Toronto"}`, out.Choices[0].Message.ToolCalls[0].Function.Arguments)
+	assert.Equal(t, "tool_calls", out.Choices[0].FinishReason)
+}
