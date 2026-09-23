@@ -625,3 +625,36 @@ func TestOpenAIChatToOllamaChat_ObjectArgumentsTolerated(t *testing.T) {
 	assert.Equal(t, map[string]any{"city": "Toronto"}, chatReq.Messages[0].ToolCalls[0].Function.Arguments)
 	assert.Equal(t, "get_weather", chatReq.Messages[1].ToolName, "tool_name must still resolve when arguments are object-form")
 }
+
+func TestOllamaStreamHandler_UpstreamToolCallIdPropagated(t *testing.T) {
+	info := newTestRelayInfo(true)
+	c, w := newTestContext()
+
+	// Ollama >= 0.34 实测返回上游唯一 id（如 call_vy6wblcb），必须透传而非捏造 call_N
+	chunks := []string{
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:00Z","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_vy6wblcb","function":{"index":0,"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":false}`,
+		`{"model":"pro:latest","created_at":"2025-01-01T00:00:01Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":275,"prompt_eval_cached_count":271,"eval_count":62}`,
+	}
+	resp := buildOllamaStreamResp(chunks)
+
+	_, apiErr := ollamaStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	body := w.Body.String()
+	assert.Contains(t, body, `"id":"call_vy6wblcb"`, "upstream tool call id must be propagated verbatim")
+	assert.NotContains(t, body, `"id":"call_0"`, "generated fallback id must not override upstream id")
+}
+
+func TestOpenAIChatToOllamaChat_ToolCallIdPassthrough(t *testing.T) {
+	c, _ := newTestContext()
+	req := &dto.GeneralOpenAIRequest{
+		Model: "pro:latest",
+		Messages: []dto.Message{
+			{Role: "tool", ToolCallId: "call_vy6wblcb", Content: "11 degrees"},
+		},
+	}
+
+	chatReq, err := openAIChatToOllamaChat(c, req)
+	require.Nil(t, err)
+	assert.Equal(t, "call_vy6wblcb", chatReq.Messages[0].ToolCallID, "tool_call_id should pass through to ollama request")
+}

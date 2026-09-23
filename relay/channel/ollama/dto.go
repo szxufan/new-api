@@ -10,7 +10,10 @@ type OllamaChatMessage struct {
 	Images    []string         `json:"images,omitempty"`
 	ToolCalls []OllamaToolCall `json:"tool_calls,omitempty"`
 	ToolName  string           `json:"tool_name,omitempty"`
-	Thinking  json.RawMessage  `json:"thinking,omitempty"`
+	// ToolCallID 透传 OpenAI 的 tool_call_id（Ollama >= 0.34 的 Message 支持），
+	// 与 ToolName 并存；旧版服务端忽略未识别字段。
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Thinking   json.RawMessage `json:"thinking,omitempty"`
 }
 
 type OllamaToolFunction struct {

@@ -21,7 +21,11 @@ import (
 )
 
 type ollamaChatStreamToolCall struct {
+	// ID 为上游生成的唯一标识（Ollama >= 0.34，实测 0.34.2 返回形如 call_vy6wblcb），
+	// 必须透传给客户端，回传工具结果时靠它关联；旧版无此字段时才回退生成 call_N。
+	ID       string `json:"id"`
 	Function struct {
+		Index     *int        `json:"index"`
 		Name      string      `json:"name"`
 		Arguments interface{} `json:"arguments"`
 	} `json:"function"`
@@ -66,13 +70,18 @@ func promptEvalCachedTokens(cachedCount *int, promptTokens int) int {
 }
 
 // toolCallResponses 将 Ollama 的 tool_calls（arguments 为已解析对象）转换为
-// OpenAI 格式（arguments 为 JSON 字符串），id 按 startIndex 起顺序生成 call_N。
+// OpenAI 格式（arguments 为 JSON 字符串）。id 优先透传上游生成的唯一标识，
+// 上游未提供时（旧版本）回退生成 call_N。
 func toolCallResponses(calls []ollamaChatStreamToolCall, startIndex int) []dto.ToolCallResponse {
 	trs := make([]dto.ToolCallResponse, 0, len(calls))
 	for i, tc := range calls {
 		argBytes, _ := json.Marshal(tc.Function.Arguments)
+		id := tc.ID
+		if id == "" {
+			id = fmt.Sprintf("call_%d", startIndex+i)
+		}
 		tr := dto.ToolCallResponse{
-			ID:       fmt.Sprintf("call_%d", startIndex+i),
+			ID:       id,
 			Type:     "function",
 			Function: dto.FunctionResponse{Name: tc.Function.Name, Arguments: string(argBytes)},
 		}

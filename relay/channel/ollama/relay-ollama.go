@@ -164,6 +164,10 @@ func openAIChatToOllamaChat(c *gin.Context, r *dto.GeneralOpenAIRequest) (*Ollam
 			cm.Images = images
 		}
 		if m.Role == "tool" {
+			// tool_call_id 原样透传给支持的新版 Ollama，与解析出的 tool_name 并存
+			if m.ToolCallId != "" {
+				cm.ToolCallID = m.ToolCallId
+			}
 			toolName := ""
 			if m.ToolCallId != "" {
 				toolName = pendingToolNames[m.ToolCallId]
