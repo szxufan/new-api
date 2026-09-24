@@ -80,13 +80,15 @@ const createModelPricingSchema = (t: (key: string) => string) =>
     imageRatio: z.string().optional(),
     audioRatio: z.string().optional(),
     audioCompletionRatio: z.string().optional(),
+    followTarget: z.string().optional(),
+    followCoefficient: z.string().optional(),
   })
 
 type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+type PricingMode = 'per-token' | 'per-request' | 'tiered_expr' | 'follow'
 type LaneKey =
   | 'completion'
   | 'cache'
@@ -108,6 +110,8 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  followTarget?: string
+  followCoefficient?: string
 }
 
 type ModelPricingSheetProps = {
@@ -123,6 +127,8 @@ type ModelPricingSheetProps = {
    * allowed regardless.
    */
   modelNameOptions?: ComboboxInputOption[]
+  /** Model names offered as follow-billing targets. Free-text input is allowed. */
+  followTargetOptions?: ComboboxInputOption[]
 }
 
 type ModelPricingEditorPanelProps = Omit<
@@ -278,6 +284,7 @@ function createInitialLaneState(data?: ModelRatioData | null) {
 function getModeLabel(mode: PricingMode) {
   if (mode === 'per-request') return 'Per-request'
   if (mode === 'tiered_expr') return 'Expression'
+  if (mode === 'follow') return 'Follow'
   return 'Per-token'
 }
 
@@ -286,6 +293,7 @@ function getModeBadgeVariant(
 ): 'default' | 'secondary' | 'outline' {
   if (mode === 'per-request') return 'secondary'
   if (mode === 'tiered_expr') return 'default'
+  if (mode === 'follow') return 'secondary'
   return 'outline'
 }
 
@@ -299,6 +307,23 @@ function buildPreviewRows(
   laneEnabled: Record<LaneKey, boolean>,
   t: (key: string) => string
 ): PreviewRow[] {
+  if (mode === 'follow') {
+    const coefficient = values.followCoefficient || '1'
+    return [
+      { key: 'mode', label: 'BillingMode', value: 'follow' },
+      {
+        key: 'followTarget',
+        label: t('Follow target'),
+        value: values.followTarget || t('Empty'),
+      },
+      {
+        key: 'followCoefficient',
+        label: t('Coefficient'),
+        value: `×${coefficient}`,
+      },
+    ]
+  }
+
   if (mode === 'tiered_expr') {
     const effectiveExpr = combineBillingExpr(billingExpr, requestRuleExpr)
     return [
@@ -387,6 +412,7 @@ export function ModelPricingSheet({
   editData,
   selectedTargetCount = 0,
   modelNameOptions,
+  followTargetOptions,
 }: ModelPricingSheetProps) {
   const { t } = useTranslation()
   const title = editData ? t('Edit model pricing') : t('Add model pricing')
@@ -404,6 +430,7 @@ export function ModelPricingSheet({
           editData={editData}
           selectedTargetCount={selectedTargetCount}
           modelNameOptions={modelNameOptions}
+          followTargetOptions={followTargetOptions}
           onCancel={() => {
             onCancel?.()
             onOpenChange(false)
@@ -422,6 +449,7 @@ export function ModelPricingEditorPanel({
   onCancel,
   className,
   modelNameOptions = [],
+  followTargetOptions = [],
 }: ModelPricingEditorPanelProps) {
   const { t } = useTranslation()
   const [pricingMode, setPricingMode] = useState<PricingMode>('per-token')
@@ -466,13 +494,17 @@ export function ModelPricingEditorPanel({
         imageRatio: editData.imageRatio || '',
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
+        followTarget: editData.followTarget || '',
+        followCoefficient: editData.followCoefficient || '1',
       })
       setPricingMode(
         editData.billingMode === 'tiered_expr'
           ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
+          : editData.billingMode === 'follow'
+            ? 'follow'
+            : editData.price
+              ? 'per-request'
+              : 'per-token'
       )
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
@@ -487,6 +519,8 @@ export function ModelPricingEditorPanel({
         imageRatio: '',
         audioRatio: '',
         audioCompletionRatio: '',
+        followTarget: '',
+        followCoefficient: '1',
       })
       setPricingMode('per-token')
       setBillingExpr('')
@@ -714,6 +748,29 @@ export function ModelPricingEditorPanel({
       return
     }
 
+    if (pricingMode === 'follow') {
+      const target = (values.followTarget || '').trim()
+      if (!target) {
+        form.setError('followTarget', {
+          message: t('Follow target model is required.'),
+        })
+        return
+      }
+      if (target === values.name.trim()) {
+        form.setError('followTarget', {
+          message: t('A model cannot follow itself.'),
+        })
+        return
+      }
+      const coefficient = toNumberOrNull(values.followCoefficient || '1')
+      if (coefficient === null || coefficient <= 0) {
+        form.setError('followCoefficient', {
+          message: t('Coefficient must be a positive number.'),
+        })
+        return
+      }
+    }
+
     const data: ModelRatioData = {
       name: values.name.trim(),
       billingMode: pricingMode,
@@ -730,6 +787,13 @@ export function ModelPricingEditorPanel({
     if (pricingMode === 'tiered_expr') {
       data.billingExpr = billingExpr
       data.requestRuleExpr = requestRuleExpr
+    }
+
+    if (pricingMode === 'follow') {
+      data.followTarget = (values.followTarget || '').trim()
+      const coefficient = toNumberOrNull(values.followCoefficient || '1')
+      data.followCoefficient =
+        coefficient !== null ? formatPricingNumber(coefficient) : '1'
     }
 
     onSave(data)
@@ -838,7 +902,7 @@ export function ModelPricingEditorPanel({
               />
 
               <Tabs value={pricingMode} onValueChange={handleModeChange}>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='grid w-full grid-cols-4'>
                   <TabsTrigger value='per-token'>{t('Per-token')}</TabsTrigger>
                   <TabsTrigger value='per-request'>
                     {t('Per-request')}
@@ -846,6 +910,7 @@ export function ModelPricingEditorPanel({
                   <TabsTrigger value='tiered_expr'>
                     {t('Expression')}
                   </TabsTrigger>
+                  <TabsTrigger value='follow'>{t('Follow')}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value='per-token' className='flex flex-col gap-5'>
@@ -940,6 +1005,66 @@ export function ModelPricingEditorPanel({
                     requestRuleExpr={requestRuleExpr}
                     onBillingExprChange={setBillingExpr}
                     onRequestRuleExprChange={setRequestRuleExpr}
+                  />
+                </TabsContent>
+
+                <TabsContent value='follow' className='flex flex-col gap-5'>
+                  <FormField
+                    control={form.control}
+                    name='followTarget'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Follow target model')}</FormLabel>
+                        <FormControl>
+                          <Combobox
+                            options={followTargetOptions}
+                            value={field.value ?? ''}
+                            onValueChange={(value) => field.onChange(value ?? '')}
+                            placeholder={t('gpt-4')}
+                            emptyText={t('No matching models')}
+                            allowCustomValue
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'This model is billed exactly like the target model, scaled by the coefficient below.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='followCoefficient'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Coefficient')}</FormLabel>
+                        <FormControl>
+                          <InputGroup>
+                            <InputGroupAddon>×</InputGroupAddon>
+                            <InputGroupInput
+                              inputMode='decimal'
+                              placeholder='1'
+                              {...field}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                if (numericDraftRegex.test(value)) {
+                                  field.onChange(value)
+                                }
+                              }}
+                            />
+                          </InputGroup>
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            '1 keeps the target model cost unchanged; 1.5 bills 1.5× the target cost.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                 </TabsContent>
               </Tabs>

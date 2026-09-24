@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/tooltip'
 import { DataTableColumnHeader } from '@/components/data-table/column-header'
 import { GroupBadge } from '@/components/group-badge'
+import { StatusBadge } from '@/components/status-badge'
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
@@ -127,6 +128,14 @@ export function usePricingColumns(
             <span className='truncate font-mono text-sm font-medium'>
               {model.model_name}
             </span>
+            {model.billing_mode === 'follow' && model.follow_target && (
+              <StatusBadge
+                label={t('Follow')}
+                variant='info'
+                copyable={false}
+                size='sm'
+              />
+            )}
           </div>
         )
       },

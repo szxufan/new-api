@@ -313,6 +313,15 @@ function ModelHeader(props: { model: PricingModel }) {
             </span>
           </>
         )}
+        {model.billing_mode === 'follow' && model.follow_target && (
+          <>
+            <span className='text-muted-foreground/30'>·</span>
+            <span className='rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-500/20 dark:text-sky-300'>
+              {t('Follows')} {model.follow_target} ×
+              {model.follow_coefficient ?? 1}
+            </span>
+          </>
+        )}
       </div>
       {description && (
         <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>

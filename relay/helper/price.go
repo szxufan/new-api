@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -65,9 +66,16 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
-	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
-
 	groupRatioInfo := HandleGroupRatio(c, info)
+
+	// "follow" billing: resolve the follow chain to its target model and
+	// bill against the target, scaled by the accumulated coefficient.
+	// Unset/cyclic configs return ok=false and fall through to normal billing.
+	if targetModel, coefficient, isFollow := billing_setting.ResolveFollow(info.OriginModelName); isFollow {
+		return modelPriceHelperFollow(c, info, promptTokens, meta, groupRatioInfo, targetModel, coefficient)
+	}
+
+	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	// Check if this model uses tiered_expr billing
 	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
@@ -232,6 +240,10 @@ func HasModelBillingConfig(modelName string) bool {
 		return true
 	}
 	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
+		// follow-configured models bill against their resolved target
+		if _, _, ok := billing_setting.ResolveFollow(modelName); ok {
+			return true
+		}
 		return false
 	}
 	expr, ok := billing_setting.GetBillingExpr(modelName)
@@ -243,7 +255,118 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	if !ok {
 		return types.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
 	}
+	return modelPriceHelperTieredWithExpr(c, info, promptTokens, meta, groupRatioInfo, exprStr)
+}
 
+// modelPriceHelperFollow 按跟随配置以目标模型计费，再乘以累计系数：
+// 按次目标乘 model_price；按 Token 目标乘 model_ratio（cache/image/audio 等
+// lane 均为相对倍率，随基础倍率一同被缩放）；tiered_expr 目标将系数包装进
+// 表达式，随 BillingSnapshot 在结算时同样生效。
+func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo, targetModel string, coefficient float64) (types.PriceData, error) {
+	if billing_setting.GetBillingMode(targetModel) == billing_setting.BillingModeTieredExpr {
+		exprStr, ok := billing_setting.GetBillingExpr(targetModel)
+		if !ok || strings.TrimSpace(exprStr) == "" {
+			return types.PriceData{}, fmt.Errorf("模型 %s 跟随的目标模型 %s 为表达式计费但未配置表达式；Model %s follows %s which is configured as tiered_expr but has no billing expression",
+				info.OriginModelName, targetModel, info.OriginModelName, targetModel)
+		}
+		if coefficient != 1 {
+			// Keep any version prefix at the head of the string so
+			// ParseExprVersion still applies to the wrapped expression.
+			_, body := billingexpr.ParseExprVersion(exprStr)
+			prefix := ""
+			if body != exprStr {
+				prefix = exprStr[:len(exprStr)-len(body)] // "v1:"
+			}
+			exprStr = fmt.Sprintf("%s(%s) * %s", prefix, body, strconv.FormatFloat(coefficient, 'f', -1, 64))
+		}
+		return modelPriceHelperTieredWithExpr(c, info, promptTokens, meta, groupRatioInfo, exprStr)
+	}
+
+	if targetPrice, usePrice := ratio_setting.GetModelPrice(targetModel, false); usePrice {
+		if meta.ImagePriceRatio != 0 {
+			targetPrice = targetPrice * meta.ImagePriceRatio
+		}
+		targetPrice *= coefficient
+		preConsumedQuota := int(targetPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		freeModel := false
+		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
+			if groupRatioInfo.GroupRatio == 0 || targetPrice == 0 {
+				preConsumedQuota = 0
+				freeModel = true
+			}
+		}
+		priceData := types.PriceData{
+			FreeModel:         freeModel,
+			ModelPrice:        targetPrice,
+			ModelRatio:        0,
+			UsePrice:          true,
+			GroupRatioInfo:    groupRatioInfo,
+			QuotaToPreConsume: preConsumedQuota,
+		}
+		info.PriceData = priceData
+		return priceData, nil
+	}
+
+	targetRatio, success, matchName := ratio_setting.GetModelRatio(targetModel)
+	if !success {
+		acceptUnsetRatio := false
+		if info.UserSetting.AcceptUnsetRatioModel {
+			acceptUnsetRatio = true
+		}
+		if !acceptUnsetRatio {
+			return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+		}
+	}
+	targetRatio *= coefficient
+	completionRatio := ratio_setting.GetCompletionRatio(targetModel)
+	cacheRatio, _ := ratio_setting.GetCacheRatio(targetModel)
+	cacheCreationRatio, _ := ratio_setting.GetCreateCacheRatio(targetModel)
+	cacheCreationRatio5m := cacheCreationRatio
+	// 固定1h和5min缓存写入价格的比例
+	cacheCreationRatio1h := cacheCreationRatio * claudeCacheCreation1hMultiplier
+	imageRatio, _ := ratio_setting.GetImageRatio(targetModel)
+	audioRatio := ratio_setting.GetAudioRatio(targetModel)
+	audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(targetModel)
+
+	preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
+	if meta.MaxTokens != 0 {
+		preConsumedTokens += meta.MaxTokens
+	}
+	ratio := targetRatio * groupRatioInfo.GroupRatio
+	preConsumedQuota := int(float64(preConsumedTokens) * ratio)
+
+	freeModel := false
+	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
+		if groupRatioInfo.GroupRatio == 0 || targetRatio == 0 {
+			preConsumedQuota = 0
+			freeModel = true
+		}
+	}
+
+	priceData := types.PriceData{
+		FreeModel:            freeModel,
+		ModelPrice:           -1,
+		ModelRatio:           targetRatio,
+		CompletionRatio:      completionRatio,
+		GroupRatioInfo:       groupRatioInfo,
+		CacheRatio:           cacheRatio,
+		ImageRatio:           imageRatio,
+		AudioRatio:           audioRatio,
+		AudioCompletionRatio: audioCompletionRatio,
+		CacheCreationRatio:   cacheCreationRatio,
+		CacheCreation5mRatio: cacheCreationRatio5m,
+		CacheCreation1hRatio: cacheCreationRatio1h,
+		QuotaToPreConsume:    preConsumedQuota,
+	}
+
+	if common.DebugEnabled {
+		logger.LogDebug(c, "model_price_helper_follow result: model=%s target=%s coefficient=%.4f %s", info.OriginModelName, targetModel, coefficient, priceData.ToSetting())
+	}
+	info.PriceData = priceData
+	return priceData, nil
+}
+
+func modelPriceHelperTieredWithExpr(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo, exprStr string) (types.PriceData, error) {
 	estimatedCompletionTokens := 0
 	if meta.MaxTokens != 0 {
 		estimatedCompletionTokens = meta.MaxTokens

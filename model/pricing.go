@@ -35,6 +35,8 @@ type Pricing struct {
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
+	FollowTarget           string                  `json:"follow_target,omitempty"`
+	FollowCoefficient      float64                 `json:"follow_coefficient,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
 }
 
@@ -344,34 +346,48 @@ func updatePricing() {
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
 		}
-		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
+		// follow 模型：按跟随目标解析有效价格，系数计入基础倍率/单价，
+		// 使现有按 Token / 按次的前端价格展示直接生效
+		billingModel := model
+		coefficient := 1.0
+		isFollow := false
+		if target, coef, ok := billing_setting.ResolveFollow(model); ok {
+			billingModel = target
+			coefficient = coef
+			isFollow = true
+		}
+		modelPrice, findPrice := ratio_setting.GetModelPrice(billingModel, false)
 		if findPrice {
-			pricing.ModelPrice = modelPrice
+			pricing.ModelPrice = modelPrice * coefficient
 			pricing.QuotaType = 1
 		} else {
-			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
-			pricing.ModelRatio = modelRatio
-			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
+			modelRatio, _, _ := ratio_setting.GetModelRatio(billingModel)
+			pricing.ModelRatio = modelRatio * coefficient
+			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(billingModel)
 			pricing.QuotaType = 0
 		}
-		if cacheRatio, ok := ratio_setting.GetCacheRatio(model); ok {
+		if cacheRatio, ok := ratio_setting.GetCacheRatio(billingModel); ok {
 			pricing.CacheRatio = &cacheRatio
 		}
-		if createCacheRatio, ok := ratio_setting.GetCreateCacheRatio(model); ok {
+		if createCacheRatio, ok := ratio_setting.GetCreateCacheRatio(billingModel); ok {
 			pricing.CreateCacheRatio = &createCacheRatio
 		}
-		if imageRatio, ok := ratio_setting.GetImageRatio(model); ok {
+		if imageRatio, ok := ratio_setting.GetImageRatio(billingModel); ok {
 			pricing.ImageRatio = &imageRatio
 		}
-		if ratio_setting.ContainsAudioRatio(model) {
-			audioRatio := ratio_setting.GetAudioRatio(model)
+		if ratio_setting.ContainsAudioRatio(billingModel) {
+			audioRatio := ratio_setting.GetAudioRatio(billingModel)
 			pricing.AudioRatio = &audioRatio
 		}
-		if ratio_setting.ContainsAudioCompletionRatio(model) {
-			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
+		if ratio_setting.ContainsAudioCompletionRatio(billingModel) {
+			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(billingModel)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+		if isFollow {
+			pricing.BillingMode = billing_setting.BillingModeFollow
+			pricing.FollowTarget = billingModel
+			pricing.FollowCoefficient = coefficient
+		} else if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr

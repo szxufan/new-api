@@ -72,6 +72,7 @@ var pricingSyncFields = []string{
 	"model_price",
 	billing_setting.BillingModeField,
 	billing_setting.BillingExprField,
+	billing_setting.BillingFollowField,
 }
 
 var numericPricingSyncFields = map[string]bool{
@@ -99,6 +100,8 @@ func valueMap(value any) map[string]any {
 		return lo.MapValues(typed, func(value float64, _ string) any { return value })
 	case map[string]string:
 		return lo.MapValues(typed, func(value string, _ string) any { return value })
+	case map[string]billing_setting.FollowConfig:
+		return lo.MapValues(typed, func(value billing_setting.FollowConfig, _ string) any { return value })
 	default:
 		return nil
 	}
@@ -391,6 +394,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
 				BillingMode          string   `json:"billing_mode"`
 				BillingExpr          string   `json:"billing_expr"`
+				FollowTarget         string   `json:"follow_target"`
+				FollowCoefficient    float64  `json:"follow_coefficient"`
 			}
 			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
 				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
@@ -408,6 +413,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 			modelPriceMap := make(map[string]float64)
 			billingModeMap := make(map[string]string)
 			billingExprMap := make(map[string]string)
+			billingFollowMap := make(map[string]billing_setting.FollowConfig)
 
 			for _, item := range pricingItems {
 				if item.ModelName == "" {
@@ -416,6 +422,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 				if item.BillingMode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(item.BillingExpr) != "" {
 					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
 					billingExprMap[item.ModelName] = item.BillingExpr
+				}
+				if item.BillingMode == billing_setting.BillingModeFollow && strings.TrimSpace(item.FollowTarget) != "" {
+					billingFollowMap[item.ModelName] = billing_setting.FollowConfig{
+						TargetModel: item.FollowTarget,
+						Coefficient: item.FollowCoefficient,
+					}
 				}
 				if item.QuotaType == 1 {
 					modelPriceMap[item.ModelName] = item.ModelPrice
@@ -486,6 +498,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 			}
 			if len(billingExprMap) > 0 {
 				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
+			}
+			if len(billingFollowMap) > 0 {
+				converted[billing_setting.BillingFollowField] = valueMap(billingFollowMap)
 			}
 
 			ch <- upstreamResult{Name: uniqueName, Data: converted}

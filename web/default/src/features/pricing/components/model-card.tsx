@@ -63,6 +63,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const isDynamicPricing =
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
+  const isFollowPricing = props.model.billing_mode === 'follow'
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, {
@@ -241,6 +242,14 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             <StatusBadge
               label={t('Dynamic Pricing')}
               variant='warning'
+              copyable={false}
+              size='sm'
+            />
+          )}
+          {isFollowPricing && props.model.follow_target && (
+            <StatusBadge
+              label={`${t('Follows')} ${props.model.follow_target} ×${props.model.follow_coefficient ?? 1}`}
+              variant='info'
               copyable={false}
               size='sm'
             />

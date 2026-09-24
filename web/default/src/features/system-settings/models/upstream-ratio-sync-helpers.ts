@@ -19,9 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
 import type { RatioType } from '../types'
 import { RATIO_TYPE_OPTIONS } from './constants'
 
+export type SyncValue = number | string | FollowSyncValue
+
+/** Follow-billing config as it arrives from the backend sync API. */
+export type FollowSyncValue = {
+  target_model?: string
+  coefficient?: number
+}
+
 export type RatioDifferenceEntry = {
-  current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
+  current: SyncValue | null
+  upstreams: Record<string, SyncValue | 'same'>
   confidence: Record<string, boolean>
 }
 
@@ -32,7 +40,10 @@ export type ModelRow = {
   billingConflict: boolean
 }
 
-export type ResolutionsMap = Record<string, Record<string, number | string>>
+export type ResolutionsMap = Record<
+  string,
+  Record<string, number | string | FollowSyncValue>
+>
 
 export const RATIO_SYNC_FIELDS: RatioType[] = [
   'model_ratio',
@@ -49,6 +60,7 @@ export const SYNC_FIELD_ORDER: RatioType[] = [
   'model_price',
   'billing_mode',
   'billing_expr',
+  'billing_follow',
 ]
 
 export const NUMERIC_SYNC_FIELDS = new Set<string>([
@@ -78,6 +90,15 @@ export function getOrderedRatioTypes(
   return ordered.filter((f) => f === filter)
 }
 
+/** billing_mode / billing_expr / billing_follow are mutually exclusive per model. */
+export function isExclusiveBillingField(ratioType: string): boolean {
+  return (
+    ratioType === 'billing_mode' ||
+    ratioType === 'billing_expr' ||
+    ratioType === 'billing_follow'
+  )
+}
+
 export function getPreferredSyncField(
   ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>,
   ratioType: RatioType,
@@ -86,6 +107,7 @@ export function getPreferredSyncField(
   const exprValue = ratioTypes.billing_expr?.upstreams?.[sourceName]
   if (
     ratioType !== 'billing_expr' &&
+    ratioType !== 'billing_follow' &&
     exprValue !== null &&
     exprValue !== undefined &&
     exprValue !== 'same'
@@ -95,8 +117,24 @@ export function getPreferredSyncField(
   return ratioType
 }
 
+/** Renders a sync value for display; follow configs show as "target ×coef". */
+export function formatSyncValue(
+  value: SyncValue | 'same' | null | undefined
+): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') {
+    const follow = value as FollowSyncValue
+    const coefficient =
+      typeof follow.coefficient === 'number' && Number.isFinite(follow.coefficient)
+        ? follow.coefficient
+        : 1
+    return `${follow.target_model ?? ''} ×${coefficient}`
+  }
+  return String(value)
+}
+
 export function isSelectableUpstreamValue(
-  value: number | string | 'same' | null | undefined
+  value: SyncValue | 'same' | null | undefined
 ): boolean {
   return value !== null && value !== undefined && value !== 'same'
 }

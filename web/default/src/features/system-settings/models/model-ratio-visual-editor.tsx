@@ -81,7 +81,13 @@ type ModelRatioVisualEditorProps = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
+  billingFollow: string
   onChange: (field: string, value: string) => void
+}
+
+type FollowConfigJson = {
+  target_model: string
+  coefficient: number
 }
 
 type ModelRow = {
@@ -97,6 +103,8 @@ type ModelRow = {
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string
+  followTarget?: string
+  followCoefficient?: string
   hasConflict: boolean
 }
 
@@ -128,12 +136,14 @@ const filterBySelectedValues = (
 const getModeLabel = (mode?: string) => {
   if (mode === 'per-request') return 'Per-request'
   if (mode === 'tiered_expr') return 'Expression'
+  if (mode === 'follow') return 'Follow'
   return 'Per-token'
 }
 
 const getModeVariant = (mode?: string): 'warning' | 'info' | 'success' => {
   if (mode === 'per-request') return 'warning'
   if (mode === 'tiered_expr') return 'info'
+  if (mode === 'follow') return 'info'
   return 'success'
 }
 
@@ -148,6 +158,10 @@ const getExpressionSummary = (row: ModelRow, t: (key: string) => string) => {
 const getPriceSummary = (row: ModelRow, t: (key: string) => string) => {
   if (row.billingMode === 'tiered_expr') {
     return getExpressionSummary(row, t)
+  }
+  if (row.billingMode === 'follow') {
+    if (!row.followTarget) return t('Unset price')
+    return `${t('Follows')} ${row.followTarget} · ×${row.followCoefficient || '1'}`
   }
   if (row.billingMode === 'per-request') {
     return row.price ? `$${row.price} / ${t('request')}` : t('Unset price')
@@ -175,6 +189,11 @@ const getPriceDetail = (row: ModelRow, t: (key: string) => string) => {
     return row.requestRuleExpr
       ? t('Includes request rules')
       : t('Expression based')
+  }
+  if (row.billingMode === 'follow') {
+    return row.followTarget
+      ? t('Billed like the target model times the coefficient')
+      : t('No follow target set')
   }
   if (row.billingMode === 'per-request') {
     return t('Fixed request price')
@@ -207,6 +226,7 @@ export const ModelRatioVisualEditor = memo(
     audioCompletionRatio,
     billingMode,
     billingExpr,
+    billingFollow,
     onChange,
   }: ModelRatioVisualEditorProps) {
     const { t } = useTranslation()
@@ -308,6 +328,13 @@ export const ModelRatioVisualEditor = memo(
           context: 'billing expression',
         }
       )
+      const billingFollowMap = safeJsonParse<Record<string, FollowConfigJson>>(
+        billingFollow,
+        {
+          fallback: {},
+          context: 'billing follow',
+        }
+      )
 
       const modelNames = new Set([
         ...Object.keys(priceMap),
@@ -320,6 +347,7 @@ export const ModelRatioVisualEditor = memo(
         ...Object.keys(audioCompletionMap),
         ...Object.keys(billingModeMap),
         ...Object.keys(billingExprMap),
+        ...Object.keys(billingFollowMap),
       ])
 
       const modelData: ModelRow[] = Array.from(modelNames).map((name) => {
@@ -331,6 +359,27 @@ export const ModelRatioVisualEditor = memo(
         const image = imageMap[name]?.toString() || ''
         const audio = audioMap[name]?.toString() || ''
         const audioCompletion = audioCompletionMap[name]?.toString() || ''
+
+        const followConfig = billingFollowMap[name]
+        if (followConfig?.target_model) {
+          return {
+            name,
+            billingMode: 'follow',
+            followTarget: followConfig.target_model,
+            followCoefficient: formatPricingNumber(
+              followConfig.coefficient > 0 ? followConfig.coefficient : 1
+            ),
+            price,
+            ratio,
+            cacheRatio: cache,
+            createCacheRatio: createCache,
+            completionRatio: completion,
+            imageRatio: image,
+            audioRatio: audio,
+            audioCompletionRatio: audioCompletion,
+            hasConflict: false,
+          }
+        }
 
         const modeForModel = billingModeMap[name]
         if (modeForModel === 'tiered_expr') {
@@ -392,6 +441,7 @@ export const ModelRatioVisualEditor = memo(
       audioCompletionRatio,
       billingMode,
       billingExpr,
+      billingFollow,
     ])
 
     const modeCounts = useMemo(
@@ -400,7 +450,8 @@ export const ModelRatioVisualEditor = memo(
           (acc, model) => {
             const mode =
               model.billingMode === 'per-request' ||
-              model.billingMode === 'tiered_expr'
+              model.billingMode === 'tiered_expr' ||
+              model.billingMode === 'follow'
                 ? model.billingMode
                 : 'per-token'
             acc[mode] += 1
@@ -410,7 +461,11 @@ export const ModelRatioVisualEditor = memo(
             'per-token': 0,
             'per-request': 0,
             tiered_expr: 0,
-          } as Record<'per-token' | 'per-request' | 'tiered_expr', number>
+            follow: 0,
+          } as Record<
+            'per-token' | 'per-request' | 'tiered_expr' | 'follow',
+            number
+          >
         ),
       [models]
     )
@@ -431,6 +486,14 @@ export const ModelRatioVisualEditor = memo(
       )
     }, [models, enabledModelsData])
 
+    const followTargetOptions = useMemo(
+      () =>
+        models
+          .filter((model) => model.name !== editData?.name)
+          .map((model) => ({ value: model.name, label: model.name })),
+      [models, editData?.name]
+    )
+
     const handleEdit = useCallback(
       (model: ModelRow) => {
         setEditData({
@@ -446,11 +509,15 @@ export const ModelRatioVisualEditor = memo(
           billingMode:
             model.billingMode === 'tiered_expr'
               ? 'tiered_expr'
-              : model.price && model.price !== ''
-                ? 'per-request'
-                : 'per-token',
+              : model.billingMode === 'follow'
+                ? 'follow'
+                : model.price && model.price !== ''
+                  ? 'per-request'
+                  : 'per-token',
           billingExpr: model.billingExpr,
           requestRuleExpr: model.requestRuleExpr,
+          followTarget: model.followTarget,
+          followCoefficient: model.followCoefficient,
         })
         setEditorOpen(true)
         if (isMobile) setSheetOpen(true)
@@ -528,6 +595,10 @@ export const ModelRatioVisualEditor = memo(
           billingExpr,
           { fallback: {}, silent: true }
         )
+        const billingFollowMap = safeJsonParse<Record<string, FollowConfigJson>>(
+          billingFollow,
+          { fallback: {}, silent: true }
+        )
 
         delete priceMap[name]
         delete ratioMap[name]
@@ -539,6 +610,7 @@ export const ModelRatioVisualEditor = memo(
         delete audioCompletionMap[name]
         delete billingModeMap[name]
         delete billingExprMap[name]
+        delete billingFollowMap[name]
 
         onChange('ModelPrice', JSON.stringify(priceMap, null, 2))
         onChange('ModelRatio', JSON.stringify(ratioMap, null, 2))
@@ -559,6 +631,10 @@ export const ModelRatioVisualEditor = memo(
           'billing_setting.billing_expr',
           JSON.stringify(billingExprMap, null, 2)
         )
+        onChange(
+          'billing_setting.billing_follow',
+          JSON.stringify(billingFollowMap, null, 2)
+        )
       },
       [
         modelPrice,
@@ -571,6 +647,7 @@ export const ModelRatioVisualEditor = memo(
         audioCompletionRatio,
         billingMode,
         billingExpr,
+        billingFollow,
         onChange,
       ]
     )
@@ -613,6 +690,13 @@ export const ModelRatioVisualEditor = memo(
               {row.original.billingMode === 'tiered_expr' && (
                 <StatusBadge
                   label={t('Tiered')}
+                  variant='info'
+                  copyable={false}
+                />
+              )}
+              {row.original.billingMode === 'follow' && (
+                <StatusBadge
+                  label={t('Follow')}
                   variant='info'
                   copyable={false}
                 />
@@ -763,6 +847,10 @@ export const ModelRatioVisualEditor = memo(
           billingExpr,
           { fallback: {}, silent: true }
         )
+        const billingFollowMap = safeJsonParse<Record<string, FollowConfigJson>>(
+          billingFollow,
+          { fallback: {}, silent: true }
+        )
 
         const setIfPresent = (
           target: Record<string, number>,
@@ -785,8 +873,21 @@ export const ModelRatioVisualEditor = memo(
           delete audioCompletionMap[name]
           delete billingModeMap[name]
           delete billingExprMap[name]
+          delete billingFollowMap[name]
 
-          if (data.billingMode === 'tiered_expr') {
+          if (data.billingMode === 'follow') {
+            const target = (data.followTarget || '').trim()
+            if (target) {
+              const coefficient = parseFloat(data.followCoefficient || '1')
+              billingFollowMap[name] = {
+                target_model: target,
+                coefficient:
+                  Number.isFinite(coefficient) && coefficient > 0
+                    ? coefficient
+                    : 1,
+              }
+            }
+          } else if (data.billingMode === 'tiered_expr') {
             const combined = combineBillingExpr(
               data.billingExpr || '',
               data.requestRuleExpr || ''
@@ -839,6 +940,10 @@ export const ModelRatioVisualEditor = memo(
           'billing_setting.billing_expr',
           JSON.stringify(billingExprMap, null, 2)
         )
+        onChange(
+          'billing_setting.billing_follow',
+          JSON.stringify(billingFollowMap, null, 2)
+        )
       },
       [
         modelPrice,
@@ -851,6 +956,7 @@ export const ModelRatioVisualEditor = memo(
         audioCompletionRatio,
         billingMode,
         billingExpr,
+        billingFollow,
         onChange,
       ]
     )
@@ -917,6 +1023,11 @@ export const ModelRatioVisualEditor = memo(
                       label: 'Expression',
                       value: 'tiered_expr',
                       count: modeCounts.tiered_expr,
+                    },
+                    {
+                      label: 'Follow',
+                      value: 'follow',
+                      count: modeCounts.follow,
                     },
                   ],
                 },
@@ -1001,6 +1112,7 @@ export const ModelRatioVisualEditor = memo(
                 editData={editData}
                 selectedTargetCount={selectedTargetCount}
                 modelNameOptions={modelNameOptions}
+                followTargetOptions={followTargetOptions}
                 className='sticky top-4 h-[calc(100vh-8rem)] min-h-[620px]'
               />
             ) : (
@@ -1040,6 +1152,7 @@ export const ModelRatioVisualEditor = memo(
             editData={editData}
             selectedTargetCount={selectedTargetCount}
             modelNameOptions={modelNameOptions}
+            followTargetOptions={followTargetOptions}
           />
         )}
       </div>
@@ -1058,6 +1171,7 @@ export const ModelRatioVisualEditor = memo(
       prevProps.audioCompletionRatio === nextProps.audioCompletionRatio &&
       prevProps.billingMode === nextProps.billingMode &&
       prevProps.billingExpr === nextProps.billingExpr &&
+      prevProps.billingFollow === nextProps.billingFollow &&
       prevProps.onChange === nextProps.onChange
     )
   }

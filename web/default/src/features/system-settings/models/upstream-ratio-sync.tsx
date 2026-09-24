@@ -51,6 +51,9 @@ import {
   NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
   getPreferredSyncField,
+  isExclusiveBillingField,
+  type FollowSyncValue,
+  type SyncValue,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
 import { UpstreamRatioSyncTable } from './upstream-ratio-sync-table'
@@ -71,6 +74,7 @@ type UpstreamRatioSyncProps = {
     AudioCompletionRatio: string
     'billing_setting.billing_mode': string
     'billing_setting.billing_expr': string
+    'billing_setting.billing_follow': string
   }
 }
 
@@ -90,7 +94,11 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
 
 function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
   if (ratioType === 'model_price') return 'price'
-  if (ratioType === 'billing_mode' || ratioType === 'billing_expr')
+  if (
+    ratioType === 'billing_mode' ||
+    ratioType === 'billing_expr' ||
+    ratioType === 'billing_follow'
+  )
     return 'tiered'
   return 'ratio'
 }
@@ -99,6 +107,7 @@ function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
     billing_expr: 'billing_setting.billing_expr',
+    billing_follow: 'billing_setting.billing_follow',
   }
   if (explicit[ratioType]) return explicit[ratioType]
   return ratioType
@@ -125,6 +134,14 @@ function deleteResolutionField(
   delete newModelRes[ratioType]
   if (ratioType === 'billing_expr') delete newModelRes['billing_mode']
   if (ratioType === 'billing_mode') delete newModelRes['billing_expr']
+  if (isExclusiveBillingField(ratioType)) {
+    // mode/expr/follow are mutually exclusive within one model
+    ;(['billing_mode', 'billing_expr', 'billing_follow'] as const).forEach(
+      (exclusiveField) => {
+        if (exclusiveField !== ratioType) delete newModelRes[exclusiveField]
+      }
+    )
+  }
   const next = { ...res }
   if (Object.keys(newModelRes).length === 0) {
     delete next[model]
@@ -271,7 +288,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     (
       model: string,
       ratioType: RatioType,
-      value: number | string,
+      value: number | string | SyncValue,
       sourceName: string
     ) => {
       const modelDiffs = differences[model]
@@ -286,11 +303,20 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           : (modelDiffs?.[preferredType]?.upstreams?.[sourceName] ?? value)
 
       const finalType = preferredType
-      const finalValue = preferredValue as number | string
+      const finalValue = preferredValue as number | string | SyncValue
       const category = getBillingCategory(finalType)
 
       setResolutions((prev) => {
         const newModelRes = { ...(prev[model] || {}) }
+
+        // billing_mode / billing_expr / billing_follow are mutually exclusive
+        if (isExclusiveBillingField(finalType)) {
+          ;(['billing_mode', 'billing_expr', 'billing_follow'] as const).forEach(
+            (exclusiveField) => {
+              if (exclusiveField !== finalType) delete newModelRes[exclusiveField]
+            }
+          )
+        }
 
         // Clear conflicting categories
         Object.keys(newModelRes).forEach((rt) => {
@@ -306,7 +332,12 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         newModelRes[finalType] = finalValue
 
         // When selecting a tiered field, auto-populate paired fields from the same source
-        if (category === 'tiered' && sourceName && modelDiffs) {
+        if (
+          category === 'tiered' &&
+          finalType !== 'billing_follow' &&
+          sourceName &&
+          modelDiffs
+        ) {
           const modeVal = modelDiffs.billing_mode?.upstreams?.[sourceName]
           const exprVal = modelDiffs.billing_expr?.upstreams?.[sourceName]
           if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
@@ -350,6 +381,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       'billing_setting.billing_expr': parseJsonRecord<string>(
         modelRatios['billing_setting.billing_expr']
       ),
+      'billing_setting.billing_follow': parseJsonRecord<FollowSyncValue>(
+        modelRatios['billing_setting.billing_follow']
+      ),
     }
   }, [modelRatios])
 
@@ -375,7 +409,10 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const performSync = useCallback(
     async (currentRatios: ParsedRatios): Promise<boolean> => {
-      const finalRatios: Record<string, Record<string, number | string>> = {
+      const finalRatios: Record<
+        string,
+        Record<string, number | string | FollowSyncValue>
+      > = {
         ModelRatio: { ...currentRatios.ModelRatio },
         CompletionRatio: { ...currentRatios.CompletionRatio },
         CacheRatio: { ...currentRatios.CacheRatio },
@@ -389,6 +426,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         },
         'billing_setting.billing_expr': {
           ...currentRatios['billing_setting.billing_expr'],
+        },
+        'billing_setting.billing_follow': {
+          ...currentRatios['billing_setting.billing_follow'],
         },
       }
 
@@ -410,6 +450,16 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         }
         if (hasRatio) {
           delete finalRatios.ModelPrice[model]
+        }
+        if (selectedTypes.includes('billing_follow')) {
+          delete finalRatios['billing_setting.billing_mode'][model]
+          delete finalRatios['billing_setting.billing_expr'][model]
+        }
+        if (
+          selectedTypes.includes('billing_mode') ||
+          selectedTypes.includes('billing_expr')
+        ) {
+          delete finalRatios['billing_setting.billing_follow'][model]
         }
 
         Object.entries(ratios).forEach(([ratioType, value]) => {
@@ -438,7 +488,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const findSourceChannel = (
     model: string,
     ratioType: RatioType,
-    value: number | string
+    value: number | string | SyncValue
   ): string => {
     const upMap = differences[model]?.[ratioType]?.upstreams
     if (!upMap) return 'Unknown'
