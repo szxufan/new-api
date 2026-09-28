@@ -15,14 +15,14 @@ func IsDeepSeekThinkingModel(modelName string) bool {
 	return strings.HasPrefix(baseName, "deepseek-v4-")
 }
 
-// IsMimoThinkingModel checks if the model is a mimo thinking model that supports reasoning content.
+// IsMimoThinkingModel checks if the model is a mimo chat model that supports
+// reasoning content. Matching is version-agnostic (any mimo-v* chat model);
+// the ASR/TTS audio models are excluded because they never emit reasoning.
 func IsMimoThinkingModel(modelName string) bool {
-	switch modelName {
-	case "mimo-v2.5-pro", "mimo-v2.5", "mimo-v2-pro", "mimo-v2-omni", "mimo-v2-flash":
-		return true
-	default:
+	if !strings.HasPrefix(modelName, "mimo-v") {
 		return false
 	}
+	return !strings.Contains(modelName, "-asr") && !strings.Contains(modelName, "-tts")
 }
 
 // IsOllamaThinkingModel checks locally deployed (ollama-style) models that emit

@@ -114,8 +114,43 @@ func TestIsMimoThinkingModel(t *testing.T) {
 			want:      true,
 		},
 		{
-			name:      "mimo-v2.5-pro with suffix should not match",
+			name:      "mimo-v2.6-pro",
+			modelName: "mimo-v2.6-pro",
+			want:      true,
+		},
+		{
+			name:      "mimo-v2.6-flash",
+			modelName: "mimo-v2.6-flash",
+			want:      true,
+		},
+		{
+			name:      "future mimo version",
+			modelName: "mimo-v3-pro",
+			want:      true,
+		},
+		{
+			name:      "suffix variant",
 			modelName: "mimo-v2.5-pro-max",
+			want:      true,
+		},
+		{
+			name:      "asr audio model should not match",
+			modelName: "mimo-v2.5-asr",
+			want:      false,
+		},
+		{
+			name:      "tts audio model should not match",
+			modelName: "mimo-v2.5-tts",
+			want:      false,
+		},
+		{
+			name:      "tts voicedesign audio model should not match",
+			modelName: "mimo-v2.5-tts-voicedesign",
+			want:      false,
+		},
+		{
+			name:      "mimo without version prefix should not match",
+			modelName: "mimo-audio",
 			want:      false,
 		},
 		{
