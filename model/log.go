@@ -556,6 +556,16 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
+// SumUserConsumedQuota 精确统计单个用户在时间区间内的消费总额（按 user_id，不做模糊匹配）。
+// 用于每日消费额度提醒的计数器播种；注意站点关闭消费日志（LogConsumeEnabled=false）时结果为 0。
+func SumUserConsumedQuota(userId int, startTimestamp int64, endTimestamp int64) (int, error) {
+	var quota int64
+	err := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0)").
+		Where("user_id = ? AND type = ? AND created_at >= ? AND created_at < ?", userId, LogTypeConsume, startTimestamp, endTimestamp).
+		Scan(&quota).Error
+	return int(quota), err
+}
+
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, retryCount int) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 

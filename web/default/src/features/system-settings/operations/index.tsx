@@ -43,6 +43,10 @@ const defaultOperationsSettings: OperationsSettings = {
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
+  'daily_quota_notify_setting.enabled': false,
+  'daily_quota_notify_setting.threshold': 0,
+  'daily_quota_notify_setting.webhook_url': '',
+  'daily_quota_notify_setting.secret': '',
   SMTPServer: '',
   SMTPPort: '',
   SMTPAccount: '',
@@ -95,6 +99,7 @@ export function OperationsSettings() {
     | 'behavior'
     | 'channel-rate-limit'
     | 'monitoring'
+    | 'daily-quota-notify'
     | 'email'
     | 'worker'
     | 'logs'

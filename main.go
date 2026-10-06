@@ -135,6 +135,9 @@ func main() {
 	// Channel schedule task (enable/disable channels by configured time windows)
 	service.StartChannelScheduleTask()
 
+	// 每日消费额度提醒：在消费记账处注册回调（内部异步，不阻塞计费主流程）
+	model.UserQuotaConsumedHooks = append(model.UserQuotaConsumedHooks, service.OnUserQuotaConsumed)
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)

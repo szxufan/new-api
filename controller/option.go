@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -340,5 +342,50 @@ func UpdateOption(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
+	})
+}
+
+// TestDailyQuotaNotifyDingTalk 发送钉钉测试消息，验证每日消费额度提醒的机器人配置。
+// body 可传 webhook_url/secret 以便在保存前测试；缺省时使用已保存的全局配置。
+func TestDailyQuotaNotifyDingTalk(c *gin.Context) {
+	var req struct {
+		WebhookUrl string `json:"webhook_url"`
+		Secret     string `json:"secret"`
+	}
+	if c.Request.Body != nil {
+		_ = common.DecodeJson(c.Request.Body, &req)
+	}
+
+	savedSetting := operation_setting.GetDailyQuotaNotifySetting()
+	webhookURL := req.WebhookUrl
+	secret := req.Secret
+	// webhook_url/secret 为空表示未在表单中填写，回退到已保存的全局配置
+	//（secret 属敏感键不会随 GET 回传，前端留空即沿用已保存密钥）
+	if webhookURL == "" {
+		webhookURL = savedSetting.WebhookUrl
+	}
+	if secret == "" {
+		secret = savedSetting.Secret
+	}
+	if webhookURL == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "钉钉 webhook 地址为空，请先填写配置",
+		})
+		return
+	}
+
+	text := fmt.Sprintf("### %s\n\n这是一条测试消息。收到它说明钉钉机器人配置正确，账号当日消费达到每日额度整数倍时将在此推送提醒。\n\n时间：%s",
+		service.DailyQuotaNotifyTitle, time.Now().Format("2006-01-02 15:04:05"))
+	if err := service.SendDingTalkNotify(webhookURL, secret, service.DailyQuotaNotifyTitle, text); err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "测试消息已发送，请到钉钉群确认",
 	})
 }

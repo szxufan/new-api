@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChannelRateLimitSection } from '../integrations/channel-rate-limit-section'
 import { SystemBehaviorSection } from '../general/system-behavior-section'
+import { DailyQuotaNotifySettingsSection } from '../integrations/daily-quota-notify-settings-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
@@ -76,6 +77,26 @@ const OPERATIONS_SECTIONS = [
             settings['monitor_setting.auto_test_channel_enabled'],
           'monitor_setting.auto_test_channel_minutes':
             settings['monitor_setting.auto_test_channel_minutes'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'daily-quota-notify',
+    titleKey: 'Daily Quota Alert',
+    descriptionKey:
+      'Notify a DingTalk robot when an account reaches multiples of the daily quota',
+    build: (settings: OperationsSettings) => (
+      <DailyQuotaNotifySettingsSection
+        defaultValues={{
+          'daily_quota_notify_setting.enabled':
+            settings['daily_quota_notify_setting.enabled'] ?? false,
+          'daily_quota_notify_setting.threshold':
+            settings['daily_quota_notify_setting.threshold'] ?? 0,
+          'daily_quota_notify_setting.webhook_url':
+            settings['daily_quota_notify_setting.webhook_url'] ?? '',
+          'daily_quota_notify_setting.secret':
+            settings['daily_quota_notify_setting.secret'] ?? '',
         }}
       />
     ),

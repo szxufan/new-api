@@ -39,6 +39,16 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+export type DailyQuotaNotifyTestRequest = {
+  webhook_url: string
+  secret: string
+}
+
+export type DailyQuotaNotifyTestResponse = {
+  success: boolean
+  message: string
+}
+
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
@@ -294,6 +304,10 @@ export type OperationsSettings = {
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
+  'daily_quota_notify_setting.enabled': boolean
+  'daily_quota_notify_setting.threshold': number
+  'daily_quota_notify_setting.webhook_url': string
+  'daily_quota_notify_setting.secret': string
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string

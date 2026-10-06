@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 import type {
   ConfirmPaymentComplianceResponse,
+  DailyQuotaNotifyTestRequest,
+  DailyQuotaNotifyTestResponse,
   DeleteLogsResponse,
   FetchUpstreamRatiosRequest,
   SystemOptionsResponse,
@@ -42,6 +44,16 @@ export async function confirmPaymentCompliance() {
   const res = await api.post<ConfirmPaymentComplianceResponse>(
     '/api/option/payment_compliance',
     { confirmed: true }
+  )
+  return res.data
+}
+
+export async function testDailyQuotaNotify(
+  request: DailyQuotaNotifyTestRequest
+) {
+  const res = await api.post<DailyQuotaNotifyTestResponse>(
+    '/api/option/daily_quota_notify_test',
+    request
   )
   return res.data
 }

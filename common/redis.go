@@ -78,6 +78,14 @@ func RedisGet(key string) (string, error) {
 	return val, err
 }
 
+func RedisSetNX(key string, value string, expiration time.Duration) (bool, error) {
+	if DebugEnabled {
+		SysLog(fmt.Sprintf("Redis SETNX: key=%s, value=%s, expiration=%v", key, value, expiration))
+	}
+	ctx := context.Background()
+	return RDB.SetNX(ctx, key, value, expiration).Result()
+}
+
 //func RedisExpire(key string, expiration time.Duration) error {
 //	ctx := context.Background()
 //	return RDB.Expire(ctx, key, expiration).Err()

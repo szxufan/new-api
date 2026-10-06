@@ -1079,7 +1079,14 @@ func UpdateUserLastLoginAt(id int) {
 	}
 }
 
+// UserQuotaConsumedHooks 用户消费额度回调，在每次消费记账时触发（quota 为本次新增消费）。
+// 由上层（main.go）注册，回调内部需自行异步，不得阻塞计费主流程。
+var UserQuotaConsumedHooks []func(userId int, quota int)
+
 func UpdateUserUsedQuotaAndRequestCount(id int, quota int) {
+	for _, hook := range UserQuotaConsumedHooks {
+		hook(id, quota)
+	}
 	if common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUsedQuota, id, quota)
 		addNewRecord(BatchUpdateTypeRequestCount, id, 1)
