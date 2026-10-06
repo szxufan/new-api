@@ -26,7 +26,9 @@ export interface AffinityRule {
   id?: number
   name: string
   model_regex: string[]
+  model_regex_exclude?: string[]
   path_regex: string[]
+  path_regex_exclude?: string[]
   user_agent_include?: string[]
   key_sources: KeySource[]
   value_regex?: string
@@ -36,6 +38,8 @@ export interface AffinityRule {
   include_model_name: boolean
   include_rule_name: boolean
   param_override_template?: Record<string, unknown> | null
+  /** 未设置（旧配置）视为启用 */
+  enabled?: boolean
 }
 
 export interface CacheStats {

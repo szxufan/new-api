@@ -282,6 +282,10 @@ export function ChannelAffinitySection(props: Props) {
     toast.success(t('Deleted successfully'))
   }
 
+  const handleToggleRule = (idx: number, enabled: boolean) => {
+    setRules((prev) => prev.map((r, i) => (i === idx ? { ...r, enabled } : r)))
+  }
+
   const handleClearAll = async () => {
     const res = await clearAllCache()
     if (res.success) {
@@ -480,6 +484,7 @@ export function ChannelAffinitySection(props: Props) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>{t('Enabled')}</TableHead>
                   <TableHead>{t('Name')}</TableHead>
                   <TableHead>{t('Model Regex')}</TableHead>
                   <TableHead>{t('Key Sources')}</TableHead>
@@ -494,166 +499,194 @@ export function ChannelAffinitySection(props: Props) {
                 {rules.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className='text-muted-foreground py-8 text-center'
                     >
                       {t('No rules yet')}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  rules.map((rule, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell className='font-medium'>
-                        {rule.name || '-'}
-                      </TableCell>
-                      <TableCell>
-                        <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
-                          {(rule.model_regex || []).length > 0 && (
-                            <span
-                              className='size-1.5 shrink-0 rounded-full bg-slate-400'
-                              aria-hidden='true'
-                            />
-                          )}
-                          {(rule.model_regex || [])
-                            .slice(0, 2)
-                            .map((r, i, arr) => (
-                              <span
-                                key={i}
-                                className='flex items-center gap-1.5'
-                              >
-                                {r}
-                                {i < arr.length - 1 && (
-                                  <span className='text-muted-foreground/30'>
-                                    ·
-                                  </span>
-                                )}
-                              </span>
-                            ))}
-                          {(rule.model_regex || []).length > 2 && (
-                            <span className='text-muted-foreground/50'>
-                              +{(rule.model_regex || []).length - 2}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
-                          {(rule.key_sources || []).length > 0 && (
-                            <span
-                              className='size-1.5 shrink-0 rounded-full bg-slate-400'
-                              aria-hidden='true'
-                            />
-                          )}
-                          {(rule.key_sources || [])
-                            .slice(0, 2)
-                            .map((src, i, arr) => (
-                              <span
-                                key={i}
-                                className='flex items-center gap-1.5'
-                              >
-                                {src.type}:
-                                {src.type === 'gjson' ? src.path : src.key}
-                                {i < arr.length - 1 && (
-                                  <span className='text-muted-foreground/30'>
-                                    ·
-                                  </span>
-                                )}
-                              </span>
-                            ))}
-                          {(rule.key_sources || []).length > 2 && (
-                            <span className='text-muted-foreground/50'>
-                              +{(rule.key_sources || []).length - 2}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{rule.ttl_seconds || '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge
-                          label={
-                            rule.skip_retry_on_failure
-                              ? t('No Retry')
-                              : t('Retry')
-                          }
-                          variant={
-                            rule.skip_retry_on_failure ? 'danger' : 'neutral'
-                          }
-                          copyable={false}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const scopeItems = [
-                            rule.include_using_group && t('Group'),
-                            rule.include_model_name && t('Model'),
-                            rule.include_rule_name && t('Rule'),
-                          ].filter(Boolean) as string[]
-                          if (scopeItems.length === 0) return '-'
-                          return (
-                            <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
+                  rules.map((rule, idx) => {
+                    const ruleEnabled = rule.enabled !== false
+                    return (
+                      <TableRow
+                        key={idx}
+                        className={ruleEnabled ? undefined : 'opacity-60'}
+                      >
+                        <TableCell>
+                          <Switch
+                            checked={ruleEnabled}
+                            onCheckedChange={(v) => handleToggleRule(idx, v)}
+                            aria-label={t('Enable rule')}
+                          />
+                        </TableCell>
+                        <TableCell className='font-medium'>
+                          <div className='flex items-center gap-1.5'>
+                            {rule.name || '-'}
+                            {!ruleEnabled && (
+                              <StatusBadge
+                                label={t('Disabled')}
+                                variant='neutral'
+                                copyable={false}
+                              />
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
+                            {(rule.model_regex || []).length > 0 && (
                               <span
                                 className='size-1.5 shrink-0 rounded-full bg-slate-400'
                                 aria-hidden='true'
                               />
-                              {scopeItems.map((item, idx, arr) => (
+                            )}
+                            {(rule.model_regex || [])
+                              .slice(0, 2)
+                              .map((r, i, arr) => (
                                 <span
-                                  key={idx}
+                                  key={i}
                                   className='flex items-center gap-1.5'
                                 >
-                                  {item}
-                                  {idx < arr.length - 1 && (
+                                  {r}
+                                  {i < arr.length - 1 && (
                                     <span className='text-muted-foreground/30'>
                                       ·
                                     </span>
                                   )}
                                 </span>
                               ))}
-                            </div>
-                          )
-                        })()}
-                      </TableCell>
-                      <TableCell>
-                        {rule.include_rule_name && cacheStats?.by_rule_name
-                          ? cacheStats.by_rule_name[rule.name] || 0
-                          : 'N/A'}
-                      </TableCell>
-                      <TableCell className='text-right'>
-                        <div className='flex justify-end gap-1'>
-                          {rule.include_rule_name && (
+                            {(rule.model_regex || []).length > 2 && (
+                              <span className='text-muted-foreground/50'>
+                                +{(rule.model_regex || []).length - 2}
+                              </span>
+                            )}
+                            {(rule.model_regex_exclude || []).length > 0 && (
+                              <span className='text-muted-foreground/70'>
+                                {t('Excluded')}:{' '}
+                                {(rule.model_regex_exclude || []).length}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
+                            {(rule.key_sources || []).length > 0 && (
+                              <span
+                                className='size-1.5 shrink-0 rounded-full bg-slate-400'
+                                aria-hidden='true'
+                              />
+                            )}
+                            {(rule.key_sources || [])
+                              .slice(0, 2)
+                              .map((src, i, arr) => (
+                                <span
+                                  key={i}
+                                  className='flex items-center gap-1.5'
+                                >
+                                  {src.type}:
+                                  {src.type === 'gjson' ? src.path : src.key}
+                                  {i < arr.length - 1 && (
+                                    <span className='text-muted-foreground/30'>
+                                      ·
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            {(rule.key_sources || []).length > 2 && (
+                              <span className='text-muted-foreground/50'>
+                                +{(rule.key_sources || []).length - 2}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>{rule.ttl_seconds || '-'}</TableCell>
+                        <TableCell>
+                          <StatusBadge
+                            label={
+                              rule.skip_retry_on_failure
+                                ? t('No Retry')
+                                : t('Retry')
+                            }
+                            variant={
+                              rule.skip_retry_on_failure ? 'danger' : 'neutral'
+                            }
+                            copyable={false}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const scopeItems = [
+                              rule.include_using_group && t('Group'),
+                              rule.include_model_name && t('Model'),
+                              rule.include_rule_name && t('Rule'),
+                            ].filter(Boolean) as string[]
+                            if (scopeItems.length === 0) return '-'
+                            return (
+                              <div className='text-muted-foreground flex items-center gap-1.5 text-xs font-medium'>
+                                <span
+                                  className='size-1.5 shrink-0 rounded-full bg-slate-400'
+                                  aria-hidden='true'
+                                />
+                                {scopeItems.map((item, idx, arr) => (
+                                  <span
+                                    key={idx}
+                                    className='flex items-center gap-1.5'
+                                  >
+                                    {item}
+                                    {idx < arr.length - 1 && (
+                                      <span className='text-muted-foreground/30'>
+                                        ·
+                                      </span>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            )
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          {rule.include_rule_name && cacheStats?.by_rule_name
+                            ? cacheStats.by_rule_name[rule.name] || 0
+                            : 'N/A'}
+                        </TableCell>
+                        <TableCell className='text-right'>
+                          <div className='flex justify-end gap-1'>
+                            {rule.include_rule_name && (
+                              <Button
+                                variant='ghost'
+                                size='icon'
+                                className='h-7 w-7'
+                                onClick={() => setClearRuleName(rule.name)}
+                                title={t('Clear cache for this rule')}
+                              >
+                                <X className='h-3 w-3' />
+                              </Button>
+                            )}
                             <Button
                               variant='ghost'
                               size='icon'
                               className='h-7 w-7'
-                              onClick={() => setClearRuleName(rule.name)}
-                              title={t('Clear cache for this rule')}
+                              onClick={() => {
+                                setEditingRule(rule)
+                                setRuleTemplateKey(null)
+                                setRuleEditorOpen(true)
+                              }}
                             >
-                              <X className='h-3 w-3' />
+                              <Edit className='h-3 w-3' />
                             </Button>
-                          )}
-                          <Button
-                            variant='ghost'
-                            size='icon'
-                            className='h-7 w-7'
-                            onClick={() => {
-                              setEditingRule(rule)
-                              setRuleTemplateKey(null)
-                              setRuleEditorOpen(true)
-                            }}
-                          >
-                            <Edit className='h-3 w-3' />
-                          </Button>
-                          <Button
-                            variant='ghost'
-                            size='icon'
-                            className='h-7 w-7'
-                            onClick={() => handleDeleteRule(idx)}
-                          >
-                            <Trash2 className='h-3 w-3' />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                            <Button
+                              variant='ghost'
+                              size='icon'
+                              className='h-7 w-7'
+                              onClick={() => handleDeleteRule(idx)}
+                            >
+                              <Trash2 className='h-3 w-3' />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>

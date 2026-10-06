@@ -105,3 +105,75 @@ export function makeUniqueName(
 export function cloneTemplate<T>(template: T): T {
   return JSON.parse(JSON.stringify(template))
 }
+
+// 网关已知的 relay 端点（来源：router/relay-router.go、router/video-router.go）。
+// 值会原样存入 path_regex / path_regex_exclude，后端按子串式正则匹配，
+// 纯路径串即"前缀匹配"（如 /v1/videos 同时覆盖任务查询与 remix）。
+export interface RelayPathGroup {
+  group: string
+  paths: { value: string; label: string }[]
+}
+
+export const RELAY_PATH_GROUPS: RelayPathGroup[] = [
+  {
+    group: 'Chat / Text',
+    paths: [
+      { value: '/v1/chat/completions', label: 'Chat Completions' },
+      { value: '/v1/completions', label: 'Completions (Legacy)' },
+      { value: '/v1/responses', label: 'Responses' },
+      { value: '/v1/responses/compact', label: 'Responses Compact' },
+      { value: '/v1/messages', label: 'Claude Messages' },
+      { value: '/v1/realtime', label: 'Realtime (WebSocket)' },
+      { value: '/v1beta/models/', label: 'Gemini Native' },
+    ],
+  },
+  {
+    group: 'Image',
+    paths: [
+      { value: '/v1/images/generations', label: 'Images Generations' },
+      { value: '/v1/images/edits', label: 'Images Edits' },
+      { value: '/v1/edits', label: 'Edits (Legacy)' },
+    ],
+  },
+  {
+    group: 'Video',
+    paths: [
+      { value: '/v1/videos', label: 'Videos (OpenAI Compatible)' },
+      { value: '/v1/video/generations', label: 'Video Generations' },
+      { value: '/kling/v1/videos', label: 'Kling Videos' },
+    ],
+  },
+  {
+    group: 'Audio',
+    paths: [
+      { value: '/v1/audio/speech', label: 'Audio Speech (TTS)' },
+      {
+        value: '/v1/audio/transcriptions',
+        label: 'Audio Transcriptions (ASR)',
+      },
+      { value: '/v1/audio/translations', label: 'Audio Translations' },
+    ],
+  },
+  {
+    group: 'Other',
+    paths: [
+      { value: '/v1/embeddings', label: 'Embeddings' },
+      { value: '/v1/rerank', label: 'Rerank' },
+      { value: '/v1/moderations', label: 'Moderations' },
+      { value: '/mj/submit', label: 'Midjourney Submit' },
+      { value: '/suno/submit', label: 'Suno Submit' },
+    ],
+  },
+]
+
+// 供 MultiSelect 使用的扁平选项；组名走 i18n，标签带路径便于搜索与识别
+export function buildRelayPathOptions(
+  t: (key: string) => string
+): { label: string; value: string }[] {
+  return RELAY_PATH_GROUPS.flatMap((g) =>
+    g.paths.map((p) => ({
+      value: p.value,
+      label: `${t(g.group)} · ${p.value}`,
+    }))
+  )
+}

@@ -9,11 +9,13 @@ type ChannelAffinityKeySource struct {
 }
 
 type ChannelAffinityRule struct {
-	Name             string                     `json:"name"`
-	ModelRegex       []string                   `json:"model_regex"`
-	PathRegex        []string                   `json:"path_regex"`
-	UserAgentInclude []string                   `json:"user_agent_include,omitempty"`
-	KeySources       []ChannelAffinityKeySource `json:"key_sources"`
+	Name              string                     `json:"name"`
+	ModelRegex        []string                   `json:"model_regex"`
+	ModelRegexExclude []string                   `json:"model_regex_exclude,omitempty"`
+	PathRegex         []string                   `json:"path_regex"`
+	PathRegexExclude  []string                   `json:"path_regex_exclude,omitempty"`
+	UserAgentInclude  []string                   `json:"user_agent_include,omitempty"`
+	KeySources        []ChannelAffinityKeySource `json:"key_sources"`
 
 	ValueRegex string `json:"value_regex"`
 	TTLSeconds int    `json:"ttl_seconds"`
@@ -25,6 +27,14 @@ type ChannelAffinityRule struct {
 	IncludeUsingGroup bool `json:"include_using_group"`
 	IncludeModelName  bool `json:"include_model_name"`
 	IncludeRuleName   bool `json:"include_rule_name"`
+
+	// Enabled 为 nil（旧配置缺省）时视为启用
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled 返回规则是否启用，缺省（未配置 enabled 字段）视为启用
+func (r *ChannelAffinityRule) IsEnabled() bool {
+	return r.Enabled == nil || *r.Enabled
 }
 
 type ChannelAffinitySetting struct {

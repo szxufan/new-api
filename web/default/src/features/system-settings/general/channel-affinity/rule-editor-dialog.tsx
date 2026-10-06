@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -47,7 +47,8 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { RULE_TEMPLATES } from './constants'
+import { MultiSelect } from '@/components/multi-select'
+import { buildRelayPathOptions, RULE_TEMPLATES } from './constants'
 import type { AffinityRule, KeySource } from './types'
 
 const KEY_SOURCE_TYPES = [
@@ -71,8 +72,9 @@ const CONTEXT_KEY_PRESETS = [
 
 interface RuleFormValues {
   name: string
+  enabled: boolean
   model_regex_text: string
-  path_regex_text: string
+  model_regex_exclude_text: string
   user_agent_include_text: string
   value_regex: string
   ttl_seconds: number
@@ -81,6 +83,10 @@ interface RuleFormValues {
   include_model_name: boolean
   include_rule_name: boolean
   param_override_template_json: string
+}
+
+function FieldHint({ children }: { children: ReactNode }) {
+  return <p className='text-muted-foreground text-xs'>{children}</p>
 }
 
 function normalizeStringList(text: string): string[] {
@@ -94,6 +100,66 @@ function normalizeKeySource(src: Partial<KeySource>): KeySource {
   const type = (src?.type || 'gjson') as KeySource['type']
   if (type === 'gjson') return { type, key: '', path: src?.path || '' }
   return { type, key: src?.key || '', path: '' }
+}
+
+function addCustomPattern(list: string[], raw: string): string[] {
+  const value = raw.trim()
+  if (!value || list.includes(value)) return list
+  return [...list, value]
+}
+
+interface PathPatternSelectProps {
+  label: string
+  hint: string
+  options: { label: string; value: string }[]
+  patterns: string[]
+  onChange: (patterns: string[]) => void
+  addPlaceholder: string
+}
+
+function PathPatternSelect(props: PathPatternSelectProps) {
+  const { t } = useTranslation()
+  const [custom, setCustom] = useState('')
+
+  const appendCustom = () => {
+    if (!custom.trim()) return
+    props.onChange(addCustomPattern(props.patterns, custom))
+    setCustom('')
+  }
+
+  return (
+    <div className='grid gap-1.5'>
+      <Label>{props.label}</Label>
+      <MultiSelect
+        options={props.options}
+        selected={props.patterns}
+        onChange={props.onChange}
+      />
+      <div className='flex items-center gap-2'>
+        <Input
+          placeholder={props.addPlaceholder}
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              appendCustom()
+            }
+          }}
+        />
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          onClick={appendCustom}
+        >
+          <Plus className='mr-1 h-3 w-3' />
+          {t('Add')}
+        </Button>
+      </div>
+      <FieldHint>{props.hint}</FieldHint>
+    </div>
+  )
 }
 
 interface Props {
@@ -110,13 +176,17 @@ export function RuleEditorDialog(props: Props) {
   const [keySources, setKeySources] = useState<KeySource[]>([
     { type: 'gjson', path: '' },
   ])
+  const [pathPatterns, setPathPatterns] = useState<string[]>([])
+  const [pathExcludePatterns, setPathExcludePatterns] = useState<string[]>([])
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const relayPathOptions = buildRelayPathOptions(t)
 
   const form = useForm<RuleFormValues>({
     defaultValues: {
       name: '',
+      enabled: true,
       model_regex_text: '',
-      path_regex_text: '',
+      model_regex_exclude_text: '',
       user_agent_include_text: '',
       value_regex: '',
       ttl_seconds: 0,
@@ -131,8 +201,9 @@ export function RuleEditorDialog(props: Props) {
   const resetFromRule = (r: Partial<AffinityRule>) => {
     form.reset({
       name: r.name || '',
+      enabled: r.enabled !== false,
       model_regex_text: (r.model_regex || []).join('\n'),
-      path_regex_text: (r.path_regex || []).join('\n'),
+      model_regex_exclude_text: (r.model_regex_exclude || []).join('\n'),
       user_agent_include_text: (r.user_agent_include || []).join('\n'),
       value_regex: r.value_regex || '',
       ttl_seconds: r.ttl_seconds || 0,
@@ -144,9 +215,31 @@ export function RuleEditorDialog(props: Props) {
         ? JSON.stringify(r.param_override_template, null, 2)
         : '',
     })
+    setPathPatterns(r.path_regex || [])
+    setPathExcludePatterns(r.path_regex_exclude || [])
     const sources = (r.key_sources || []).map(normalizeKeySource)
     setKeySources(sources.length > 0 ? sources : [{ type: 'gjson', path: '' }])
     if (r.param_override_template) setAdvancedOpen(true)
+  }
+
+  const resetToBlank = () => {
+    form.reset({
+      name: '',
+      enabled: true,
+      model_regex_text: '',
+      model_regex_exclude_text: '',
+      user_agent_include_text: '',
+      value_regex: '',
+      ttl_seconds: 0,
+      skip_retry_on_failure: false,
+      include_using_group: true,
+      include_model_name: false,
+      include_rule_name: true,
+      param_override_template_json: '',
+    })
+    setPathPatterns([])
+    setPathExcludePatterns([])
+    setKeySources([{ type: 'gjson', path: '' }])
   }
 
   useEffect(() => {
@@ -157,20 +250,7 @@ export function RuleEditorDialog(props: Props) {
     } else if (props.templateKey && RULE_TEMPLATES[props.templateKey]) {
       resetFromRule(RULE_TEMPLATES[props.templateKey])
     } else {
-      form.reset({
-        name: '',
-        model_regex_text: '',
-        path_regex_text: '',
-        user_agent_include_text: '',
-        value_regex: '',
-        ttl_seconds: 0,
-        skip_retry_on_failure: false,
-        include_using_group: true,
-        include_model_name: false,
-        include_rule_name: true,
-        param_override_template_json: '',
-      })
-      setKeySources([{ type: 'gjson', path: '' }])
+      resetToBlank()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open, props.rule, props.templateKey])
@@ -212,8 +292,11 @@ export function RuleEditorDialog(props: Props) {
     const rule: AffinityRule = {
       id: props.rule?.id,
       name: values.name.trim(),
+      enabled: values.enabled,
       model_regex: modelRegex,
-      path_regex: normalizeStringList(values.path_regex_text),
+      model_regex_exclude: normalizeStringList(values.model_regex_exclude_text),
+      path_regex: pathPatterns,
+      path_regex_exclude: pathExcludePatterns,
       user_agent_include: normalizeStringList(values.user_agent_include_text),
       key_sources: validKeySources,
       value_regex: values.value_regex.trim(),
@@ -245,6 +328,19 @@ export function RuleEditorDialog(props: Props) {
             />
           </div>
 
+          <div className='flex items-center gap-2'>
+            <Switch
+              checked={form.watch('enabled')}
+              onCheckedChange={(v) => form.setValue('enabled', v)}
+            />
+            <Label>{t('Enable Rule')}</Label>
+            <FieldHint>
+              {t('Disabled rules are kept but never match requests.')}
+            </FieldHint>
+          </div>
+
+          <Separator />
+
           <div className='grid grid-cols-2 gap-3'>
             <div className='grid gap-1.5'>
               <Label>{t('Model Regex (one per line)')} *</Label>
@@ -253,16 +349,48 @@ export function RuleEditorDialog(props: Props) {
                 placeholder={'^gpt-4o.*$\n^claude-3.*$'}
                 {...form.register('model_regex_text', { required: true })}
               />
+              <FieldHint>
+                {t(
+                  'The rule applies only when the request model matches any pattern. Rules are evaluated in order; the first match wins.'
+                )}
+              </FieldHint>
             </div>
             <div className='grid gap-1.5'>
-              <Label>{t('Path Regex (one per line)')}</Label>
+              <Label>{t('Excluded Model Regex (one per line)')}</Label>
               <Textarea
                 rows={4}
-                placeholder='/v1/chat/completions'
-                {...form.register('path_regex_text')}
+                placeholder={'^gpt-image-.*$'}
+                {...form.register('model_regex_exclude_text')}
               />
+              <FieldHint>
+                {t(
+                  'Requests whose model matches any pattern here skip this rule, even if they match the patterns above.'
+                )}
+              </FieldHint>
             </div>
           </div>
+
+          <PathPatternSelect
+            label={t('Path Whitelist (select endpoints)')}
+            hint={t(
+              'Restrict the rule to the selected endpoints; leave empty to match all paths. Prefix matching, e.g. /v1/videos also covers task lookup and remix.'
+            )}
+            options={relayPathOptions}
+            patterns={pathPatterns}
+            onChange={setPathPatterns}
+            addPlaceholder={t('Custom path regex, press Enter to add')}
+          />
+
+          <PathPatternSelect
+            label={t('Excluded Paths (select endpoints)')}
+            hint={t(
+              'Requests to these endpoints skip this rule entirely. Use this to opt image/video endpoints (no upstream cache-hit benefit) out of affinity.'
+            )}
+            options={relayPathOptions}
+            patterns={pathExcludePatterns}
+            onChange={setPathExcludePatterns}
+            addPlaceholder={t('Custom path regex, press Enter to add')}
+          />
 
           <div className='flex items-center gap-2'>
             <Switch
@@ -270,6 +398,11 @@ export function RuleEditorDialog(props: Props) {
               onCheckedChange={(v) => form.setValue('skip_retry_on_failure', v)}
             />
             <Label>{t('Skip retry on failure')}</Label>
+            <FieldHint>
+              {t(
+                'When the affinity channel is unavailable, fail immediately instead of retrying on other channels.'
+              )}
+            </FieldHint>
           </div>
 
           <Separator />
@@ -293,10 +426,15 @@ export function RuleEditorDialog(props: Props) {
                 {t('Add')}
               </Button>
             </div>
-            <p className='text-muted-foreground mb-2 text-xs'>
+            <p className='text-muted-foreground mb-1 text-xs'>
               {t('Common Keys')}: {CONTEXT_KEY_PRESETS.join(', ')}
             </p>
-            <div className='space-y-2'>
+            <FieldHint>
+              {t(
+                'Sources are tried in order; the first non-empty value becomes the affinity key. If none yields a value, the rule is skipped.'
+              )}
+            </FieldHint>
+            <div className='mt-2 space-y-2'>
               {keySources.map((src, idx) => (
                 <div key={idx} className='flex items-center gap-2'>
                   <Select
@@ -385,6 +523,11 @@ export function RuleEditorDialog(props: Props) {
                   placeholder='curl&#10;PostmanRuntime'
                   {...form.register('user_agent_include_text')}
                 />
+                <FieldHint>
+                  {t(
+                    'If set, the rule only applies when the User-Agent contains any of these substrings.'
+                  )}
+                </FieldHint>
               </div>
 
               <div className='grid grid-cols-2 gap-3'>
@@ -394,6 +537,11 @@ export function RuleEditorDialog(props: Props) {
                     placeholder='^[-0-9A-Za-z._:]{1,128}$'
                     {...form.register('value_regex')}
                   />
+                  <FieldHint>
+                    {t(
+                      'The extracted key must match this regex, otherwise the rule is skipped.'
+                    )}
+                  </FieldHint>
                 </div>
                 <div className='grid gap-1.5'>
                   <Label>{t('TTL (seconds, 0 = default)')}</Label>
@@ -402,6 +550,11 @@ export function RuleEditorDialog(props: Props) {
                     min={0}
                     {...form.register('ttl_seconds')}
                   />
+                  <FieldHint>
+                    {t(
+                      'How long the affinity entry is kept. 0 = use the global default.'
+                    )}
+                  </FieldHint>
                 </div>
               </div>
 
@@ -413,6 +566,11 @@ export function RuleEditorDialog(props: Props) {
                   {...form.register('param_override_template_json')}
                   className='font-mono text-xs'
                 />
+                <FieldHint>
+                  {t(
+                    'Merged into the channel parameter override when this rule hits.'
+                  )}
+                </FieldHint>
               </div>
 
               <div className='grid grid-cols-3 gap-3'>
@@ -444,6 +602,11 @@ export function RuleEditorDialog(props: Props) {
                   <Label className='text-xs'>{t('Include Rule Name')}</Label>
                 </div>
               </div>
+              <FieldHint>
+                {t(
+                  'These dimensions are added to the affinity cache key to separate entries per group/model/rule.'
+                )}
+              </FieldHint>
             </CollapsibleContent>
           </Collapsible>
 

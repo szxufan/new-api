@@ -841,11 +841,21 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		userAgent = c.Request.UserAgent()
 	}
 
-	for _, rule := range setting.Rules {
+	for i := range setting.Rules {
+		rule := &setting.Rules[i]
+		if !rule.IsEnabled() {
+			continue
+		}
 		if !matchAnyRegexCached(rule.ModelRegex, modelName) {
 			continue
 		}
+		if matchAnyRegexCached(rule.ModelRegexExclude, modelName) {
+			continue
+		}
 		if len(rule.PathRegex) > 0 && !matchAnyRegexCached(rule.PathRegex, path) {
+			continue
+		}
+		if matchAnyRegexCached(rule.PathRegexExclude, path) {
 			continue
 		}
 		if len(rule.UserAgentInclude) > 0 && !matchAnyIncludeFold(rule.UserAgentInclude, userAgent) {
@@ -871,7 +881,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if ttlSeconds <= 0 {
 			ttlSeconds = setting.DefaultTTLSeconds
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, modelName, usingGroup, affinityValue)
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*rule, modelName, usingGroup, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
 		setChannelAffinityContext(c, channelAffinityMeta{
 			CacheKey:       cacheKeyFull,
