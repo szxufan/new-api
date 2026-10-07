@@ -18,9 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -314,7 +315,7 @@ export function RuleEditorDialog(props: Props) {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className='max-h-[85vh] max-w-2xl overflow-y-auto'>
+      <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-3xl'>
         <DialogHeader>
           <DialogTitle>{isEdit ? t('Edit Rule') : t('Add Rule')}</DialogTitle>
         </DialogHeader>
@@ -328,20 +329,22 @@ export function RuleEditorDialog(props: Props) {
             />
           </div>
 
-          <div className='flex items-center gap-2'>
+          <div className='flex items-center justify-between gap-4 rounded-lg border px-4 py-3'>
+            <div className='space-y-0.5'>
+              <Label>{t('Enable Rule')}</Label>
+              <FieldHint>
+                {t('Disabled rules are kept but never match requests.')}
+              </FieldHint>
+            </div>
             <Switch
               checked={form.watch('enabled')}
               onCheckedChange={(v) => form.setValue('enabled', v)}
             />
-            <Label>{t('Enable Rule')}</Label>
-            <FieldHint>
-              {t('Disabled rules are kept but never match requests.')}
-            </FieldHint>
           </div>
 
           <Separator />
 
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid gap-4 sm:grid-cols-2'>
             <div className='grid gap-1.5'>
               <Label>{t('Model Regex (one per line)')} *</Label>
               <Textarea
@@ -392,17 +395,19 @@ export function RuleEditorDialog(props: Props) {
             addPlaceholder={t('Custom path regex, press Enter to add')}
           />
 
-          <div className='flex items-center gap-2'>
+          <div className='flex items-center justify-between gap-4 rounded-lg border px-4 py-3'>
+            <div className='space-y-0.5'>
+              <Label>{t('Skip retry on failure')}</Label>
+              <FieldHint>
+                {t(
+                  'When the affinity channel is unavailable, fail immediately instead of retrying on other channels.'
+                )}
+              </FieldHint>
+            </div>
             <Switch
               checked={form.watch('skip_retry_on_failure')}
               onCheckedChange={(v) => form.setValue('skip_retry_on_failure', v)}
             />
-            <Label>{t('Skip retry on failure')}</Label>
-            <FieldHint>
-              {t(
-                'When the affinity channel is unavailable, fail immediately instead of retrying on other channels.'
-              )}
-            </FieldHint>
           </div>
 
           <Separator />
@@ -452,7 +457,7 @@ export function RuleEditorDialog(props: Props) {
                       setKeySources(next)
                     }}
                   >
-                    <SelectTrigger className='w-[160px]'>
+                    <SelectTrigger className='w-[150px] sm:w-[180px]'>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
@@ -513,7 +518,13 @@ export function RuleEditorDialog(props: Props) {
                 />
               }
             >
-              {advancedOpen ? '▼' : '▶'} {t('Advanced Settings')}
+              <ChevronRight
+                className={cn(
+                  'h-4 w-4 transition-transform',
+                  advancedOpen && 'rotate-90'
+                )}
+              />
+              {t('Advanced Settings')}
             </CollapsibleTrigger>
             <CollapsibleContent className='space-y-3 pt-2'>
               <div className='grid gap-1.5'>
@@ -530,7 +541,7 @@ export function RuleEditorDialog(props: Props) {
                 </FieldHint>
               </div>
 
-              <div className='grid grid-cols-2 gap-3'>
+              <div className='grid gap-4 sm:grid-cols-2'>
                 <div className='grid gap-1.5'>
                   <Label>{t('Value Regex')}</Label>
                   <Input
@@ -573,7 +584,7 @@ export function RuleEditorDialog(props: Props) {
                 </FieldHint>
               </div>
 
-              <div className='grid grid-cols-3 gap-3'>
+              <div className='grid gap-3 sm:grid-cols-3'>
                 <div className='flex items-center gap-2'>
                   <Switch
                     checked={form.watch('include_using_group')}

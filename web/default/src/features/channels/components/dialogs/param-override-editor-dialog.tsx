@@ -1793,7 +1793,7 @@ export function ParamOverrideEditorDialog(
         </div>
 
         {/* Content */}
-        <div className='min-h-0 flex-1 overflow-hidden'>
+        <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
           {editMode === 'visual' ? (
             visualMode === 'legacy' ? (
               <div className='p-4'>
@@ -1814,7 +1814,7 @@ export function ParamOverrideEditorDialog(
                 </p>
               </div>
             ) : (
-              <div className='flex h-full'>
+              <div className='flex min-h-0 flex-1'>
                 {/* Left sidebar */}
                 <div className='flex w-[280px] flex-shrink-0 flex-col border-r'>
                   <div className='flex items-center justify-between border-b px-3 py-2'>
@@ -1862,7 +1862,7 @@ export function ParamOverrideEditorDialog(
                     </div>
                   </div>
 
-                  <ScrollArea className='flex-1'>
+                  <ScrollArea className='min-h-0 flex-1'>
                     <div className='flex flex-col gap-1 px-3 pb-3'>
                       {filteredOperations.length === 0 ? (
                         <p className='text-muted-foreground py-4 text-center text-xs'>
@@ -2127,7 +2127,7 @@ function RuleEditor(ruleEditorProps: RuleEditorProps) {
     mode === 'sync_fields' ? parseSyncTargetSpec(operation.to) : null
 
   return (
-    <ScrollArea className='flex-1'>
+    <ScrollArea className='min-h-0 flex-1'>
       <div className='space-y-4 p-4'>
         {/* Header */}
         <div className='flex items-center justify-between'>
