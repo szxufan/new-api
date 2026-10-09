@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { QuotaDataItem } from '@/features/dashboard/types'
-import { processChartData, processUserModelChartData } from './charts'
+import {
+  processChartData,
+  processUserChartData,
+  processUserModelChartData,
+} from './charts'
 
 vi.mock('@visactor/vchart/esm/theme/color-scheme/builtin/default', () => ({
   dataScheme: [
@@ -96,6 +100,86 @@ describe('processChartData - spec_quota_pie', () => {
 
     expect(values).toHaveLength(1)
     expect(values[0]).toEqual({ type: 'gpt-4', value: 500000 })
+  })
+})
+
+describe('processChartData - model legend multi-select', () => {
+  // /dashboard/models 的折线/柱状图通过图例点击筛选模型，需支持同时选中多个模型
+  const legendSeriesSpecKeys = [
+    'spec_line',
+    'spec_area',
+    'spec_model_line',
+    'spec_rank_bar',
+  ] as const
+
+  const sampleData: QuotaDataItem[] = [
+    { created_at: 1700000000, model_name: 'gpt-4', quota: 500000, count: 10 },
+    { created_at: 1700000000, model_name: 'claude', quota: 300000, count: 5 },
+  ]
+
+  it('should set legends.selectMode to multi for all model series charts', () => {
+    const result = processChartData(sampleData, 'day', mockT, 'default')
+
+    legendSeriesSpecKeys.forEach((key) => {
+      expect(result[key].legends).toEqual(
+        expect.objectContaining({ visible: true, selectMode: 'multi' })
+      )
+    })
+  })
+
+  it('should keep selectMode multi when data is empty', () => {
+    const result = processChartData([], 'day', mockT, 'default')
+
+    legendSeriesSpecKeys.forEach((key) => {
+      expect(result[key].legends).toEqual(
+        expect.objectContaining({ visible: true, selectMode: 'multi' })
+      )
+    })
+  })
+
+  it('should leave pie chart legends on the VChart default (multi) mode', () => {
+    const result = processChartData(sampleData, 'day', mockT, 'default')
+
+    expect(result.spec_pie.legends.selectMode).toBeUndefined()
+    expect(result.spec_quota_pie.legends.selectMode).toBeUndefined()
+  })
+})
+
+describe('processUserChartData - user trend legend multi-select', () => {
+  // /dashboard/users 的「用户消费趋势」图通过图例点选用户（系列）做筛选。
+  // 行为应与 /dashboard/models 一致：第一次点击后仅选中该系列，
+  // 可继续叠加选中多个，而不是「点一个取消一个」。
+  const userData: QuotaDataItem[] = [
+    {
+      created_at: 1700000000,
+      username: 'alice',
+      model_name: 'gpt-4',
+      quota: 500000,
+      count: 10,
+    },
+    {
+      created_at: 1700000000,
+      username: 'bob',
+      model_name: 'gpt-4',
+      quota: 300000,
+      count: 5,
+    },
+  ]
+
+  it('should set legends.selectMode to multi for spec_user_trend', () => {
+    const result = processUserChartData(userData, 'day', mockT, 10, 'default')
+
+    expect(result.spec_user_trend.legends).toEqual(
+      expect.objectContaining({ visible: true, selectMode: 'multi' })
+    )
+  })
+
+  it('should keep selectMode multi for spec_user_trend when data is empty', () => {
+    const result = processUserChartData([], 'day', mockT, 10, 'default')
+
+    expect(result.spec_user_trend.legends).toEqual(
+      expect.objectContaining({ visible: true, selectMode: 'multi' })
+    )
   })
 })
 

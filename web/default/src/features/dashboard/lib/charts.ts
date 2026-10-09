@@ -93,6 +93,12 @@ function renderQuotaCompat(rawQuota: number, digits = 4): string {
 
 /**
  * Process and aggregate chart data
+ *
+ * 图例（legends）交互约定：
+ * - 模型趋势 / 排行这类多序列图（spec_line、spec_area、spec_model_line、
+ *   spec_rank_bar）统一使用 `selectMode: 'multi'`，点击图例可叠加选中多个模型，
+ *   再次点击同一项则取消该项，从而支持模型对比筛选。
+ * - 饼图（spec_pie、spec_quota_pie）不显式设置 selectMode，沿用 VChart 默认的多选行为。
  */
 export function processChartData(
   data: QuotaDataItem[],
@@ -200,7 +206,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'single' },
+        legends: { visible: true, selectMode: 'multi' },
       },
       spec_area: {
         type: 'area',
@@ -209,7 +215,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'single' },
+        legends: { visible: true, selectMode: 'multi' },
       },
       spec_model_line: {
         type: 'area',
@@ -217,7 +223,7 @@ export function processChartData(
         xField: 'Time',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'single' },
+        legends: { visible: true, selectMode: 'multi' },
         title: {
           visible: true,
           text: tt('Call Trend'),
@@ -229,7 +235,7 @@ export function processChartData(
         xField: 'Model',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'single' },
+        legends: { visible: true, selectMode: 'multi' },
         title: {
           visible: true,
           text: tt('Call Count Ranking'),
@@ -547,7 +553,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: true,
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       color: modelColor,
       bar: {
         state: {
@@ -585,7 +591,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       color: modelColor,
       tooltip: {
         mark: {
@@ -633,7 +639,7 @@ export function processChartData(
       yField: 'Count',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       color: modelColor,
       title: {
         visible: true,
@@ -710,7 +716,7 @@ export function processChartData(
       xField: 'Model',
       yField: 'Count',
       seriesField: 'Model',
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       color: modelColor,
       title: {
         visible: true,
@@ -802,6 +808,14 @@ const USER_COLOR_FALLBACKS = [
   '#5D7092',
 ]
 
+/**
+ * 处理 /dashboard/users 页面的用户维度图表数据。
+ *
+ * 图例（legends）交互约定与 /dashboard/models 保持一致：
+ * `spec_user_trend`（用户消费趋势）使用 `selectMode: 'multi'`，
+ * 第一次点击图例后仅选中该用户系列，可继续叠加选中多个，再次点击取消；
+ * 避免「点一个取消一个」的单选体验。
+ */
 export function processUserChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
@@ -851,7 +865,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       color: { type: 'ordinal', range: userColorRange },
       point: { visible: false },
       background: { fill: 'transparent' },
@@ -1025,7 +1039,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
       },
-      legends: { visible: true, selectMode: 'single' },
+      legends: { visible: true, selectMode: 'multi' },
       axes: [
         { orient: 'bottom', type: 'band' },
         {
