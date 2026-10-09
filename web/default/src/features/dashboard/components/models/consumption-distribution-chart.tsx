@@ -17,14 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { VChart } from '@visactor/react-vchart'
 import { AreaChart, BarChart3, WalletCards } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
-import { VCHART_OPTION } from '@/lib/vchart'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
+import { VChartLegendIsolate } from '@/features/dashboard/components/ui/vchart-legend-isolate'
 import {
   CONSUMPTION_DISTRIBUTION_CHART_OPTIONS,
   DEFAULT_TIME_GRANULARITY,
@@ -160,14 +159,10 @@ export function ConsumptionDistributionChart(
 
       <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
         {themeReady && spec && (
-          <VChart
-            key={chartKey}
-            spec={{
-              ...spec,
-              theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-              background: 'transparent',
-            }}
-            option={VCHART_OPTION}
+          <VChartLegendIsolate
+            spec={spec}
+            chartKey={chartKey}
+            resolvedTheme={resolvedTheme}
           />
         )}
       </div>

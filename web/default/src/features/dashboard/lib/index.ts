@@ -39,3 +39,15 @@ export {
 } from './charts'
 export { safeDivide, calculateDashboardStats } from './stats'
 export { getPreviewText } from './text'
+export {
+  SERIES_LEGEND_ID,
+  createInitialLegendState,
+  computeLegendSelection,
+  resolveLegendClick,
+} from './legend-selection'
+export type {
+  LegendInteractionState,
+  LegendSelectionResult,
+  LegendInteractionMode,
+  LegendSelectionKey,
+} from './legend-selection'

@@ -5,6 +5,7 @@ import {
   processUserChartData,
   processUserModelChartData,
 } from './charts'
+import { SERIES_LEGEND_ID } from './legend-selection'
 
 vi.mock('@visactor/vchart/esm/theme/color-scheme/builtin/default', () => ({
   dataScheme: [
@@ -107,8 +108,9 @@ describe('processChartData - spec_quota_pie', () => {
 // 'multi' 是非法值，会被静默当成 'single'，这正是历史 bug 的成因，这里显式防回归。
 const VALID_LEGEND_SELECT_MODES = ['multiple', 'single']
 
-describe('processChartData - model legend multi-select', () => {
-  // /dashboard/models 的折线/柱状图通过图例点击筛选模型，需支持叠加显示多个模型
+describe('processChartData - model legend isolate-then-multi', () => {
+  // /dashboard/models 折线/柱状图的图例被接管：filter:false + selectMode:'multiple' + 固定 id，
+  // 组件层据此实现「首次点击隔离、后续点击叠加」。
   const legendSeriesSpecKeys = [
     'spec_line',
     'spec_area',
@@ -121,23 +123,26 @@ describe('processChartData - model legend multi-select', () => {
     { created_at: 1700000000, model_name: 'claude', quota: 300000, count: 5 },
   ]
 
-  it('should set legends.selectMode to multiple for all model series charts', () => {
+  const expectedLegend = expect.objectContaining({
+    id: SERIES_LEGEND_ID,
+    visible: true,
+    filter: false,
+    selectMode: 'multiple',
+  })
+
+  it('should configure taken-over legends for all model series charts', () => {
     const result = processChartData(sampleData, 'day', mockT, 'default')
 
     legendSeriesSpecKeys.forEach((key) => {
-      expect(result[key].legends).toEqual(
-        expect.objectContaining({ visible: true, selectMode: 'multiple' })
-      )
+      expect(result[key].legends).toEqual(expectedLegend)
     })
   })
 
-  it('should keep selectMode multiple when data is empty', () => {
+  it('should keep taken-over legend config when data is empty', () => {
     const result = processChartData([], 'day', mockT, 'default')
 
     legendSeriesSpecKeys.forEach((key) => {
-      expect(result[key].legends).toEqual(
-        expect.objectContaining({ visible: true, selectMode: 'multiple' })
-      )
+      expect(result[key].legends).toEqual(expectedLegend)
     })
   })
 
@@ -180,19 +185,29 @@ describe('processUserChartData - user chart legend multi-select', () => {
     },
   ]
 
-  it('should set legends.selectMode to multiple for spec_user_trend', () => {
+  it('should configure taken-over legend for spec_user_trend', () => {
     const result = processUserChartData(userData, 'day', mockT, 10, 'default')
 
     expect(result.spec_user_trend.legends).toEqual(
-      expect.objectContaining({ visible: true, selectMode: 'multiple' })
+      expect.objectContaining({
+        id: SERIES_LEGEND_ID,
+        visible: true,
+        filter: false,
+        selectMode: 'multiple',
+      })
     )
   })
 
-  it('should keep selectMode multiple for spec_user_trend when data is empty', () => {
+  it('should keep taken-over legend config for spec_user_trend when data is empty', () => {
     const result = processUserChartData([], 'day', mockT, 10, 'default')
 
     expect(result.spec_user_trend.legends).toEqual(
-      expect.objectContaining({ visible: true, selectMode: 'multiple' })
+      expect.objectContaining({
+        id: SERIES_LEGEND_ID,
+        visible: true,
+        filter: false,
+        selectMode: 'multiple',
+      })
     )
   })
 

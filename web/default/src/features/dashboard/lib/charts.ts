@@ -25,6 +25,28 @@ import type {
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
+import { SERIES_LEGEND_ID } from './legend-selection'
+
+/**
+ * 生成「可隔离 + 可叠加多选」图例配置。
+ *
+ * - `selectMode: 'multiple'` 保证每次点击只翻转一个图例项，组件层据此用对称差
+ *   反推被点击项（见 lib/legend-selection.ts）。
+ * - `filter: false` 关闭 VChart 的默认点击过滤，改由组件在 `legendItemClick`
+ *   回调中调用 `setLegendSelectedDataById` 接管，实现「首次点击隔离、后续叠加」。
+ * - `id` 固定为 {@link SERIES_LEGEND_ID}，供组件定位图例组件实例。
+ */
+function makeSeriesLegend(
+  orient?: 'top' | 'left' | 'right' | 'bottom'
+): Record<string, unknown> {
+  return {
+    id: SERIES_LEGEND_ID,
+    visible: true,
+    filter: false,
+    selectMode: 'multiple',
+    ...(orient ? { orient } : {}),
+  }
+}
 
 type TFunction = (key: string) => string
 type TooltipLineItem = {
@@ -208,7 +230,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'multiple' },
+        legends: makeSeriesLegend(),
       },
       spec_area: {
         type: 'area',
@@ -217,7 +239,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'multiple' },
+        legends: makeSeriesLegend(),
       },
       spec_model_line: {
         type: 'area',
@@ -225,7 +247,7 @@ export function processChartData(
         xField: 'Time',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'multiple' },
+        legends: makeSeriesLegend(),
         title: {
           visible: true,
           text: tt('Call Trend'),
@@ -237,7 +259,7 @@ export function processChartData(
         xField: 'Model',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'multiple' },
+        legends: makeSeriesLegend(),
         title: {
           visible: true,
           text: tt('Call Count Ranking'),
@@ -555,7 +577,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: true,
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       color: modelColor,
       bar: {
         state: {
@@ -593,7 +615,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       color: modelColor,
       tooltip: {
         mark: {
@@ -641,7 +663,7 @@ export function processChartData(
       yField: 'Count',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       color: modelColor,
       title: {
         visible: true,
@@ -718,7 +740,7 @@ export function processChartData(
       xField: 'Model',
       yField: 'Count',
       seriesField: 'Model',
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       color: modelColor,
       title: {
         visible: true,
@@ -868,7 +890,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       color: { type: 'ordinal', range: userColorRange },
       point: { visible: false },
       background: { fill: 'transparent' },
@@ -886,7 +908,7 @@ export function processUserChartData(
         text: tt('User Model Consumption Ranking'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -903,7 +925,7 @@ export function processUserChartData(
         text: tt('User Model Call Count Ranking'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -1042,7 +1064,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
       },
-      legends: { visible: true, selectMode: 'multiple' },
+      legends: makeSeriesLegend(),
       axes: [
         { orient: 'bottom', type: 'band' },
         {
@@ -1124,7 +1146,7 @@ export function processUserChartData(
         text: tt('User Model Consumption Ranking'),
         subtext: tt('Requires user-model data'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -1141,7 +1163,7 @@ export function processUserChartData(
         text: tt('User Model Call Count Ranking'),
         subtext: tt('Requires user-model data'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -1183,7 +1205,7 @@ export function processUserModelChartData(
         text: tt('User Model Consumption Ranking'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -1200,7 +1222,7 @@ export function processUserModelChartData(
         text: tt('User Model Call Count Ranking'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       background: { fill: 'transparent' },
     },
@@ -1269,7 +1291,7 @@ export function processUserModelChartData(
       direction: 'horizontal',
       stack: true,
       title: { visible: true, text: tt('User Model Consumption Ranking') },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       color: { specified: modelColorMap },
       axes: [
@@ -1337,7 +1359,7 @@ export function processUserModelChartData(
       direction: 'horizontal',
       stack: true,
       title: { visible: true, text: tt('User Model Call Count Ranking') },
-      legends: { visible: true, orient: 'top' },
+      legends: makeSeriesLegend('top'),
       label: { visible: false },
       color: { specified: modelColorMap },
       axes: [
