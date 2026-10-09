@@ -96,9 +96,11 @@ function renderQuotaCompat(rawQuota: number, digits = 4): string {
  *
  * 图例（legends）交互约定：
  * - 模型趋势 / 排行这类多序列图（spec_line、spec_area、spec_model_line、
- *   spec_rank_bar）统一使用 `selectMode: 'multi'`，点击图例可叠加选中多个模型，
- *   再次点击同一项则取消该项，从而支持模型对比筛选。
- * - 饼图（spec_pie、spec_quota_pie）不显式设置 selectMode，沿用 VChart 默认的多选行为。
+ *   spec_rank_bar）统一使用 `selectMode: 'multiple'`，点击图例只会切换被点击
+ *   项的显示 / 隐藏，其余项保持不变，因此可以叠加显示多个模型做对比。
+ * - 注意：VChart / vrender 只识别 `'multiple'` 与 `'single'`，写成 `'multi'`
+ *   属于非法值，会静默回退成单选隔离（点一个取消上一个），务必不要写错。
+ * - 饼图（spec_pie、spec_quota_pie）不显式设置 selectMode，沿用 VChart 默认的 `'multiple'` 行为。
  */
 export function processChartData(
   data: QuotaDataItem[],
@@ -206,7 +208,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'multi' },
+        legends: { visible: true, selectMode: 'multiple' },
       },
       spec_area: {
         type: 'area',
@@ -215,7 +217,7 @@ export function processChartData(
         yField: 'Usage',
         seriesField: 'Model',
         stack: true,
-        legends: { visible: true, selectMode: 'multi' },
+        legends: { visible: true, selectMode: 'multiple' },
       },
       spec_model_line: {
         type: 'area',
@@ -223,7 +225,7 @@ export function processChartData(
         xField: 'Time',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'multi' },
+        legends: { visible: true, selectMode: 'multiple' },
         title: {
           visible: true,
           text: tt('Call Trend'),
@@ -235,7 +237,7 @@ export function processChartData(
         xField: 'Model',
         yField: 'Count',
         seriesField: 'Model',
-        legends: { visible: true, selectMode: 'multi' },
+        legends: { visible: true, selectMode: 'multiple' },
         title: {
           visible: true,
           text: tt('Call Count Ranking'),
@@ -553,7 +555,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: true,
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       color: modelColor,
       bar: {
         state: {
@@ -591,7 +593,7 @@ export function processChartData(
       yField: 'Usage',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       color: modelColor,
       tooltip: {
         mark: {
@@ -639,7 +641,7 @@ export function processChartData(
       yField: 'Count',
       seriesField: 'Model',
       stack: false,
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       color: modelColor,
       title: {
         visible: true,
@@ -716,7 +718,7 @@ export function processChartData(
       xField: 'Model',
       yField: 'Count',
       seriesField: 'Model',
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       color: modelColor,
       title: {
         visible: true,
@@ -812,9 +814,10 @@ const USER_COLOR_FALLBACKS = [
  * 处理 /dashboard/users 页面的用户维度图表数据。
  *
  * 图例（legends）交互约定与 /dashboard/models 保持一致：
- * `spec_user_trend`（用户消费趋势）使用 `selectMode: 'multi'`，
- * 第一次点击图例后仅选中该用户系列，可继续叠加选中多个，再次点击取消；
- * 避免「点一个取消一个」的单选体验。
+ * `spec_user_trend`（用户消费趋势）使用合法值 `selectMode: 'multiple'`，
+ * 默认显示全部系列，点击图例只切换被点击项的显示 / 隐藏、不影响其他项，
+ * 因此能叠加查看多个系列，避免 `'single'`（及非法值 `'multi'`）那种
+ * "点一个把上一个取消掉" 的单选隔离体验。
  */
 export function processUserChartData(
   data: QuotaDataItem[],
@@ -865,7 +868,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: tt('No data available'),
       },
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       color: { type: 'ordinal', range: userColorRange },
       point: { visible: false },
       background: { fill: 'transparent' },
@@ -1039,7 +1042,7 @@ export function processUserChartData(
         text: tt('User Consumption Trend'),
         subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
       },
-      legends: { visible: true, selectMode: 'multi' },
+      legends: { visible: true, selectMode: 'multiple' },
       axes: [
         { orient: 'bottom', type: 'band' },
         {

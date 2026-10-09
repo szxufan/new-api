@@ -103,8 +103,12 @@ describe('processChartData - spec_quota_pie', () => {
   })
 })
 
+// VChart / vrender 的离散图例只识别 'multiple'（多选）与 'single'（单选隔离）。
+// 'multi' 是非法值，会被静默当成 'single'，这正是历史 bug 的成因，这里显式防回归。
+const VALID_LEGEND_SELECT_MODES = ['multiple', 'single']
+
 describe('processChartData - model legend multi-select', () => {
-  // /dashboard/models 的折线/柱状图通过图例点击筛选模型，需支持同时选中多个模型
+  // /dashboard/models 的折线/柱状图通过图例点击筛选模型，需支持叠加显示多个模型
   const legendSeriesSpecKeys = [
     'spec_line',
     'spec_area',
@@ -117,27 +121,38 @@ describe('processChartData - model legend multi-select', () => {
     { created_at: 1700000000, model_name: 'claude', quota: 300000, count: 5 },
   ]
 
-  it('should set legends.selectMode to multi for all model series charts', () => {
+  it('should set legends.selectMode to multiple for all model series charts', () => {
     const result = processChartData(sampleData, 'day', mockT, 'default')
 
     legendSeriesSpecKeys.forEach((key) => {
       expect(result[key].legends).toEqual(
-        expect.objectContaining({ visible: true, selectMode: 'multi' })
+        expect.objectContaining({ visible: true, selectMode: 'multiple' })
       )
     })
   })
 
-  it('should keep selectMode multi when data is empty', () => {
+  it('should keep selectMode multiple when data is empty', () => {
     const result = processChartData([], 'day', mockT, 'default')
 
     legendSeriesSpecKeys.forEach((key) => {
       expect(result[key].legends).toEqual(
-        expect.objectContaining({ visible: true, selectMode: 'multi' })
+        expect.objectContaining({ visible: true, selectMode: 'multiple' })
       )
     })
   })
 
-  it('should leave pie chart legends on the VChart default (multi) mode', () => {
+  it('should never use the invalid selectMode value "multi"', () => {
+    const result = processChartData(sampleData, 'day', mockT, 'default')
+
+    legendSeriesSpecKeys.forEach((key) => {
+      const { selectMode } = result[key].legends
+      if (selectMode !== undefined) {
+        expect(VALID_LEGEND_SELECT_MODES).toContain(selectMode)
+      }
+    })
+  })
+
+  it('should leave pie chart legends on the VChart default (multiple) mode', () => {
     const result = processChartData(sampleData, 'day', mockT, 'default')
 
     expect(result.spec_pie.legends.selectMode).toBeUndefined()
@@ -145,10 +160,9 @@ describe('processChartData - model legend multi-select', () => {
   })
 })
 
-describe('processUserChartData - user trend legend multi-select', () => {
-  // /dashboard/users 的「用户消费趋势」图通过图例点选用户（系列）做筛选。
-  // 行为应与 /dashboard/models 一致：第一次点击后仅选中该系列，
-  // 可继续叠加选中多个，而不是「点一个取消一个」。
+describe('processUserChartData - user chart legend multi-select', () => {
+  // /dashboard/users 页面：用户消费趋势图（系列 = 用户）与用户模型排行图
+  // （系列 = 模型）都希望通过图例叠加显示多个系列，而不是「点一个取消上一个」。
   const userData: QuotaDataItem[] = [
     {
       created_at: 1700000000,
@@ -166,19 +180,27 @@ describe('processUserChartData - user trend legend multi-select', () => {
     },
   ]
 
-  it('should set legends.selectMode to multi for spec_user_trend', () => {
+  it('should set legends.selectMode to multiple for spec_user_trend', () => {
     const result = processUserChartData(userData, 'day', mockT, 10, 'default')
 
     expect(result.spec_user_trend.legends).toEqual(
-      expect.objectContaining({ visible: true, selectMode: 'multi' })
+      expect.objectContaining({ visible: true, selectMode: 'multiple' })
     )
   })
 
-  it('should keep selectMode multi for spec_user_trend when data is empty', () => {
+  it('should keep selectMode multiple for spec_user_trend when data is empty', () => {
     const result = processUserChartData([], 'day', mockT, 10, 'default')
 
     expect(result.spec_user_trend.legends).toEqual(
-      expect.objectContaining({ visible: true, selectMode: 'multi' })
+      expect.objectContaining({ visible: true, selectMode: 'multiple' })
+    )
+  })
+
+  it('should not use the invalid "multi" value for spec_user_trend', () => {
+    const result = processUserChartData(userData, 'day', mockT, 10, 'default')
+
+    expect(VALID_LEGEND_SELECT_MODES).toContain(
+      result.spec_user_trend.legends.selectMode
     )
   })
 })
