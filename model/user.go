@@ -1159,6 +1159,16 @@ func GetUsernameById(id int, fromDB bool) (username string, err error) {
 	return username, nil
 }
 
+// GetDisplayNameById 从 DB 读取用户显示名称（display_name 不在用户缓存中，直接查库；用户不存在时返回空串）
+func GetDisplayNameById(id int) (string, error) {
+	var displayName string
+	err := DB.Model(&User{}).Where("id = ?", id).Select("display_name").Find(&displayName).Error
+	if err != nil {
+		return "", err
+	}
+	return displayName, nil
+}
+
 func IsLinuxDOIdAlreadyTaken(linuxDOId string) bool {
 	var user User
 	err := DB.Unscoped().Where("linux_do_id = ?", linuxDOId).First(&user).Error

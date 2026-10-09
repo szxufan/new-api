@@ -39,7 +39,10 @@ let themeManagerPromise: Promise<
 > | null = null
 
 type ChartSpecKey =
-  'spec_model_line' | 'spec_pie' | 'spec_rank_bar' | 'spec_quota_pie'
+  | 'spec_model_line'
+  | 'spec_pie'
+  | 'spec_rank_bar'
+  | 'spec_quota_pie'
 
 const CHART_SPEC_KEYS: Record<ModelAnalyticsChartTab, ChartSpecKey> = {
   trend: 'spec_model_line',

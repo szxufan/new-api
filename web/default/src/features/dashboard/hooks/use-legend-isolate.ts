@@ -32,10 +32,7 @@ import {
 interface LegendChartLike {
   getLegendSelectedDataById?: (id: string) => LegendSelectionKey[]
   getLegendDataById?: (id: string) => Array<Record<string, unknown>>
-  setLegendSelectedDataById?: (
-    id: string,
-    selected: LegendSelectionKey[]
-  ) => void
+  setLegendSelectedDataById?: (id: string, selected: LegendSelectionKey[]) => void
 }
 
 /** 读取图例的全部项：优先当前选中集（初始默认全选），回退到图例数据项。 */
@@ -46,9 +43,7 @@ function extractAllKeys(chart: LegendChartLike): LegendSelectionKey[] {
   }
   const data = chart.getLegendDataById?.(SERIES_LEGEND_ID) ?? []
   return data
-    .map(
-      (datum) => (datum?.key ?? datum?.label) as LegendSelectionKey | undefined
-    )
+    .map((datum) => (datum?.key ?? datum?.label) as LegendSelectionKey | undefined)
     .filter(
       (key): key is LegendSelectionKey => key !== undefined && key !== null
     )
@@ -80,9 +75,7 @@ export function useSeriesLegendIsolate() {
     if (!isInitial) {
       return
     }
-    stateRef.current = createInitialLegendState(
-      extractAllKeys(chartRef.current)
-    )
+    stateRef.current = createInitialLegendState(extractAllKeys(chartRef.current))
   }, [])
 
   const handleLegendItemClick = useCallback((event: { value?: unknown }) => {

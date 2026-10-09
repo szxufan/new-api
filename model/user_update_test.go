@@ -412,3 +412,26 @@ func TestEditOnlyModifiesIntendedFields(t *testing.T) {
 		t.Errorf("status was unexpectedly modified: expected %d, got %d", common.UserStatusEnabled, dbUser.Status)
 	}
 }
+
+func TestGetDisplayNameById(t *testing.T) {
+	setupTestDB(t)
+
+	user := createTestUser(t, "dnquery", common.RoleAdminUser)
+	// 未设置显示名称时返回空串
+	if dn, err := GetDisplayNameById(user.Id); err != nil || dn != "" {
+		t.Errorf("unset display name: got (%q, %v), want (\"\", nil)", dn, err)
+	}
+
+	user.DisplayName = "查询用显示名"
+	if err := DB.Save(user).Error; err != nil {
+		t.Fatalf("failed to save user: %v", err)
+	}
+	if dn, err := GetDisplayNameById(user.Id); err != nil || dn != "查询用显示名" {
+		t.Errorf("get display name: got (%q, %v), want (\"查询用显示名\", nil)", dn, err)
+	}
+
+	// 用户不存在时返回空串且不报错
+	if dn, err := GetDisplayNameById(987654); err != nil || dn != "" {
+		t.Errorf("missing user: got (%q, %v), want (\"\", nil)", dn, err)
+	}
+}

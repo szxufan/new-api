@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { QuotaDataItem } from '@/features/dashboard/types'
+import { SERIES_LEGEND_ID } from './legend-selection'
 import {
   processChartData,
   processUserChartData,
   processUserModelChartData,
 } from './charts'
-import { SERIES_LEGEND_ID } from './legend-selection'
 
 vi.mock('@visactor/vchart/esm/theme/color-scheme/builtin/default', () => ({
   dataScheme: [

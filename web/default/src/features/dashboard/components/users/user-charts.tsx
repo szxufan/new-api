@@ -24,11 +24,11 @@ import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import { Skeleton } from '@/components/ui/skeleton'
+import { VChartLegendIsolate } from '@/features/dashboard/components/ui/vchart-legend-isolate'
 import {
   getUserQuotaDataByUsers,
   getUserQuotaDataByUserAndModel,
 } from '@/features/dashboard/api'
-import { VChartLegendIsolate } from '@/features/dashboard/components/ui/vchart-legend-isolate'
 import {
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
@@ -255,7 +255,8 @@ export function UserCharts() {
           const spec = isModelChart
             ? userModelChartData[
                 chart.specKey as
-                  'spec_user_model_quota_rank' | 'spec_user_model_count_rank'
+                  | 'spec_user_model_quota_rank'
+                  | 'spec_user_model_count_rank'
               ]
             : chartData[chart.specKey]
 

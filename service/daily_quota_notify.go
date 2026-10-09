@@ -90,13 +90,19 @@ func checkDailyQuotaNotify(userId int, quota int, setting *operation_setting.Dai
 	releaseDailyNotifyLock(userId)
 }
 
+// buildDailyQuotaNotifyText 组装提醒正文：展示用户名（取不到时回退"用户ID"占位），
+// 用户设置了显示名称时追加"（xxx）"，不展示用户 ID。
 func buildDailyQuotaNotifyText(userId int, consumed int, multiple int, thresholdQuota int) string {
 	username, err := model.GetUsernameById(userId, false)
 	if err != nil || username == "" {
 		username = fmt.Sprintf("用户%d", userId)
 	}
-	return fmt.Sprintf("### %s\n\n用户 **%s**（ID: %d）今日消费已达到 **%s**，为每日额度 %s 的 **%d** 倍。\n\n日期：%s",
-		DailyQuotaNotifyTitle, username, userId, logger.FormatQuota(consumed), logger.FormatQuota(thresholdQuota), multiple, time.Now().Format("2006-01-02"))
+	userLabel := fmt.Sprintf("**%s**", username)
+	if displayName, dnErr := model.GetDisplayNameById(userId); dnErr == nil && displayName != "" && displayName != username {
+		userLabel = fmt.Sprintf("**%s**（%s）", username, displayName)
+	}
+	return fmt.Sprintf("### %s\n\n用户 %s 今日消费已达到 **%s**，为每日额度 %s 的 **%d** 倍。\n\n日期：%s",
+		DailyQuotaNotifyTitle, userLabel, logger.FormatQuota(consumed), logger.FormatQuota(thresholdQuota), multiple, time.Now().Format("2006-01-02"))
 }
 
 // displayCurrencyToQuota 按站点货币显示类型把阈值换算为站内额度，换算逻辑与 logger.FormatQuota 一致

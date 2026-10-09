@@ -20,12 +20,12 @@ import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/them
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
 import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
+import { SERIES_LEGEND_ID } from './legend-selection'
 import type {
   QuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
-import { SERIES_LEGEND_ID } from './legend-selection'
 
 /**
  * 生成「可隔离 + 可叠加多选」图例配置。
