@@ -92,6 +92,28 @@ export interface ChannelTimeWindow {
 }
 
 // ============================================================================
+// Channel Price Factor Types (总/单项/时间段价格系数)
+// ============================================================================
+
+export interface ChannelPriceTimeWindow {
+  start: string // HH:mm
+  end: string // HH:mm，早于 start 表示跨天（次日）
+  ratio: number // 该时段价格系数（>= 0，0=免费）
+}
+
+export interface ChannelPriceSettings {
+  total?: number // 总价格系数
+  input?: number // 输入
+  completion?: number // 补全
+  cache_read?: number // 缓存读
+  cache_write?: number // 缓存写
+  image_input?: number // 图像输入
+  audio_input?: number // 音频输入
+  audio_output?: number // 音频输出
+  time_windows?: ChannelPriceTimeWindow[] // 时间段系数（按顺序取第一个命中）
+}
+
+// ============================================================================
 // Channel Settings Types
 // ============================================================================
 
@@ -106,6 +128,7 @@ export interface ChannelSettings {
   anti_cache_test?: boolean
   anti_cache_retry_enabled?: boolean
   anti_cache_retry_content?: string
+  price?: ChannelPriceSettings
 }
 
 export interface ResponseDetection {

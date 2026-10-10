@@ -640,8 +640,10 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
 		return
 	}
-	// 1. 优先让 adaptor 决定最终额度
+	// 1. 优先让 adaptor 决定最终额度（adaptor 计算值不含渠道价格系数，此处统一叠加）
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
+		channelFactors := ResolveChannelPriceFactorsByChannelId(task.ChannelId, time.Unix(task.SubmitTime, 0))
+		actualQuota = int(float64(actualQuota) * channelFactors.Overall())
 		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
 		return
 	}

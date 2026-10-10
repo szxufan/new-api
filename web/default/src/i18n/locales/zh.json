@@ -4833,6 +4833,15 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Channel Price Factors": "渠道价格系数",
+    "Factor": "系数",
+    "Image Input": "图像输入",
+    "Must be greater than or equal to 0": "必须大于或等于 0",
+    "No time-based price factors configured. The channel price is not affected by time windows.": "未配置时间段价格系数，渠道价格不受时间段影响。",
+    "Per-lane Factors": "单项系数",
+    "Time-based Factors": "时间段系数",
+    "Total Factor": "总价格系数",
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "在本渠道常规价格之外叠加的乘数：最终价格 = 基础价格 × 单项系数 × 总价格系数 × 时间段系数。系数留空表示 1（不调整）；0 表示免费。结束时间早于开始时间表示跨天（如 22:00 - 08:00）。多个时间段同时命中时取第一个。使用服务器本地时间。"
   }
 }

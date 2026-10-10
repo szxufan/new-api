@@ -1,16 +1,17 @@
 package dto
 
 type ChannelSettings struct {
-	ForceFormat            bool               `json:"force_format,omitempty"`
-	ThinkingToContent      bool               `json:"thinking_to_content,omitempty"`
-	Proxy                  string             `json:"proxy"`
-	PassThroughBodyEnabled bool               `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string             `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool               `json:"system_prompt_override,omitempty"`
-	ResponseDetection      *ResponseDetection `json:"response_detection,omitempty"`
-	AntiCacheTest          bool               `json:"anti_cache_test,omitempty"`          // 渠道测试时在提示词附加当前时间，防止上游缓存命中
-	AntiCacheRetryEnabled  bool               `json:"anti_cache_retry_enabled,omitempty"` // 重试时在最后一条消息追加内容，避免命中上游错误缓存
-	AntiCacheRetryContent  string             `json:"anti_cache_retry_content,omitempty"` // 重试追加的内容，第 N 次重试追加 N 个
+	ForceFormat            bool                  `json:"force_format,omitempty"`
+	ThinkingToContent      bool                  `json:"thinking_to_content,omitempty"`
+	Proxy                  string                `json:"proxy"`
+	PassThroughBodyEnabled bool                  `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string                `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                  `json:"system_prompt_override,omitempty"`
+	ResponseDetection      *ResponseDetection    `json:"response_detection,omitempty"`
+	AntiCacheTest          bool                  `json:"anti_cache_test,omitempty"`          // 渠道测试时在提示词附加当前时间，防止上游缓存命中
+	AntiCacheRetryEnabled  bool                  `json:"anti_cache_retry_enabled,omitempty"` // 重试时在最后一条消息追加内容，避免命中上游错误缓存
+	AntiCacheRetryContent  string                `json:"anti_cache_retry_content,omitempty"` // 重试追加的内容，第 N 次重试追加 N 个
+	Price                  *ChannelPriceSettings `json:"price,omitempty"`                    // 渠道价格系数（总/单项/时间段，累乘生效）
 }
 
 // ResponseDetection 响应内容检测配置，检测到关键词后可自动重试

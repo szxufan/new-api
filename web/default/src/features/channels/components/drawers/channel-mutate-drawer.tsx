@@ -29,6 +29,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRight,
+  BadgeDollarSign,
   HelpCircle,
   Loader2,
   Sparkles,
@@ -163,6 +164,7 @@ import {
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
+import { PriceTimeWindowsEditor } from '../price-time-windows-editor'
 import { TimeWindowsEditor } from '../time-windows-editor'
 
 type ChannelMutateDrawerProps = {
@@ -170,6 +172,17 @@ type ChannelMutateDrawerProps = {
   onOpenChange: (open: boolean) => void
   currentRow?: Channel | null
 }
+
+// 渠道价格系数表单字段（存于 setting JSON 的 price 对象）
+type PriceFactorFieldName =
+  | 'price_total'
+  | 'price_input'
+  | 'price_completion'
+  | 'price_cache_read'
+  | 'price_cache_write'
+  | 'price_image_input'
+  | 'price_audio_input'
+  | 'price_audio_output'
 
 type ModelMappingGuardrail = {
   invalidJson: boolean
@@ -1148,6 +1161,37 @@ export function ChannelMutateDrawer({
     }
   }, [])
 
+  // 渲染渠道价格系数的数字输入：空输入 = undefined（未配置，等价 1），0 为合法值（免费）
+  const renderPriceFactorField = (
+    name: PriceFactorFieldName,
+    label: string
+  ) => (
+    <FormField
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{label}</FormLabel>
+          <FormControl>
+            <Input
+              type='number'
+              min={0}
+              step={0.1}
+              placeholder='1'
+              value={field.value === undefined ? '' : field.value}
+              onChange={(e) =>
+                field.onChange(
+                  e.target.value === '' ? undefined : Number(e.target.value)
+                )
+              }
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
+
   return (
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -1302,6 +1346,70 @@ export function ChannelMutateDrawer({
                     </FormItem>
                   )}
                 />
+              </div>
+
+              {/* ── Channel Price Factors ── */}
+              <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
+                <CardHeading
+                  title={t('Channel Price Factors')}
+                  icon={<BadgeDollarSign className='h-4 w-4' />}
+                />
+                <FormDescription className='text-xs'>
+                  {t(
+                    'Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.'
+                  )}
+                </FormDescription>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  {renderPriceFactorField('price_total', t('Total Factor'))}
+                </div>
+                <div className='space-y-3 rounded-lg border p-4'>
+                  <SubHeading
+                    title={t('Per-lane Factors')}
+                    icon={<SlidersHorizontal className='h-3.5 w-3.5' />}
+                  />
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    {renderPriceFactorField('price_input', t('Input'))}
+                    {renderPriceFactorField('price_completion', t('Completion'))}
+                    {renderPriceFactorField('price_cache_read', t('Cache Read'))}
+                    {renderPriceFactorField(
+                      'price_cache_write',
+                      t('Cache Write')
+                    )}
+                    {renderPriceFactorField(
+                      'price_image_input',
+                      t('Image Input')
+                    )}
+                    {renderPriceFactorField(
+                      'price_audio_input',
+                      t('Audio Input')
+                    )}
+                    {renderPriceFactorField(
+                      'price_audio_output',
+                      t('Audio Output')
+                    )}
+                  </div>
+                </div>
+                <div className='space-y-3 rounded-lg border p-4'>
+                  <SubHeading
+                    title={t('Time-based Factors')}
+                    icon={<Clock className='h-3.5 w-3.5' />}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='priceTimeWindows'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <PriceTimeWindowsEditor
+                            value={field.value || []}
+                            onChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
 
               {/* ── API Access ── */}

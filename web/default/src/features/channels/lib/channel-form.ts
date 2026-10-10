@@ -18,7 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 import { CHANNEL_STATUS, MODEL_FETCHABLE_TYPES } from '../constants'
-import type { Channel, ChannelTimeWindow } from '../types'
+import type {
+  Channel,
+  ChannelPriceSettings,
+  ChannelPriceTimeWindow,
+  ChannelTimeWindow,
+} from '../types'
 
 // ============================================================================
 // Form Validation Schema
@@ -61,6 +66,29 @@ export const channelFormSchema = z.object({
         .object({
           start: z.string().min(1, 'Start time is required'),
           end: z.string().min(1, 'End time is required'),
+        })
+        .refine((w) => w.start !== w.end, {
+          message: 'Start time and end time cannot be the same',
+          path: ['end'],
+        })
+    )
+    .optional(),
+  // Channel price factors (stored in setting JSON under "price"; empty = 1, 0 = free)
+  price_total: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_input: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_completion: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_cache_read: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_cache_write: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_image_input: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_audio_input: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  price_audio_output: z.number().min(0, 'Must be greater than or equal to 0').optional(),
+  priceTimeWindows: z
+    .array(
+      z
+        .object({
+          start: z.string().min(1, 'Start time is required'),
+          end: z.string().min(1, 'End time is required'),
+          ratio: z.number().min(0, 'Must be greater than or equal to 0'),
         })
         .refine((w) => w.start !== w.end, {
           message: 'Start time and end time cannot be the same',
@@ -142,6 +170,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   settings: '{}',
   other: '',
   timeWindows: [],
+  priceTimeWindows: [],
   multi_key_mode: 'single',
   multi_key_type: 'random',
   batch_add_set_key_prefix_2_name: false,
@@ -208,10 +237,12 @@ export function transformChannelToFormDefaults(
     response_detection_on_hit: 'retry' as 'retry' | 'abort',
     response_detection_treat_empty_as_hit: false,
   }
+  let channelPrice: ChannelPriceSettings | undefined
 
   if (channel.setting) {
     try {
       const parsed = JSON.parse(channel.setting)
+      channelPrice = parsed.price
       extraSettings = {
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
@@ -349,6 +380,8 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     fallback_channel_ids: fallbackChannelIds,
     timeWindows,
+    // Channel price factors (stored in setting JSON under "price")
+    ...parseChannelPriceSettings(channelPrice),
   }
 }
 
@@ -386,6 +419,99 @@ export function formatTimeWindowsJson(
   return valid.length > 0 ? JSON.stringify(valid) : ''
 }
 
+// ============================================================================
+// Channel Price Factors（渠道价格系数）解析与序列化
+// ============================================================================
+
+export type ChannelPriceFormFields = Pick<
+  ChannelFormValues,
+  | 'price_total'
+  | 'price_input'
+  | 'price_completion'
+  | 'price_cache_read'
+  | 'price_cache_write'
+  | 'price_image_input'
+  | 'price_audio_input'
+  | 'price_audio_output'
+  | 'priceTimeWindows'
+>
+
+/**
+ * 解析 setting JSON 中的 price 对象为表单字段。
+ * 未配置的系数保持 undefined（与显式 0=免费 区分）。
+ */
+export function parseChannelPriceSettings(
+  price: ChannelPriceSettings | undefined
+): ChannelPriceFormFields {
+  const timeWindows: ChannelPriceTimeWindow[] = Array.isArray(
+    price?.time_windows
+  )
+    ? price.time_windows
+        .filter(
+          (w) =>
+            w &&
+            typeof w.start === 'string' &&
+            typeof w.end === 'string' &&
+            typeof w.ratio === 'number'
+        )
+        .map((w) => ({ start: w.start, end: w.end, ratio: w.ratio }))
+    : []
+  return {
+    price_total: price?.total,
+    price_input: price?.input,
+    price_completion: price?.completion,
+    price_cache_read: price?.cache_read,
+    price_cache_write: price?.cache_write,
+    price_image_input: price?.image_input,
+    price_audio_input: price?.audio_input,
+    price_audio_output: price?.audio_output,
+    priceTimeWindows: timeWindows,
+  }
+}
+
+/**
+ * 组装 setting JSON 中的 price 对象（仅写入已配置字段；显式 0 必须保留）。
+ * 无任何配置时返回 undefined（不写 price 键）。
+ */
+export function buildChannelPriceSettings(
+  formData: ChannelFormValues
+): ChannelPriceSettings | undefined {
+  const price: ChannelPriceSettings = {}
+  if (formData.price_total !== undefined) price.total = formData.price_total
+  if (formData.price_input !== undefined) price.input = formData.price_input
+  if (formData.price_completion !== undefined) {
+    price.completion = formData.price_completion
+  }
+  if (formData.price_cache_read !== undefined) {
+    price.cache_read = formData.price_cache_read
+  }
+  if (formData.price_cache_write !== undefined) {
+    price.cache_write = formData.price_cache_write
+  }
+  if (formData.price_image_input !== undefined) {
+    price.image_input = formData.price_image_input
+  }
+  if (formData.price_audio_input !== undefined) {
+    price.audio_input = formData.price_audio_input
+  }
+  if (formData.price_audio_output !== undefined) {
+    price.audio_output = formData.price_audio_output
+  }
+
+  const timeWindows = (formData.priceTimeWindows || []).filter(
+    (w) => w.start && w.end
+  )
+  if (timeWindows.length > 0) {
+    price.time_windows = timeWindows.map((w) => ({
+      start: w.start,
+      end: w.end,
+      ratio: w.ratio ?? 0,
+    }))
+  }
+
+  return Object.keys(price).length > 0 ? price : undefined
+}
+
 /**
  * Build the setting JSON string from form extra settings
  */
@@ -418,6 +544,12 @@ function buildSettingJSON(formData: ChannelFormValues): string {
       treat_empty_as_hit:
         formData.response_detection_treat_empty_as_hit || false,
     }
+  }
+
+  // 渠道价格系数：仅有配置时写入 price 键（显式 0=免费 必须保留）
+  const priceSettings = buildChannelPriceSettings(formData)
+  if (priceSettings) {
+    settingObj.price = priceSettings
   }
 
   return JSON.stringify(settingObj)

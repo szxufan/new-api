@@ -355,6 +355,117 @@ describe('time_windows payloads', () => {
   })
 })
 
+describe('channel price factors', () => {
+  const createPriceMockChannel = (settingJson: string): Channel =>
+    ({
+      id: 1,
+      type: 1,
+      key: 'k',
+      status: 1,
+      name: 'Test Channel',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      models: 'gpt-4',
+      group: 'default',
+      settings: '{}',
+      channel_info: {
+        is_multi_key: false,
+        multi_key_size: 0,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'random',
+      },
+      setting: settingJson,
+    }) as unknown as Channel
+
+  it('should parse price settings from setting JSON with 0 preserved', () => {
+    const channel = createPriceMockChannel(
+      JSON.stringify({
+        price: {
+          total: 0.5,
+          input: 0,
+          cache_read: 2,
+          time_windows: [{ start: '22:00', end: '08:00', ratio: 0.8 }],
+        },
+      })
+    )
+
+    const form = transformChannelToFormDefaults(channel)
+
+    expect(form.price_total).toBe(0.5)
+    expect(form.price_input).toBe(0)
+    expect(form.price_cache_read).toBe(2)
+    expect(form.price_completion).toBeUndefined()
+    expect(form.priceTimeWindows).toEqual([
+      { start: '22:00', end: '08:00', ratio: 0.8 },
+    ])
+  })
+
+  it('should default price time windows to [] when unset', () => {
+    const channel = createPriceMockChannel(JSON.stringify({}))
+    const form = transformChannelToFormDefaults(channel)
+
+    expect(form.priceTimeWindows).toEqual([])
+    expect(form.price_total).toBeUndefined()
+  })
+
+  it('should serialize only configured price fields (0 kept) on create', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      price_total: 0.9,
+      price_input: 0,
+      priceTimeWindows: [{ start: '22:00', end: '08:00', ratio: 0.5 }],
+    })
+
+    const setting = JSON.parse(payload.channel.setting as string)
+
+    expect(setting.price).toEqual({
+      total: 0.9,
+      input: 0,
+      time_windows: [{ start: '22:00', end: '08:00', ratio: 0.5 }],
+    })
+    expect('completion' in setting.price).toBe(false)
+  })
+
+  it('should not write price key when no price factors configured', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+    })
+
+    const setting = JSON.parse(payload.channel.setting as string)
+
+    expect('price' in setting).toBe(false)
+  })
+
+  it('should round-trip price factors through defaults and update payload', () => {
+    const channel = createPriceMockChannel(
+      JSON.stringify({
+        price: {
+          total: 0.5,
+          cache_write: 1.5,
+          time_windows: [{ start: '12:00', end: '14:00', ratio: 0.25 }],
+        },
+      })
+    )
+
+    const form = transformChannelToFormDefaults(channel)
+    const payload = transformFormDataToUpdatePayload(form, 1)
+    const setting = JSON.parse(payload.setting as string)
+
+    expect(setting.price).toEqual({
+      total: 0.5,
+      cache_write: 1.5,
+      time_windows: [{ start: '12:00', end: '14:00', ratio: 0.25 }],
+    })
+  })
+})
+
 describe('group_blacklist payloads', () => {
   it('should format group_blacklist array to comma-separated string on create', () => {
     const payload = transformFormDataToCreatePayload({

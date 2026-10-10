@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -67,12 +68,13 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+	channelFactors := relaycommon.ResolveChannelPriceFactors(c, info)
 
 	// "follow" billing: resolve the follow chain to its target model and
 	// bill against the target, scaled by the accumulated coefficient.
 	// Unset/cyclic configs return ok=false and fall through to normal billing.
 	if targetModel, coefficient, isFollow := billing_setting.ResolveFollow(info.OriginModelName); isFollow {
-		return modelPriceHelperFollow(c, info, promptTokens, meta, groupRatioInfo, targetModel, coefficient)
+		return modelPriceHelperFollow(c, info, promptTokens, meta, groupRatioInfo, channelFactors, targetModel, coefficient)
 	}
 
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
@@ -94,9 +96,10 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var audioCompletionRatio float64
 	var freeModel bool
 	if !usePrice {
-		preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
+		preConsumedInputTokens := common.Max(promptTokens, common.PreConsumedQuota)
+		preConsumedOutputTokens := 0
 		if meta.MaxTokens != 0 {
-			preConsumedTokens += meta.MaxTokens
+			preConsumedOutputTokens = meta.MaxTokens
 		}
 		var success bool
 		var matchName string
@@ -119,13 +122,14 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		imageRatio, _ = ratio_setting.GetImageRatio(info.OriginModelName)
 		audioRatio = ratio_setting.GetAudioRatio(info.OriginModelName)
 		audioCompletionRatio = ratio_setting.GetAudioCompletionRatio(info.OriginModelName)
-		ratio := modelRatio * groupRatioInfo.GroupRatio
-		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
+		ratio := modelRatio * groupRatioInfo.GroupRatio * channelFactors.Overall()
+		// 渠道单项系数：估算输入/输出分别按对应项系数调整（未配置为 1，与旧公式等价）
+		preConsumedQuota = int((float64(preConsumedInputTokens)*channelFactors.Input + float64(preConsumedOutputTokens)*channelFactors.Completion) * ratio)
 	} else {
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
-		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 	}
 
 	// check if free model pre-consume is disabled
@@ -174,6 +178,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+	channelFactors := relaycommon.ResolveChannelPriceFactors(c, info)
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
@@ -202,7 +207,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 	freeModel := false
 
 	if usePrice {
-		quota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		quota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 			if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
 				quota = 0
@@ -211,7 +216,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 		}
 	} else {
 		// 按量计费：以模型倍率的一半作为预扣额度
-		quota = int(modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		quota = int(modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		modelPrice = -1
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 			if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
@@ -262,7 +267,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 // 按次目标乘 model_price；按 Token 目标乘 model_ratio（cache/image/audio 等
 // lane 均为相对倍率，随基础倍率一同被缩放）；tiered_expr 目标将系数包装进
 // 表达式，随 BillingSnapshot 在结算时同样生效。
-func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo, targetModel string, coefficient float64) (types.PriceData, error) {
+func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo, channelFactors dto.PriceFactors, targetModel string, coefficient float64) (types.PriceData, error) {
 	if billing_setting.GetBillingMode(targetModel) == billing_setting.BillingModeTieredExpr {
 		exprStr, ok := billing_setting.GetBillingExpr(targetModel)
 		if !ok || strings.TrimSpace(exprStr) == "" {
@@ -287,7 +292,7 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 			targetPrice = targetPrice * meta.ImagePriceRatio
 		}
 		targetPrice *= coefficient
-		preConsumedQuota := int(targetPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		preConsumedQuota := int(targetPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		freeModel := false
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 			if groupRatioInfo.GroupRatio == 0 || targetPrice == 0 {
@@ -328,12 +333,14 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 	audioRatio := ratio_setting.GetAudioRatio(targetModel)
 	audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(targetModel)
 
-	preConsumedTokens := common.Max(promptTokens, common.PreConsumedQuota)
+	preConsumedInputTokens := common.Max(promptTokens, common.PreConsumedQuota)
+	preConsumedOutputTokens := 0
 	if meta.MaxTokens != 0 {
-		preConsumedTokens += meta.MaxTokens
+		preConsumedOutputTokens = meta.MaxTokens
 	}
-	ratio := targetRatio * groupRatioInfo.GroupRatio
-	preConsumedQuota := int(float64(preConsumedTokens) * ratio)
+	ratio := targetRatio * groupRatioInfo.GroupRatio * channelFactors.Overall()
+	// 渠道单项系数：估算输入/输出分别按对应项系数调整（未配置为 1，与旧公式等价）
+	preConsumedQuota := int((float64(preConsumedInputTokens)*channelFactors.Input + float64(preConsumedOutputTokens)*channelFactors.Completion) * ratio)
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
@@ -388,7 +395,9 @@ func modelPriceHelperTieredWithExpr(c *gin.Context, info *relaycommon.RelayInfo,
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
-	preConsumedQuota := billingexpr.QuotaRound(quotaBeforeGroup * groupRatioInfo.GroupRatio)
+	// 渠道价格系数（总系数 × 时间段系数）在表达式结果外层累乘
+	channelFactors := relaycommon.ResolveChannelPriceFactors(c, info)
+	preConsumedQuota := billingexpr.QuotaRound(quotaBeforeGroup * groupRatioInfo.GroupRatio * channelFactors.Overall())
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {

@@ -109,8 +109,13 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 		if quota <= 0 {
 			quota = snap.EstimatedQuotaAfterGroup
 		}
+		// 回退值来自预扣快照，已包含渠道价格系数，不再重复乘
 		return true, quota, nil
 	}
+
+	// 渠道价格系数（总系数 × 时间段系数）在表达式结果外层累乘
+	factors := relaycommon.ResolveChannelPriceFactors(nil, relayInfo)
+	tr.ActualQuotaAfterGroup = billingexpr.QuotaRound(float64(tr.ActualQuotaAfterGroup) * factors.Overall())
 
 	return true, tr.ActualQuotaAfterGroup, &tr
 }

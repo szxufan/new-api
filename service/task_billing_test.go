@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -714,4 +715,71 @@ func TestSettle_NonPerCall_AdaptorAdjustWorks(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+// seedPriceChannel 创建带渠道价格系数配置的渠道
+func seedPriceChannel(t *testing.T, id int, priceSetting string) {
+	t.Helper()
+	ch := &model.Channel{
+		Id:      id,
+		Name:    "price-channel",
+		Key:     "sk-price",
+		Status:  common.ChannelStatusEnabled,
+		Setting: &priceSetting,
+	}
+	require.NoError(t, model.DB.Create(ch).Error)
+}
+
+func TestRecalculateTaskQuotaByTokensAppliesChannelPriceFactors(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 33, 33, 33
+	const initQuota, preConsumed = 100000, 1000
+	const tokenRemain = 100000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-recalc-price", tokenRemain)
+	seedPriceChannel(t, channelID, `{"price":{"total":2}}`)
+
+	savedRatio := ratio_setting.ModelRatio2JSONString()
+	t.Cleanup(func() { _ = ratio_setting.UpdateModelRatioByJSONString(savedRatio) })
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":1}`))
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.SubmitTime = time.Now().Unix()
+
+	RecalculateTaskQuotaByTokens(ctx, task, 1000)
+
+	// actualQuota = 1000 × modelRatio(1) × groupRatio(1) × 1 × channelOverall(2) = 2000
+	assert.Equal(t, 2000, task.Quota)
+	assert.Equal(t, initQuota-(2000-preConsumed), getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain-(2000-preConsumed), getTokenRemainQuota(t, tokenID))
+}
+
+func TestSettle_AdaptorAdjustAppliesChannelPriceFactors(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 34, 34, 34
+	const initQuota, preConsumed = 10000, 1000
+	const adaptorQuota = 3000
+	const tokenRemain = 9000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-adj-price", tokenRemain)
+	seedPriceChannel(t, channelID, `{"price":{"total":0.5}}`)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.SubmitTime = time.Now().Unix()
+
+	adaptor := &mockAdaptor{adjustReturn: adaptorQuota}
+	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+
+	settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+
+	// adaptor 额度 3000 再乘渠道系数 0.5 → 1500；delta = 1500 - 1000 = +500
+	expected := 1500
+	assert.Equal(t, expected, task.Quota)
+	assert.Equal(t, initQuota-(expected-preConsumed), getUserQuota(t, userID))
 }

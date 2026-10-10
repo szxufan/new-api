@@ -4833,6 +4833,15 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Channel Price Factors": "Hệ số giá của kênh",
+    "Factor": "Hệ số",
+    "Image Input": "Đầu vào hình ảnh",
+    "Must be greater than or equal to 0": "Phải lớn hơn hoặc bằng 0",
+    "No time-based price factors configured. The channel price is not affected by time windows.": "Chưa cấu hình hệ số giá theo khung giờ. Giá của kênh không bị ảnh hưởng bởi khung giờ.",
+    "Per-lane Factors": "Hệ số theo từng hạng mục",
+    "Time-based Factors": "Hệ số theo khung giờ",
+    "Total Factor": "Hệ số tổng",
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "Hệ số nhân áp dụng thêm trên giá thông thường của kênh: giá cuối cùng = giá cơ bản × hệ số hạng mục × hệ số tổng × hệ số khung giờ. Để trống hệ số nghĩa là 1 (không điều chỉnh); 0 nghĩa là miễn phí. Thời gian kết thúc sớm hơn thời gian bắt đầu là khung giờ qua ngày (ví dụ 22:00 - 08:00). Khi nhiều khung giờ trùng khớp, khung đầu tiên được áp dụng. Sử dụng giờ địa phương của máy chủ."
   }
 }

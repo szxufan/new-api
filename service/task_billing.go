@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -45,6 +46,10 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
 	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
+	}
+	channelPriceFactors := relaycommon.ResolveChannelPriceFactors(c, info)
+	if !channelPriceFactors.IsIdentity() {
+		other["channel_price_factors"] = channelPriceFactors.ToMap()
 	}
 	if info.IsModelMapped {
 		other["is_model_mapped"] = true
@@ -299,9 +304,13 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		}
 	}
 
-	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier
-	actualQuota := int(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
+	// 渠道价格系数（总系数 × 时间段系数）：以任务提交时间为时间基准
+	channelFactors := ResolveChannelPriceFactorsByChannelId(task.ChannelId, time.Unix(task.SubmitTime, 0))
+	channelOverall := channelFactors.Overall()
 
-	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
+	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier * 渠道系数
+	actualQuota := int(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier * channelOverall)
+
+	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f, channelFactor=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier, channelOverall)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason)
 }

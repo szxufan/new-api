@@ -59,23 +59,29 @@ func (w TimeWindow) Validate() error {
 
 // IsInTimeWindows 判断时刻 t（使用其本地时区）是否落在任一时段内
 func IsInTimeWindows(windows []TimeWindow, t time.Time) bool {
-	minutes := t.Hour()*60 + t.Minute()
 	for _, w := range windows {
-		start, err1 := parseHHmm(w.Start)
-		end, err2 := parseHHmm(w.End)
-		if err1 != nil || err2 != nil {
-			continue
+		if isInTimeWindow(w, t) {
+			return true
 		}
-		if start < end {
-			if minutes >= start && minutes < end {
-				return true
-			}
-		} else if start > end {
-			// 跨天段
-			if minutes >= start || minutes < end {
-				return true
-			}
-		}
+	}
+	return false
+}
+
+// isInTimeWindow 判断时刻 t（使用其本地时区）是否落在单个时段内。
+// start < end 为当日段；start > end 为跨天段；start == end 无效返回 false。
+func isInTimeWindow(w TimeWindow, t time.Time) bool {
+	minutes := t.Hour()*60 + t.Minute()
+	start, err1 := parseHHmm(w.Start)
+	end, err2 := parseHHmm(w.End)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	if start < end {
+		return minutes >= start && minutes < end
+	}
+	if start > end {
+		// 跨天段
+		return minutes >= start || minutes < end
 	}
 	return false
 }

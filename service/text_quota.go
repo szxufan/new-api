@@ -138,25 +138,32 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 	return surcharge
 }
 
-func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaSummary, tieredQuota int, tieredResult *billingexpr.TieredResult) int {
+// composeTieredTextQuota 汇总表达式计费结果与工具调用附加费。
+// tieredQuota 已在 TryTieredSettle 出口乘过渠道系数（Overall），此处重建的
+// 数值同样乘 overall，保证两条路径一致。
+func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaSummary, tieredQuota int, tieredResult *billingexpr.TieredResult, overall float64) int {
 	if summary.ToolCallSurchargeQuota.IsZero() {
 		return tieredQuota
 	}
 
+	dOverall := decimal.NewFromFloat(overall)
 	if tieredResult != nil {
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			return int(decimal.NewFromFloat(tieredResult.ActualQuotaBeforeGroup).
 				Mul(decimal.NewFromFloat(snap.GroupRatio)).
-				Add(summary.ToolCallSurchargeQuota).
+				Mul(dOverall).
+				Add(summary.ToolCallSurchargeQuota.Mul(dOverall)).
 				Round(0).
 				IntPart())
 		}
 	}
 
-	return tieredQuota + int(summary.ToolCallSurchargeQuota.Round(0).IntPart())
+	return tieredQuota + int(summary.ToolCallSurchargeQuota.Mul(dOverall).Round(0).IntPart())
 }
 
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
+	// 渠道价格系数（总/单项/时间段），未配置时全部为 1
+	factors := relaycommon.ResolveChannelPriceFactors(ctx, relayInfo)
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
 		TokenName:            ctx.GetString("token_name"),
@@ -226,6 +233,14 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 
 	ratio := dModelRatio.Mul(dGroupRatio)
+	// 渠道价格系数（decimal 形式）：单项系数作用于对应 lane，Overall 作用于整单
+	dInputFactor := decimal.NewFromFloat(factors.Input)
+	dCompletionFactor := decimal.NewFromFloat(factors.Completion)
+	dCacheReadFactor := decimal.NewFromFloat(factors.CacheRead)
+	dCacheWriteFactor := decimal.NewFromFloat(factors.CacheWrite)
+	dImageInputFactor := decimal.NewFromFloat(factors.ImageInput)
+	dAudioInputFactor := decimal.NewFromFloat(factors.AudioInput)
+	dOverall := decimal.NewFromFloat(factors.Overall())
 	summary.ToolCallSurchargeQuota = calculateTextToolCallSurcharge(ctx, relayInfo, &summary)
 
 	var audioInputQuota decimal.Decimal
@@ -272,11 +287,16 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			}
 		}
 
-		promptQuota := baseTokens.Add(cachedTokensWithRatio).Add(imageTokensWithRatio).Add(cachedCreationTokensWithRatio)
-		completionQuota := dCompletionTokens.Mul(dCompletionRatio)
+		promptQuota := baseTokens.Mul(dInputFactor).
+			Add(cachedTokensWithRatio.Mul(dCacheReadFactor)).
+			Add(imageTokensWithRatio.Mul(dImageInputFactor)).
+			Add(cachedCreationTokensWithRatio.Mul(dCacheWriteFactor))
+		completionQuota := dCompletionTokens.Mul(dCompletionRatio).Mul(dCompletionFactor)
 		quotaCalculateDecimal := promptQuota.Add(completionQuota).Mul(ratio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
-		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
+		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota.Mul(dAudioInputFactor))
+		// 总价格系数 × 时间段系数：作用于整单（含工具调用附加费与单独音频输入价）
+		quotaCalculateDecimal = quotaCalculateDecimal.Mul(dOverall)
 
 		if len(relayInfo.PriceData.OtherRatios) > 0 {
 			for _, otherRatio := range relayInfo.PriceData.OtherRatios {
@@ -292,6 +312,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		quotaCalculateDecimal := dModelPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
+		quotaCalculateDecimal = quotaCalculateDecimal.Mul(dOverall)
 		if len(relayInfo.PriceData.OtherRatios) > 0 {
 			for _, otherRatio := range relayInfo.PriceData.OtherRatios {
 				quotaCalculateDecimal = quotaCalculateDecimal.Mul(decimal.NewFromFloat(otherRatio))
@@ -336,6 +357,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	channelPriceFactors := relaycommon.ResolveChannelPriceFactors(ctx, relayInfo)
 
 	var tieredResult *billingexpr.TieredResult
 	tieredBillingApplied := false
@@ -348,7 +370,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		if tieredOk {
 			tieredBillingApplied = true
 			tieredResult = tieredRes
-			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
+			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes, channelPriceFactors.Overall())
 		}
 	}
 
@@ -463,6 +485,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	if !channelPriceFactors.IsIdentity() {
+		other["channel_price_factors"] = channelPriceFactors.ToMap()
 	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

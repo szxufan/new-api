@@ -4833,6 +4833,15 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Channel Price Factors": "チャネル価格係数",
+    "Factor": "係数",
+    "Image Input": "画像入力",
+    "Must be greater than or equal to 0": "0 以上である必要があります",
+    "No time-based price factors configured. The channel price is not affected by time windows.": "時間帯価格係数が未設定です。チャネル価格は時間帯の影響を受けません。",
+    "Per-lane Factors": "項目別係数",
+    "Time-based Factors": "時間帯係数",
+    "Total Factor": "総合係数",
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "このチャネルの通常価格に上乗せされる乗数：最終価格 = 基本価格 × 項目別係数 × 総合係数 × 時間帯係数。係数を空欄にすると 1（調整なし）、0 は無料を意味します。終了時刻が開始時刻より早い場合は日をまたぎます（例：22:00 - 08:00）。複数の時間帯に該当する場合は最初のものが適用されます。サーバーのローカル時刻を使用します。"
   }
 }

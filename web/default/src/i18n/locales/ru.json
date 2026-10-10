@@ -4833,6 +4833,15 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Channel Price Factors": "Ценовые коэффициенты канала",
+    "Factor": "Коэффициент",
+    "Image Input": "Ввод изображения",
+    "Must be greater than or equal to 0": "Должно быть не менее 0",
+    "No time-based price factors configured. The channel price is not affected by time windows.": "Ценовые коэффициенты по времени не настроены. На цену канала временные интервалы не влияют.",
+    "Per-lane Factors": "Коэффициенты по категориям",
+    "Time-based Factors": "Коэффициенты по времени",
+    "Total Factor": "Общий коэффициент",
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "Множители, применяемые поверх обычной цены канала: итоговая цена = базовая цена × коэффициент категории × общий коэффициент × коэффициент времени. Пустое поле означает 1 (без изменений); 0 означает бесплатно. Если время окончания раньше времени начала, интервал переходит через полночь (например, 22:00 - 08:00). При совпадении нескольких интервалов применяется первый. Используется местное время сервера."
   }
 }

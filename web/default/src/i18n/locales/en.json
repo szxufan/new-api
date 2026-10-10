@@ -4833,6 +4833,15 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Channel Price Factors": "Channel Price Factors",
+    "Factor": "Factor",
+    "Image Input": "Image Input",
+    "Must be greater than or equal to 0": "Must be greater than or equal to 0",
+    "No time-based price factors configured. The channel price is not affected by time windows.": "No time-based price factors configured. The channel price is not affected by time windows.",
+    "Per-lane Factors": "Per-lane Factors",
+    "Time-based Factors": "Time-based Factors",
+    "Total Factor": "Total Factor",
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used."
   }
 }

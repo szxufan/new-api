@@ -1227,6 +1227,9 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if err := channelParams.Price.Validate(); err != nil {
+		return fmt.Errorf("price: %s", err.Error())
+	}
 	return nil
 }
 
