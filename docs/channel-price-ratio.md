@@ -127,6 +127,8 @@ quota = [ baseTokens × input          + completionTokens × completionRatio × 
 }
 ```
 
+页面展示：`/usage-logs/common` 日志详情弹窗的「Billing Details」区块会在分组倍率之后逐行显示这些系数（如 `Total Factor 0.9000x`、`Time Window Factor 0.8000x`、`Input Factor 0.5000x`），未记录该字段的历史日志不受影响（不显示这些行）。
+
 ## 示例
 
 渠道配置：`total = 0.9`、`input = 0.5`、`cache_read = 0.2`，时段 `22:00 - 08:00` 系数 `0.8`，模型倍率 `1`、分组倍率 `1`。

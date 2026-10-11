@@ -4842,6 +4842,14 @@
     "Per-lane Factors": "单项系数",
     "Time-based Factors": "时间段系数",
     "Total Factor": "总价格系数",
-    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "在本渠道常规价格之外叠加的乘数：最终价格 = 基础价格 × 单项系数 × 总价格系数 × 时间段系数。系数留空表示 1（不调整）；0 表示免费。结束时间早于开始时间表示跨天（如 22:00 - 08:00）。多个时间段同时命中时取第一个。使用服务器本地时间。"
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "在本渠道常规价格之外叠加的乘数：最终价格 = 基础价格 × 单项系数 × 总价格系数 × 时间段系数。系数留空表示 1（不调整）；0 表示免费。结束时间早于开始时间表示跨天（如 22:00 - 08:00）。多个时间段同时命中时取第一个。使用服务器本地时间。",
+    "Time Window Factor": "时间段系数",
+    "Input Factor": "输入系数",
+    "Output Factor": "输出系数",
+    "Cache Read Factor": "缓存读系数",
+    "Cache Write Factor": "缓存写系数",
+    "Image Input Factor": "图像输入系数",
+    "Audio Input Factor": "音频输入系数",
+    "Audio Output Factor": "音频输出系数"
   }
 }

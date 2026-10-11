@@ -91,6 +91,51 @@ export function isViolationFeeLog(other: LogOtherData | null): boolean {
   )
 }
 
+/** 渠道价格系数展示顺序（与后端 other.channel_price_factors 的键一致） */
+export const CHANNEL_PRICE_FACTOR_KEYS = [
+  'total',
+  'time_window',
+  'input',
+  'completion',
+  'cache_read',
+  'cache_write',
+  'image_input',
+  'audio_input',
+  'audio_output',
+] as const
+
+/** 渠道价格系数键 → i18n 展示标签 */
+export const CHANNEL_PRICE_FACTOR_LABELS: Record<string, string> = {
+  total: 'Total Factor',
+  time_window: 'Time Window Factor',
+  input: 'Input Factor',
+  completion: 'Output Factor',
+  cache_read: 'Cache Read Factor',
+  cache_write: 'Cache Write Factor',
+  image_input: 'Image Input Factor',
+  audio_input: 'Audio Input Factor',
+  audio_output: 'Audio Output Factor',
+}
+
+/**
+ * 解析日志 other.channel_price_factors 为有序展示项。
+ * 后端仅记录非 1 的系数；无效/未知键被忽略，未配置时返回空数组。
+ */
+export function getChannelPriceFactorEntries(
+  factors: Record<string, number> | undefined | null
+): Array<{ key: string; labelKey: string; value: number }> {
+  if (!factors || typeof factors !== 'object') return []
+  const entries: Array<{ key: string; labelKey: string; value: number }> = []
+  for (const key of CHANNEL_PRICE_FACTOR_KEYS) {
+    const value = factors[key]
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const labelKey = CHANNEL_PRICE_FACTOR_LABELS[key]
+    if (!labelKey) continue
+    entries.push({ key, labelKey, value })
+  }
+  return entries
+}
+
 /**
  * Parse the 'other' field from JSON string to object
  */

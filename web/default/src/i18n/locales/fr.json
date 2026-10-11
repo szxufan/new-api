@@ -4842,6 +4842,14 @@
     "Per-lane Factors": "Facteurs par poste",
     "Time-based Factors": "Facteurs horaires",
     "Total Factor": "Facteur total",
-    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "Multiplicateurs appliqués au prix habituel de ce canal : prix final = prix de base × facteur par poste × facteur total × facteur horaire. Laissez un facteur vide pour utiliser 1 (aucun ajustement) ; 0 signifie gratuit. Une heure de fin antérieure à l'heure de début couvre minuit (ex. 22:00 - 08:00). En cas de plages multiples, la première correspondance l'emporte. L'heure locale du serveur est utilisée."
+    "Multipliers applied on top of regular pricing for this channel: final price = base price × per-lane factor × total factor × time window factor. Leave a factor empty to use 1 (no adjustment); 0 means free. An end time earlier than the start time spans midnight (e.g. 22:00 - 08:00). When multiple windows match, the first one wins. Server local time is used.": "Multiplicateurs appliqués au prix habituel de ce canal : prix final = prix de base × facteur par poste × facteur total × facteur horaire. Laissez un facteur vide pour utiliser 1 (aucun ajustement) ; 0 signifie gratuit. Une heure de fin antérieure à l'heure de début couvre minuit (ex. 22:00 - 08:00). En cas de plages multiples, la première correspondance l'emporte. L'heure locale du serveur est utilisée.",
+    "Time Window Factor": "Facteur horaire",
+    "Input Factor": "Facteur d'entrée",
+    "Output Factor": "Facteur de sortie",
+    "Cache Read Factor": "Facteur de lecture du cache",
+    "Cache Write Factor": "Facteur d'écriture du cache",
+    "Image Input Factor": "Facteur d'entrée image",
+    "Audio Input Factor": "Facteur d'entrée audio",
+    "Audio Output Factor": "Facteur de sortie audio"
   }
 }

@@ -147,6 +147,11 @@ export interface LogOtherData {
   upstream_model_name?: string
   audio_ratio?: number
   audio_completion_ratio?: number
+  // 渠道价格系数（总系数/时间段/单项），后端仅在非 1 时记录：
+  // { total?: number; time_window?: number; input?: number; completion?: number;
+  //   cache_read?: number; cache_write?: number; image_input?: number;
+  //   audio_input?: number; audio_output?: number }
+  channel_price_factors?: Record<string, number>
   frt?: number
   // Tiered (expression-based) billing fields, set by backend when
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing

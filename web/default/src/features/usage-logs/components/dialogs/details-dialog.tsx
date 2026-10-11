@@ -58,6 +58,7 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  getChannelPriceFactorEntries,
 } from '../../lib/format'
 import {
   getLogTypeConfig,
@@ -207,6 +208,16 @@ function BillingBreakdown(props: {
     rows.push({
       label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
       value: `${formatRatio(effectiveGR)}x`,
+    })
+  }
+
+  // 渠道价格系数（总系数/时间段/单项，后端仅在非 1 时记录）
+  for (const entry of getChannelPriceFactorEntries(
+    other.channel_price_factors
+  )) {
+    rows.push({
+      label: t(entry.labelKey),
+      value: `${formatRatio(entry.value)}x`,
     })
   }
 
