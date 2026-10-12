@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { VirtualModelsDeleteDialog } from './virtual-models-delete-dialog'
 import { VirtualModelsMutateDrawer } from './virtual-models-mutate-drawer'
+import { VirtualModelTestDialog } from './virtual-model-test-dialog'
 import { useVirtualModels } from './virtual-models-provider'
 
 export function VirtualModelsDialogs() {
@@ -32,6 +33,7 @@ export function VirtualModelsDialogs() {
         currentRow={isUpdate ? currentRow || undefined : undefined}
       />
       <VirtualModelsDeleteDialog />
+      <VirtualModelTestDialog />
     </>
   )
 }

@@ -87,7 +87,30 @@ export interface VirtualModelPayload {
 }
 
 // ============================================================================
+// Test Result Types
+// ============================================================================
+
+export interface VirtualModelTestTargetResult {
+  index: number // sub-model order; -1 for the aggregator
+  model: string
+  channel_id: number // actual selected channel
+  success: boolean
+  first_token_ms: number // time to first write (≈ total for non-stream)
+  elapsed_ms: number
+  answer?: string // extracted answer text (not extracted in stream mode)
+  error?: string
+}
+
+export interface VirtualModelTestResult {
+  mode: VirtualModelMode
+  question: string
+  total_ms: number
+  targets: VirtualModelTestTargetResult[]
+  aggregator?: VirtualModelTestTargetResult | null // quality mode only
+}
+
+// ============================================================================
 // Dialog Types
 // ============================================================================
 
-export type VirtualModelsDialogType = 'create' | 'update' | 'delete'
+export type VirtualModelsDialogType = 'create' | 'update' | 'delete' | 'test'

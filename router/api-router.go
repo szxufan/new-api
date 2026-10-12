@@ -383,6 +383,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			virtualModelsRoute.GET("/", controller.GetAllVirtualModels)
 			virtualModelsRoute.GET("/:id", controller.GetVirtualModel)
+			virtualModelsRoute.GET("/test/:id", controller.TestVirtualModel)
 			virtualModelsRoute.POST("/", controller.CreateVirtualModel)
 			virtualModelsRoute.PUT("/", controller.UpdateVirtualModel)
 			virtualModelsRoute.DELETE("/:id", controller.DeleteVirtualModel)

@@ -20,6 +20,7 @@ import { type Row } from '@tanstack/react-table'
 import {
   Trash2,
   Edit,
+  FlaskConical,
   Power,
   PowerOff,
   MoreHorizontal as DotsHorizontalIcon,
@@ -93,6 +94,17 @@ export function DataTableRowActions<TData>({
           {t('Edit')}
           <DropdownMenuShortcut>
             <Edit size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            setCurrentRow(virtualModel)
+            setOpen('test')
+          }}
+        >
+          {t('Test Virtual Model')}
+          <DropdownMenuShortcut>
+            <FlaskConical size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleToggleStatus}>

@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { ApiResponse, VirtualModel, VirtualModelPayload } from './types'
+import type {
+  ApiResponse,
+  VirtualModel,
+  VirtualModelPayload,
+  VirtualModelTestResult,
+} from './types'
 
 // ============================================================================
 // Virtual Model Management
@@ -56,6 +61,21 @@ export async function updateVirtualModel(
 // Delete virtual model
 export async function deleteVirtualModel(id: number): Promise<ApiResponse> {
   const res = await api.delete(`/api/virtual_models/${id}`)
+  return res.data
+}
+
+// Test virtual model:
+// - speed mode: response time of each sub-model (supports stream mode via param)
+// - quality mode: full aggregation flow with a random simple question
+export async function testVirtualModel(
+  id: number,
+  params?: { stream?: boolean }
+): Promise<ApiResponse<VirtualModelTestResult>> {
+  const res = await api.get(`/api/virtual_models/test/${id}`, {
+    params,
+    // a running test can be long; skip the shared GET de-dup cache
+    disableDuplicate: true,
+  })
   return res.data
 }
 
