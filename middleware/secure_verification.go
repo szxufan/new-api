@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +32,13 @@ func SecureVerificationRequired() gin.HandlerFunc {
 				"message": "未登录",
 			})
 			c.Abort()
+			return
+		}
+
+		// 根用户未配置任何安全验证方式（2FA/Passkey）时直接放行，
+		// 否则将永远无法通过验证
+		if isRootWithoutSecureVerificationMethod(c, userId) {
+			c.Next()
 			return
 		}
 
@@ -75,6 +85,22 @@ func SecureVerificationRequired() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isRootWithoutSecureVerificationMethod 判断当前用户是否为根用户且未配置任何安全验证方式
+func isRootWithoutSecureVerificationMethod(c *gin.Context, userId int) bool {
+	if c.GetInt("role") != common.RoleRootUser {
+		return false
+	}
+	twoFA, _ := model.GetTwoFAByUserId(userId)
+	if twoFA != nil && twoFA.IsEnabled {
+		return false
+	}
+	passkey, err := model.GetPasskeyByUserID(userId)
+	if err == nil && passkey != nil {
+		return false
+	}
+	return true
 }
 
 func clearSecureVerificationSession(session sessions.Session) {
