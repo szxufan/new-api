@@ -35,7 +35,7 @@ oauth/         — OAuth 提供商实现
 pkg/           — 内部包（cachex、ionet）
 web/             — 前端主题容器
  web/default/   — 默认前端（React 19、Rsbuild、Base UI、Tailwind）
-  web/classic/   — 经典前端（React 18、Vite、Semi Design）
+  web/classic/   — 经典前端（React 18、Vite、Semi Design）**（已停止维护，见规则 8）**
   web/default/src/i18n/ — 前端国际化（i18next，zh/en/fr/ru/ja/vi）
 ```
 
@@ -144,3 +144,11 @@ web/             — 前端主题容器
 ### 规则 7：计费表达式系统 — 阅读 `pkg/billingexpr/expr.md`
 
 在处理分级/动态计费（基于表达式的定价）时，必须先阅读 `pkg/billingexpr/expr.md`。该文档记录了设计理念、表达式语言（变量、函数、示例）、完整系统架构（编辑器 → 存储 → 预消费 → 结算 → 日志展示）、token 规范化规则（`p`/`c` 自动排除）、配额换算和表达式版本控制。对计费表达式系统的所有代码更改必须遵循该文档中描述的模式。
+
+### 规则 8：classic 前端已停止维护
+
+`web/classic/` 已停止维护，**任何改进、修复或新功能都不要考虑、修改或同步到 classic 前端**：
+
+- 所有前端开发工作只在 `web/default/` 中进行。
+- 不要为 classic 前端新增功能、修复 bug、更新依赖或同步任何更改。
+- 后端改动（API、数据结构等）不需要保证 classic 前端兼容。
