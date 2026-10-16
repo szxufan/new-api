@@ -37,6 +37,13 @@ type Channel struct {
 	Other              string  `json:"other"`
 	Balance            float64 `json:"balance"` // in USD
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
+	// BalanceResetAmount/BalanceResetPeriodDays/BalanceResetNextTime 周期性重置余额配置：
+	// 到期（next_time <= now）后由后台任务将余额重置为 amount（绝对值，非累加），
+	// 并按 period_days（单位天）推进下次重置时间；三个字段全为 nil 表示未启用。
+	// 使用指针类型以便编辑渠道时能清空（gorm struct Updates 跳过零值字段）。
+	BalanceResetAmount     *float64 `json:"balance_reset_amount"`
+	BalanceResetPeriodDays *int     `json:"balance_reset_period_days"`
+	BalanceResetNextTime   *int64   `json:"balance_reset_next_time" gorm:"bigint;index"`
 	Models             string  `json:"models"`
 	Group              string  `json:"group" gorm:"type:varchar(64);default:'default'"`
 	// GroupBlacklist 用户分组黑名单，逗号分隔。命中黑名单的用户分组在调度时无法选择本渠道。

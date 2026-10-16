@@ -308,6 +308,13 @@ function SubHeading({ title, icon }: { title: string; icon?: ReactNode }) {
   )
 }
 
+// unix 秒 -> datetime-local 输入框值（YYYY-MM-DDTHH:mm，本地时区）
+function unixToDatetimeLocal(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export function ChannelMutateDrawer({
   open,
   onOpenChange,
@@ -1346,6 +1353,133 @@ export function ChannelMutateDrawer({
                     </FormItem>
                   )}
                 />
+              </div>
+
+              {/* ── Periodic Balance Reset ── */}
+              <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
+                <CardHeading
+                  title={t('Periodic Balance Reset')}
+                  icon={<RefreshCw className='h-4 w-4' />}
+                />
+                <FormField
+                  control={form.control}
+                  name='balance_reset_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>
+                          {t('Enable Periodic Balance Reset')}
+                        </FormLabel>
+                        <FormDescription className='text-xs'>
+                          {t(
+                            'When the next reset time arrives, the channel balance is automatically reset to the configured amount and the next reset time is advanced by the period. If the channel was auto-disabled due to a depleted balance, it will be re-enabled after a positive reset.'
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value === true}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked)
+                            if (checked && !form.getValues('balance_reset_next_time')) {
+                              // 默认下次重置时间为明天此时
+                              form.setValue(
+                                'balance_reset_next_time',
+                                Math.floor(Date.now() / 1000) + 86400
+                              )
+                            }
+                          }}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {form.watch('balance_reset_enabled') && (
+                  <div className='grid gap-4 sm:grid-cols-3'>
+                    <FormField
+                      control={form.control}
+                      name='balance_reset_amount'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Reset Amount (USD)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={0}
+                              step={0.01}
+                              placeholder='10'
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? undefined
+                                    : Number(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='balance_reset_period_days'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Reset Period (Days)')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              step={1}
+                              placeholder='30'
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? undefined
+                                    : Number(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='balance_reset_next_time'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Next Reset Time')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='datetime-local'
+                              value={
+                                field.value
+                                  ? unixToDatetimeLocal(field.value)
+                                  : ''
+                              }
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value
+                                    ? Math.floor(
+                                        new Date(e.target.value).getTime() /
+                                          1000
+                                      )
+                                    : undefined
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* ── Channel Price Factors ── */}

@@ -52,6 +52,10 @@ export const channelSchema = z.object({
   other: z.string().default(''),
   balance: z.number().default(0), // in USD
   balance_updated_time: z.number(),
+  // 周期重置余额配置：next_time 为空或 <=0 表示未启用
+  balance_reset_amount: z.number().nullish(), // 重置目标金额（USD，绝对值）
+  balance_reset_period_days: z.number().nullish(), // 重置周期（天）
+  balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
   models: z.string().default(''),
   group: z.string().default('default'),
   group_blacklist: z.string().nullish(), // 用户分组黑名单，逗号分隔

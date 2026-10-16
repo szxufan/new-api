@@ -136,6 +136,42 @@ export const channelFormSchema = z.object({
   upstream_model_update_ignored_models: z.string().optional(),
   // Fallback channels (stored in other_info JSON)
   fallback_channel_ids: z.array(z.number()).optional(),
+  // Periodic balance reset (top-level channel fields; enabled switch is form-only)
+  balance_reset_enabled: z.boolean().optional(),
+  balance_reset_amount: z
+    .number()
+    .min(0, 'Must be greater than or equal to 0')
+    .nullish(), // 重置目标金额（USD，绝对值）
+  balance_reset_period_days: z
+    .number()
+    .int()
+    .min(1, 'Must be at least 1 day')
+    .nullish(), // 重置周期（天）
+  balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
+}).superRefine((data, ctx) => {
+  // 启用周期重置时，金额/周期/下次时间三项必填
+  if (!data.balance_reset_enabled) return
+  if (data.balance_reset_amount === undefined || data.balance_reset_amount === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Reset amount is required',
+      path: ['balance_reset_amount'],
+    })
+  }
+  if (!data.balance_reset_period_days || data.balance_reset_period_days < 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Reset period must be at least 1 day',
+      path: ['balance_reset_period_days'],
+    })
+  }
+  if (!data.balance_reset_next_time || data.balance_reset_next_time <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Next reset time is required',
+      path: ['balance_reset_next_time'],
+    })
+  }
 })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -208,6 +244,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
   fallback_channel_ids: [],
+  // Periodic balance reset
+  balance_reset_enabled: false,
 }
 
 // ============================================================================
@@ -380,6 +418,16 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     fallback_channel_ids: fallbackChannelIds,
     timeWindows,
+    // Periodic balance reset (top-level channel fields)
+    balance_reset_enabled:
+      channel.balance_reset_amount != null &&
+      channel.balance_reset_period_days != null &&
+      channel.balance_reset_period_days > 0 &&
+      channel.balance_reset_next_time != null &&
+      channel.balance_reset_next_time > 0,
+    balance_reset_amount: channel.balance_reset_amount ?? undefined,
+    balance_reset_period_days: channel.balance_reset_period_days ?? undefined,
+    balance_reset_next_time: channel.balance_reset_next_time ?? undefined,
     // Channel price factors (stored in setting JSON under "price")
     ...parseChannelPriceSettings(channelPrice),
   }
@@ -701,6 +749,15 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     time_windows: formatTimeWindowsJson(formData.timeWindows),
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    balance_reset_amount: formData.balance_reset_enabled
+      ? (formData.balance_reset_amount ?? null)
+      : null,
+    balance_reset_period_days: formData.balance_reset_enabled
+      ? (formData.balance_reset_period_days ?? null)
+      : null,
+    balance_reset_next_time: formData.balance_reset_enabled
+      ? (formData.balance_reset_next_time ?? null)
+      : null,
   }
 
   // Write fallback_channel_ids into other_info
@@ -763,6 +820,15 @@ export function transformFormDataToUpdatePayload(
     time_windows: formatTimeWindowsJson(formData.timeWindows),
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    balance_reset_amount: formData.balance_reset_enabled
+      ? (formData.balance_reset_amount ?? null)
+      : null,
+    balance_reset_period_days: formData.balance_reset_enabled
+      ? (formData.balance_reset_period_days ?? null)
+      : null,
+    balance_reset_next_time: formData.balance_reset_enabled
+      ? (formData.balance_reset_next_time ?? null)
+      : null,
   }
 
   // Only include key if it was changed (not empty)
@@ -790,6 +856,17 @@ export function transformFormDataToUpdatePayload(
   payload.header_override = formData.header_override || ''
   // time_windows 为空时提交空字符串（而非 null），让 GORM Updates 能清空该字段
   payload.time_windows = formatTimeWindowsJson(formData.timeWindows)
+  // 周期重置余额：关闭时显式提交 0（而非 null），让 GORM Updates 能清空旧值；
+  // 后端约定 next_time <= 0 视为未启用
+  payload.balance_reset_amount = formData.balance_reset_enabled
+    ? (formData.balance_reset_amount ?? 0)
+    : 0
+  payload.balance_reset_period_days = formData.balance_reset_enabled
+    ? (formData.balance_reset_period_days ?? 0)
+    : 0
+  payload.balance_reset_next_time = formData.balance_reset_enabled
+    ? (formData.balance_reset_next_time ?? 0)
+    : 0
 
   // Write fallback_channel_ids into other_info
   if (

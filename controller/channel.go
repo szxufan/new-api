@@ -590,6 +590,20 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		return fmt.Errorf("渠道重试次数[retry_times] 不能小于 -1")
 	}
 
+	// 校验周期重置余额配置：next_time 为 nil 或 <= 0 视为未启用（其余字段允许为 0/nil，
+	// 前端关闭功能时提交 0 以便 GORM Updates 清空旧值）；启用时金额与周期必须合法。
+	if channel.BalanceResetAmount != nil && *channel.BalanceResetAmount < 0 {
+		return fmt.Errorf("周期重置余额[balance_reset_amount] 不能为负数")
+	}
+	if channel.BalanceResetNextTime != nil && *channel.BalanceResetNextTime > 0 {
+		if channel.BalanceResetAmount == nil {
+			return fmt.Errorf("启用周期重置余额时必须设置重置金额[balance_reset_amount]")
+		}
+		if channel.BalanceResetPeriodDays == nil || *channel.BalanceResetPeriodDays <= 0 {
+			return fmt.Errorf("周期重置间隔[balance_reset_period_days] 必须大于 0 天")
+		}
+	}
+
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())

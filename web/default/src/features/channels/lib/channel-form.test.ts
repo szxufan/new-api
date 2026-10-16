@@ -547,3 +547,123 @@ describe('retry_times payloads', () => {
     expect(payload.retry_times).toBe(0)
   })
 })
+
+describe('balance reset (周期重置余额)', () => {
+  const createMockChannel = (overrides: Partial<Channel> = {}): Channel =>
+    ({
+      id: 1,
+      type: 1,
+      key: 'test-key',
+      status: 1,
+      name: 'Test Channel',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      models: 'gpt-4',
+      group: 'default',
+      channel_info: {
+        is_multi_key: false,
+        multi_key_size: 0,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'random',
+      },
+      settings: '{}',
+      ...overrides,
+    }) as Channel
+
+  it('should derive enabled=true and field values from a configured channel', () => {
+    const channel = createMockChannel({
+      balance_reset_amount: 10,
+      balance_reset_period_days: 7,
+      balance_reset_next_time: 1800000000,
+    })
+
+    const form = transformChannelToFormDefaults(channel)
+    expect(form.balance_reset_enabled).toBe(true)
+    expect(form.balance_reset_amount).toBe(10)
+    expect(form.balance_reset_period_days).toBe(7)
+    expect(form.balance_reset_next_time).toBe(1800000000)
+  })
+
+  it('should derive enabled=false when reset fields are null or zero', () => {
+    const nullChannel = createMockChannel({
+      balance_reset_amount: null,
+      balance_reset_period_days: null,
+      balance_reset_next_time: null,
+    })
+    const zeroChannel = createMockChannel({
+      balance_reset_amount: 0,
+      balance_reset_period_days: 0,
+      balance_reset_next_time: 0,
+    })
+
+    expect(transformChannelToFormDefaults(nullChannel).balance_reset_enabled).toBe(false)
+    expect(transformChannelToFormDefaults(zeroChannel).balance_reset_enabled).toBe(false)
+  })
+
+  it('should send reset values on create when enabled', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      balance_reset_enabled: true,
+      balance_reset_amount: 10,
+      balance_reset_period_days: 7,
+      balance_reset_next_time: 1800000000,
+    })
+
+    expect(payload.channel.balance_reset_amount).toBe(10)
+    expect(payload.channel.balance_reset_period_days).toBe(7)
+    expect(payload.channel.balance_reset_next_time).toBe(1800000000)
+  })
+
+  it('should send null reset fields on create when disabled', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      balance_reset_enabled: false,
+    })
+
+    expect(payload.channel.balance_reset_amount).toBeNull()
+    expect(payload.channel.balance_reset_period_days).toBeNull()
+    expect(payload.channel.balance_reset_next_time).toBeNull()
+  })
+
+  it('should send reset values on update when enabled', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        balance_reset_enabled: true,
+        balance_reset_amount: 20,
+        balance_reset_period_days: 30,
+        balance_reset_next_time: 1800000000,
+      },
+      1
+    )
+
+    expect(payload.balance_reset_amount).toBe(20)
+    expect(payload.balance_reset_period_days).toBe(30)
+    expect(payload.balance_reset_next_time).toBe(1800000000)
+  })
+
+  it('should send explicit 0 (not null) on update when disabled, so GORM clears old values', () => {
+    const payload = transformFormDataToUpdatePayload(
+      {
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Test',
+        models: 'gpt-4',
+        balance_reset_enabled: false,
+      },
+      1
+    )
+
+    expect(payload.balance_reset_amount).toBe(0)
+    expect(payload.balance_reset_period_days).toBe(0)
+    expect(payload.balance_reset_next_time).toBe(0)
+  })
+})
