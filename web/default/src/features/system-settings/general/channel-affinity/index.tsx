@@ -87,6 +87,15 @@ export function ChannelAffinitySection(props: Props) {
   const [defaultTtl, setDefaultTtl] = useState(
     props.defaultValues['channel_affinity_setting.default_ttl_seconds']
   )
+  const [probeEnabled, setProbeEnabled] = useState(
+    props.defaultValues['channel_affinity_setting.probe_enabled']
+  )
+  const [probePercent, setProbePercent] = useState(
+    props.defaultValues['channel_affinity_setting.probe_percent']
+  )
+  const [probeCooldown, setProbeCooldown] = useState(
+    props.defaultValues['channel_affinity_setting.probe_cooldown_seconds']
+  )
   const [rules, setRules] = useState<AffinityRule[]>(() =>
     parseRules(props.defaultValues['channel_affinity_setting.rules'])
   )
@@ -120,6 +129,15 @@ export function ChannelAffinitySection(props: Props) {
     setMaxEntries(props.defaultValues['channel_affinity_setting.max_entries'])
     setDefaultTtl(
       props.defaultValues['channel_affinity_setting.default_ttl_seconds']
+    )
+    setProbeEnabled(
+      props.defaultValues['channel_affinity_setting.probe_enabled']
+    )
+    setProbePercent(
+      props.defaultValues['channel_affinity_setting.probe_percent']
+    )
+    setProbeCooldown(
+      props.defaultValues['channel_affinity_setting.probe_cooldown_seconds']
     )
     const parsed = parseRules(
       props.defaultValues['channel_affinity_setting.rules']
@@ -227,6 +245,30 @@ export function ChannelAffinitySection(props: Props) {
         updates.push({
           key: 'channel_affinity_setting.default_ttl_seconds',
           value: String(defaultTtl),
+        })
+      if (
+        probeEnabled !==
+        props.defaultValues['channel_affinity_setting.probe_enabled']
+      )
+        updates.push({
+          key: 'channel_affinity_setting.probe_enabled',
+          value: String(probeEnabled),
+        })
+      if (
+        probePercent !==
+        props.defaultValues['channel_affinity_setting.probe_percent']
+      )
+        updates.push({
+          key: 'channel_affinity_setting.probe_percent',
+          value: String(probePercent),
+        })
+      if (
+        probeCooldown !==
+        props.defaultValues['channel_affinity_setting.probe_cooldown_seconds']
+      )
+        updates.push({
+          key: 'channel_affinity_setting.probe_cooldown_seconds',
+          value: String(probeCooldown),
         })
 
       const origRules = props.defaultValues['channel_affinity_setting.rules']
@@ -389,6 +431,42 @@ export function ChannelAffinitySection(props: Props) {
             )}
           </span>
         </div>
+
+        <Separator />
+
+        {/* Priority Probe Settings */}
+        <div className='flex items-center gap-2'>
+          <Switch checked={probeEnabled} onCheckedChange={setProbeEnabled} />
+          <Label>{t('Enable priority probe')}</Label>
+          <span className='text-muted-foreground text-xs'>
+            {t(
+              'When a higher-priority channel is available than the affinity channel, bypass affinity with a probability and reselect by priority, so traffic gradually returns to higher-priority channels.'
+            )}
+          </span>
+        </div>
+        {probeEnabled && (
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            <div className='grid gap-1.5'>
+              <Label>{t('Probe Percent (%)')}</Label>
+              <Input
+                type='number'
+                min={0}
+                max={100}
+                value={probePercent}
+                onChange={(e) => setProbePercent(Number(e.target.value))}
+              />
+            </div>
+            <div className='grid gap-1.5'>
+              <Label>{t('Probe Cooldown (seconds)')}</Label>
+              <Input
+                type='number'
+                min={0}
+                value={probeCooldown}
+                onChange={(e) => setProbeCooldown(Number(e.target.value))}
+              />
+            </div>
+          </div>
+        )}
 
         <Separator />
 

@@ -140,7 +140,13 @@ func Distribute() func(c *gin.Context) {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					// 渠道分组黑名单：亲和性命中的渠道若拉黑用户自身分组，视为未命中，走正常选择
 					if err == nil && preferred != nil && !preferred.IsUserGroupBlacklisted(userGroup) {
-						if preferred.Status != common.ChannelStatusEnabled {
+						if service.ShouldProbeHigherPriorityChannel(c, preferred, modelRequest.Model, usingGroup, userGroup) {
+							// 回探：本次忽略亲和性，走正常优先级选择；
+							// 成功后 RecordChannelAffinity 会将亲和性迁回更高优先级的渠道
+							logger.LogDebug(c.Request.Context(), fmt.Sprintf(
+								"channel affinity probe: bypass affinity channel %d, reselect by priority (model=%s group=%s)",
+								preferred.Id, modelRequest.Model, usingGroup))
+						} else if preferred.Status != common.ChannelStatusEnabled {
 							// 亲和性渠道不可用，区分原因处理
 							if preferred.Status == common.ChannelStatusRateLimited429 || preferred.Status == common.ChannelStatusAutoDisabled {
 								// 429 限流或自动禁用：尝试后备渠道

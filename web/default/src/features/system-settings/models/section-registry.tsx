@@ -144,6 +144,12 @@ const MODELS_SECTIONS = [
             settings['channel_affinity_setting.max_entries'],
           'channel_affinity_setting.default_ttl_seconds':
             settings['channel_affinity_setting.default_ttl_seconds'],
+          'channel_affinity_setting.probe_enabled':
+            settings['channel_affinity_setting.probe_enabled'] ?? false,
+          'channel_affinity_setting.probe_percent':
+            settings['channel_affinity_setting.probe_percent'] ?? 10,
+          'channel_affinity_setting.probe_cooldown_seconds':
+            settings['channel_affinity_setting.probe_cooldown_seconds'] ?? 300,
           'channel_affinity_setting.rules':
             settings['channel_affinity_setting.rules'],
         }}

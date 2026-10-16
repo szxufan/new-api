@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ const (
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
 	channelAffinityUsageCacheStatsNamespace = "new-api:channel_affinity_usage_cache_stats:v1"
 	channelAffinityIndexNamespace           = "new-api:channel_affinity_index:v1"
+	channelAffinityProbeNamespace           = "new-api:channel_affinity_probe:v1"
 )
 
 var (
@@ -1019,6 +1021,156 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		}
 		incrementChannelAffinityCount(channelID)
 	}
+}
+
+// ---- 回探机制（priority probe） ----
+
+var (
+	channelAffinityProbeCacheOnce sync.Once
+	channelAffinityProbeCache     *cachex.HybridCache[int]
+
+	// 供单元测试替换的依赖注入点
+	getSortedChannelsForProbe = model.GetSortedChannelsByPriorityAndAffinity
+	getUserAutoGroupsForProbe = GetUserAutoGroup
+)
+
+func getChannelAffinityProbeCache() *cachex.HybridCache[int] {
+	channelAffinityProbeCacheOnce.Do(func() {
+		setting := operation_setting.GetChannelAffinitySetting()
+		capacity := 100_000
+		if setting != nil && setting.MaxEntries > 0 {
+			capacity = setting.MaxEntries
+		}
+		cooldownSeconds := 300
+		if setting != nil && setting.ProbeCooldownSeconds > 0 {
+			cooldownSeconds = setting.ProbeCooldownSeconds
+		}
+
+		channelAffinityProbeCache = cachex.NewHybridCache(cachex.HybridCacheConfig[int]{
+			Namespace: cachex.Namespace(channelAffinityProbeNamespace),
+			Redis:     common.RDB,
+			RedisEnabled: func() bool {
+				return common.RedisEnabled && common.RDB != nil
+			},
+			RedisCodec: cachex.IntCodec{},
+			Memory: func() *hot.HotCache[string, int] {
+				return hot.NewHotCache[string, int](hot.LRU, capacity).
+					WithTTL(time.Duration(cooldownSeconds) * time.Second).
+					WithJanitor().
+					Build()
+			},
+		})
+	})
+	return channelAffinityProbeCache
+}
+
+// ShouldProbeHigherPriorityChannel 判断本次请求是否应忽略已命中的亲和性渠道，
+// 回探更高优先级的可用渠道。
+//
+// 背景：高优先级渠道偶发失败重试到低优先级渠道成功后，亲和性会把流量长期钉在
+// 低优先级渠道。回探机制在存在更高优先级可用渠道时按概率忽略亲和性、重新按优先级
+// 选择，成功后 RecordChannelAffinity 会将亲和性迁回高优先级渠道。
+//
+// 触发条件（全部满足）：
+//  1. 亲和性与回探机制均已启用；
+//  2. 命中的规则未开启 skip_retry_on_failure（严格钉住场景下回探失败无法回退，跳过）；
+//  3. 当前分组（auto 时为各候选分组）中存在比亲和渠道优先级更高的可用渠道；
+//  4. 按 probe_percent 概率命中；
+//  5. 该亲和键不在回探冷却窗口内（命中后写入冷却标记，避免并发请求同一窗口内重复回探）。
+func ShouldProbeHigherPriorityChannel(c *gin.Context, preferred *model.Channel, modelName, usingGroup, userGroup string) bool {
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled || !setting.ProbeEnabled {
+		return false
+	}
+	if c == nil || preferred == nil {
+		return false
+	}
+	meta, ok := getChannelAffinityMeta(c)
+	if !ok || meta.SkipRetry {
+		return false
+	}
+	topPriority, ok := findTopAvailableChannelPriority(modelName, usingGroup, userGroup)
+	if !ok || topPriority <= preferred.GetPriority() {
+		return false
+	}
+	percent := setting.ProbePercent
+	if percent <= 0 {
+		return false
+	}
+	if percent < 100 && rand.Intn(100) >= percent {
+		return false
+	}
+	if !markChannelAffinityProbeCooldown(c, setting.ProbeCooldownSeconds) {
+		return false
+	}
+	markChannelAffinityProbed(c, meta, preferred.Id)
+	return true
+}
+
+// findTopAvailableChannelPriority 返回当前分组（auto 时为所有候选分组）中
+// 未被用户分组黑名单过滤的最高渠道优先级。无任何可用渠道时返回 false。
+func findTopAvailableChannelPriority(modelName, usingGroup, userGroup string) (int64, bool) {
+	if usingGroup == "auto" {
+		var top int64
+		found := false
+		for _, g := range getUserAutoGroupsForProbe(userGroup) {
+			priority, ok := topPriorityInGroup(g, modelName, userGroup)
+			if ok && (!found || priority > top) {
+				top = priority
+				found = true
+			}
+		}
+		return top, found
+	}
+	return topPriorityInGroup(usingGroup, modelName, userGroup)
+}
+
+// topPriorityInGroup 返回指定分组下当前模型最高优先级的可用渠道优先级。
+// 渠道列表已按优先级降序排序，取第一个未被黑名单过滤的渠道即可。
+func topPriorityInGroup(group, modelName, userGroup string) (int64, bool) {
+	channels := getSortedChannelsForProbe(group, modelName, nil, nil)
+	for _, ch := range channels {
+		if ch == nil || ch.IsUserGroupBlacklisted(userGroup) {
+			continue
+		}
+		return ch.GetPriority(), true
+	}
+	return 0, false
+}
+
+// markChannelAffinityProbeCooldown 写入回探冷却标记。
+// 已在冷却窗口内返回 false；写入失败时仍允许回探（回探本身无副作用）。
+func markChannelAffinityProbeCooldown(c *gin.Context, cooldownSeconds int) bool {
+	cacheKey, _, ok := getChannelAffinityContext(c)
+	if !ok || cacheKey == "" {
+		return false
+	}
+	if cooldownSeconds <= 0 {
+		cooldownSeconds = 300
+	}
+	cache := getChannelAffinityProbeCache()
+	if _, found, err := cache.Get(cacheKey); err == nil && found {
+		return false
+	}
+	if err := cache.SetWithTTL(cacheKey, 1, time.Duration(cooldownSeconds)*time.Second); err != nil {
+		common.SysError(fmt.Sprintf("channel affinity probe cooldown set failed: key=%s, err=%v", cacheKey, err))
+	}
+	return true
+}
+
+// markChannelAffinityProbed 将回探事件写入管理日志信息，便于在使用日志中观测回探行为。
+func markChannelAffinityProbed(c *gin.Context, meta channelAffinityMeta, preferredChannelID int) {
+	c.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{
+		"reason":       "probe_higher_priority",
+		"probe":        true,
+		"rule_name":    meta.RuleName,
+		"using_group":  meta.UsingGroup,
+		"model":        meta.ModelName,
+		"request_path": meta.RequestPath,
+		"channel_id":   preferredChannelID,
+		"key_hint":     meta.KeyHint,
+		"key_fp":       meta.KeyFingerprint,
+	})
 }
 
 type ChannelAffinityUsageCacheStats struct {

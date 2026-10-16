@@ -38,11 +38,19 @@ func (r *ChannelAffinityRule) IsEnabled() bool {
 }
 
 type ChannelAffinitySetting struct {
-	Enabled           bool                  `json:"enabled"`
-	SwitchOnSuccess   bool                  `json:"switch_on_success"`
-	MaxEntries        int                   `json:"max_entries"`
-	DefaultTTLSeconds int                   `json:"default_ttl_seconds"`
-	Rules             []ChannelAffinityRule `json:"rules"`
+	Enabled           bool `json:"enabled"`
+	SwitchOnSuccess   bool `json:"switch_on_success"`
+	MaxEntries        int  `json:"max_entries"`
+	DefaultTTLSeconds int  `json:"default_ttl_seconds"`
+
+	// 回探机制：亲和性命中的渠道优先级低于当前可用的最高优先级渠道时，
+	// 按概率忽略亲和性、重新按优先级选择，使流量逐步回到高优先级渠道。
+	// 解决高优先级渠道偶发失败后，亲和性将流量长期钉在低优先级渠道的问题。
+	ProbeEnabled         bool `json:"probe_enabled"`          // 是否启用回探
+	ProbePercent         int  `json:"probe_percent"`          // 回探概率（0-100），仅在存在更高优先级渠道时生效
+	ProbeCooldownSeconds int  `json:"probe_cooldown_seconds"` // 同一亲和键的回探冷却秒数，避免频繁回探
+
+	Rules []ChannelAffinityRule `json:"rules"`
 }
 
 var codexCliPassThroughHeaders = []string{
@@ -84,10 +92,13 @@ func buildPassHeaderTemplate(headers []string) map[string]interface{} {
 }
 
 var channelAffinitySetting = ChannelAffinitySetting{
-	Enabled:           true,
-	SwitchOnSuccess:   true,
-	MaxEntries:        100_000,
-	DefaultTTLSeconds: 3600,
+	Enabled:              true,
+	SwitchOnSuccess:      true,
+	MaxEntries:           100_000,
+	DefaultTTLSeconds:    3600,
+	ProbeEnabled:         false,
+	ProbePercent:         10,
+	ProbeCooldownSeconds: 300,
 	Rules: []ChannelAffinityRule{
 		{
 			Name:       "codex cli trace",
