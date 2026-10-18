@@ -49,5 +49,9 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		// add to first
 		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeASR}, endpointTypes...)
 	}
+	if IsSystemOneModel(modelName) {
+		// add to first
+		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeSystemOne}, endpointTypes...)
+	}
 	return endpointTypes
 }

@@ -48,6 +48,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return nil, errors.New("codex channel: /v1/rerank endpoint not supported")
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
 	return nil, errors.New("codex channel: /v1/embeddings endpoint not supported")
 }

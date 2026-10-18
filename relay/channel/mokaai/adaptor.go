@@ -82,6 +82,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return nil, nil
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	// TODO implement me
 	return nil, errors.New("not implemented")

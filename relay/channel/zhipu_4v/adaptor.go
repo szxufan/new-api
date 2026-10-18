@@ -23,13 +23,13 @@ import (
 // zhipuURLSuffixes 定义智谱 API 的路径后缀层级
 // 根据用户设置的 base URL 后缀，智能拼接剩余路径，避免路径重复
 var zhipuURLSuffixes = []struct {
-	suffix      string
-	chatPath    string // chat completions 的剩余路径
+	suffix        string
+	chatPath      string // chat completions 的剩余路径
 	embeddingPath string
-	imagePath   string
-	claudePath  string
+	imagePath     string
+	claudePath    string
 }{
-	{suffix: "/chat/completions", chatPath: "", embeddingPath: "", imagePath: "", claudePath: ""},           // 已包含完整路径
+	{suffix: "/chat/completions", chatPath: "", embeddingPath: "", imagePath: "", claudePath: ""}, // 已包含完整路径
 	{suffix: "/v4", chatPath: "/chat/completions", embeddingPath: "/embeddings", imagePath: "/images/generations", claudePath: ""},
 	{suffix: "/paas", chatPath: "/v4/chat/completions", embeddingPath: "/v4/embeddings", imagePath: "/v4/images/generations", claudePath: ""},
 	{suffix: "/coding/paas", chatPath: "/v4/chat/completions", embeddingPath: "/v4/embeddings", imagePath: "/v4/images/generations", claudePath: ""},
@@ -144,6 +144,10 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
 	return nil, nil
+}
+
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {

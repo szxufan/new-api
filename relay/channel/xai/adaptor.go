@@ -95,6 +95,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return nil, nil
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
 	//not available
 	return nil, errors.New("not available")

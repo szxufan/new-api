@@ -176,6 +176,7 @@ export const ENDPOINT_TEMPLATES: Record<
   embeddings: { path: '/v1/embeddings', method: 'POST' },
   tts: { path: '/v1/audio/speech', method: 'POST' },
   asr: { path: '/v1/audio/transcriptions', method: 'POST' },
+  systemone: { path: '/v1/systemone', method: 'POST' },
 }
 
 // ============================================================================

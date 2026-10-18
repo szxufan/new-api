@@ -14,6 +14,7 @@ const (
 	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
 	EndpointTypeTTS                   EndpointType = "tts"
 	EndpointTypeASR                   EndpointType = "asr"
+	EndpointTypeSystemOne             EndpointType = "systemone"
 	//EndpointTypeMidjourney     EndpointType = "midjourney-proxy"
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"

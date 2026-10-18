@@ -355,6 +355,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return request, nil
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
 	return request, nil
 }
@@ -628,6 +632,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = OpenaiHandlerWithUsage(c, info, resp)
 	case relayconstant.RelayModeRerank:
 		usage, err = common_handler.RerankHandler(c, info, resp)
+	case relayconstant.RelayModeSystemOne:
+		usage, err = common_handler.SystemOneHandler(c, info, resp)
 	case relayconstant.RelayModeResponses:
 		if info.IsStream {
 			usage, err = OaiResponsesStreamHandler(c, info, resp)

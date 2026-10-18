@@ -104,6 +104,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/embeddings", info.ChannelBaseUrl)
 		case constant.RelayModeRerank:
 			fullRequestURL = fmt.Sprintf("%s/compatible-api/v1/reranks", info.ChannelBaseUrl)
+		case constant.RelayModeSystemOne:
+			// System One 决策模型（decision-model-preview）
+			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/systemone", info.ChannelBaseUrl)
 		case constant.RelayModeResponses:
 			fullRequestURL = fmt.Sprintf("%s/api/v2/apps/protocols/compatible-mode/v1/responses", info.ChannelBaseUrl)
 		case constant.RelayModeImagesGenerations:
@@ -242,6 +245,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return request, nil
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
 	return request, nil
 }
@@ -283,6 +290,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			err, usage = aliImageHandler(a, c, resp, info)
 		case constant.RelayModeRerank:
 			usage, err = common_handler.RerankHandler(c, info, resp)
+		case constant.RelayModeSystemOne:
+			usage, err = common_handler.SystemOneHandler(c, info, resp)
 		case constant.RelayModeAudioSpeech:
 			return aliTTSHandler(c, resp, info)
 		case constant.RelayModeAudioTranscription:

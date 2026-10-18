@@ -40,6 +40,9 @@ var (
 		"o4",
 		"chatgpt",
 	}
+	SystemOneModels = []string{
+		"decision",
+	}
 )
 
 func IsOpenAIResponseOnlyModel(modelName string) bool {
@@ -70,6 +73,10 @@ func IsTTSSpeechModel(modelName string) bool {
 
 func IsASRSpeechModel(modelName string) bool {
 	return containsAnyLower(modelName, ASRSpeechModels)
+}
+
+func IsSystemOneModel(modelName string) bool {
+	return containsAnyLower(modelName, SystemOneModels)
 }
 
 func containsAnyLower(modelName string, patterns []string) bool {

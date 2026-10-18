@@ -207,6 +207,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			relayFormat = types.RelayFormatGemini
 		case constant.EndpointTypeJinaRerank:
 			relayFormat = types.RelayFormatRerank
+		case constant.EndpointTypeSystemOne:
+			relayFormat = types.RelayFormatSystemOne
 		case constant.EndpointTypeImageGeneration:
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
@@ -893,6 +895,19 @@ func buildTestRequest(model string, endpointType string, _ *model.Channel, isStr
 				Query:     "What is Deep Learning?",
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
+			}
+		case constant.EndpointTypeSystemOne:
+			// 返回 SystemOneRequest（决策模型，非流式）
+			return &dto.SystemOneRequest{
+				Model: model,
+				State: json.RawMessage(`"A customer submitted a support ticket asking for a refund because the product arrived damaged."`),
+				Questions: map[string]dto.SystemOneQuestion{
+					"category": {
+						Type:         dto.SystemOneQuestionTypeChoice,
+						Instructions: "Classify the support ticket",
+						Criteria:     json.RawMessage(`{"billing":"Refund or charge related issues","quality":"Product defect or damage","other":"Anything else"}`),
+					},
+				},
 			}
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest

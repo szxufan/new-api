@@ -510,6 +510,10 @@ func (a *Adaptor) ConvertRerankRequest(*gin.Context, int, dto.RerankRequest) (an
 	return nil, errors.New("replicate adaptor: ConvertRerankRequest is not implemented")
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(*gin.Context, *relaycommon.RelayInfo, dto.EmbeddingRequest) (any, error) {
 	return nil, errors.New("replicate adaptor: ConvertEmbeddingRequest is not implemented")
 }

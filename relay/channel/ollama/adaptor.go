@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/common_handler"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 
@@ -53,6 +54,10 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == relayconstant.RelayModeSystemOne {
+		// System One 决策模型走 OpenAI 兼容路径 /v1/systemone
+		return info.ChannelBaseUrl + "/v1/systemone", nil
+	}
 	if info.RelayMode == relayconstant.RelayModeEmbeddings {
 		return info.ChannelBaseUrl + "/api/embed", nil
 	}
@@ -93,6 +98,10 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return nil, nil
 }
 
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
 	info.AppendRequestConversion(types.RelayFormatOllama)
 	return requestOpenAI2Embeddings(request), nil
@@ -108,6 +117,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch info.RelayMode {
+	case relayconstant.RelayModeSystemOne:
+		return common_handler.SystemOneHandler(c, info, resp)
 	case relayconstant.RelayModeEmbeddings:
 		return ollamaEmbeddingHandler(c, info, resp)
 	default:

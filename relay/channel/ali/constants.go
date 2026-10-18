@@ -18,6 +18,7 @@ var ModelList = []string{
 	"qwen3-asr-flash",
 	"fun-asr-flash",
 	"qwen-audio-3.0-asr-flash",
+	"decision-model-preview",
 }
 
 var ChannelName = "ali"

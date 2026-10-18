@@ -64,6 +64,11 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 	return nil, errors.New("not implemented")
 }
 
+// ConvertSystemOneRequest implements channel.Adaptor.
+func (a *Adaptor) ConvertSystemOneRequest(c *gin.Context, info *common.RelayInfo, request dto.SystemOneRequest) (any, error) {
+	return request, nil
+}
+
 // DoRequest implements channel.Adaptor.
 func (a *Adaptor) DoRequest(c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (any, error) {
 	if info.IsStream {

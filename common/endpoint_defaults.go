@@ -27,6 +27,7 @@ var defaultEndpointInfoMap = map[constant.EndpointType]EndpointInfo{
 	constant.EndpointTypeEmbeddings:            {Path: "/v1/embeddings", Method: "POST"},
 	constant.EndpointTypeTTS:                   {Path: "/v1/audio/speech", Method: "POST"},
 	constant.EndpointTypeASR:                   {Path: "/v1/audio/transcriptions", Method: "POST"},
+	constant.EndpointTypeSystemOne:             {Path: "/v1/systemone", Method: "POST"},
 }
 
 // GetDefaultEndpointInfo 返回指定端点类型的默认信息以及是否存在

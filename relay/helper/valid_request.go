@@ -43,6 +43,8 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 		request, err = GetAndValidateEmbeddingRequest(c, relayMode)
 	case types.RelayFormatRerank:
 		request, err = GetAndValidateRerankRequest(c)
+	case types.RelayFormatSystemOne:
+		request, err = GetAndValidateSystemOneRequest(c)
 	case types.RelayFormatOpenAIAudio:
 		request, err = GetAndValidAudioRequest(c, relayMode)
 	case types.RelayFormatOpenAIRealtime:
@@ -90,6 +92,30 @@ func GetAndValidateRerankRequest(c *gin.Context) (*dto.RerankRequest, error) {
 		return nil, types.NewError(fmt.Errorf("documents is empty"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 	return rerankRequest, nil
+}
+
+func GetAndValidateSystemOneRequest(c *gin.Context) (*dto.SystemOneRequest, error) {
+	request := &dto.SystemOneRequest{}
+	if err := common.UnmarshalBodyReusable(c, request); err != nil {
+		return nil, err
+	}
+	if request.Model == "" {
+		return nil, errors.New("model is required")
+	}
+	if len(request.State) == 0 || string(request.State) == "null" {
+		return nil, errors.New("state is required")
+	}
+	if len(request.Questions) == 0 {
+		return nil, errors.New("questions is required")
+	}
+	for name, question := range request.Questions {
+		switch question.Type {
+		case dto.SystemOneQuestionTypeChoice, dto.SystemOneQuestionTypeNoul, dto.SystemOneQuestionTypeScore:
+		default:
+			return nil, fmt.Errorf("question %q has invalid type %q, must be one of: choice, noul, score", name, question.Type)
+		}
+	}
+	return request, nil
 }
 
 func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.EmbeddingRequest, error) {

@@ -28,6 +28,9 @@ func GetPreferredChannelTypesByRelayFormat(relayFormat RelayFormat) []int {
 	case RelayFormatRerank:
 		// 重排序优先 Jina
 		return []int{constant.ChannelTypeJina}
+	case RelayFormatSystemOne:
+		// System One 决策模型优先阿里云百炼 / Ollama
+		return []int{constant.ChannelTypeAli, constant.ChannelTypeOllama}
 	case RelayFormatOpenAIRealtime:
 		// 实时通信
 		return []int{constant.ChannelTypeOpenAI}
