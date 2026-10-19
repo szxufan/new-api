@@ -170,6 +170,41 @@ describe('ChannelMutateDrawer - 提交按钮点击路径', () => {
     await waitFor(() => expect(mockToast.success).toHaveBeenCalled())
   })
 
+  it('存量 0/0/0 周期重置字段（功能停用）的渠道应能正常提交更新', async () => {
+    // 回归：禁用状态下后端约定存 0（next_time <= 0 = 未启用）。此前加载后
+    // balance_reset_period_days=0 会被 schema 基础校验 min(1) 拒绝，且该字段
+    // 在停用状态下不渲染，表现为点击“更新渠道”完全无反应。
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+    const storedChannel = makeChannel({
+      balance_reset_amount: 0,
+      balance_reset_period_days: 0,
+      balance_reset_next_time: 0,
+    })
+    vi.mocked(api.getChannel).mockResolvedValue({
+      success: true,
+      data: storedChannel,
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    renderDrawer(queryClient, storedChannel)
+    await waitForFormLoaded()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Update Channel' })
+    )
+
+    await waitFor(() =>
+      expect(api.updateChannel).toHaveBeenCalledTimes(1)
+    )
+    expect(mockToast.error).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+  })
+
   it('校验失败时应输出字段级诊断日志并提示，而不是静默无反应', async () => {
     const consoleErrorSpy = vi
       .spyOn(console, 'error')

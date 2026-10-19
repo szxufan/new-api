@@ -26,6 +26,50 @@ import type {
 } from '../types'
 
 // ============================================================================
+// Stored-data Type Coercion（存量数据类型归一）
+// ============================================================================
+//
+// 存量渠道的 setting/settings JSON 可能由旧版本前端或外部 API 写入，
+// 数字被存成字符串（如 "3"）、枚举存成非法值（如 on_hit: "error"）、
+// 布尔存成字符串（如 "false"——truthy，语义反转）。这些值若原样透传进表单，
+// 会被 zod schema 拒绝，且出错字段可能未渲染（如价格系数在折叠区内），
+// 表现为“点击更新按钮无反应”。加载层统一在此归一类型。
+
+/** 将存量值安全转换为有限数字；无法转换时返回 fallback。 */
+function coerceNumber(value: unknown, fallback: number): number {
+  const coerced = coerceOptionalNumber(value)
+  return coerced === undefined ? fallback : coerced
+}
+
+/** 将存量值安全转换为有限数字；无法转换（含 null/undefined/空串）时返回 undefined。 */
+function coerceOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+/** 枚举字段只接受合法取值，非法存量值回退到默认值。 */
+function pickEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T
+): T {
+  return allowed.includes(value as T) ? (value as T) : fallback
+}
+
+/** 存量布尔可能是字符串（"true"/"false"）；无法识别的值保守取 false。 */
+function coerceBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (value === 'true') return true
+  return false
+}
+
+// ============================================================================
 // Form Validation Schema
 // ============================================================================
 
@@ -142,11 +186,11 @@ export const channelFormSchema = z.object({
     .number()
     .min(0, 'Must be greater than or equal to 0')
     .nullish(), // 重置目标金额（USD，绝对值）
-  balance_reset_period_days: z
-    .number()
-    .int()
-    .min(1, 'Must be at least 1 day')
-    .nullish(), // 重置周期（天）
+  // 重置周期（天）。基础校验仅保留数字类型：功能停用时后端约定三个字段存 0
+  // （而非 null），若此处强制 min(1)，存量 0 值会导致整个表单校验失败——而该
+  // 字段在停用状态下不渲染，错误不可见，表现为“点击更新按钮无反应”。
+  // 启用状态的必填/整数/下限校验在下方 superRefine 中执行。
+  balance_reset_period_days: z.number().nullish(),
   balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
 }).superRefine((data, ctx) => {
   // 启用周期重置时，金额/周期/下次时间三项必填
@@ -158,7 +202,12 @@ export const channelFormSchema = z.object({
       path: ['balance_reset_amount'],
     })
   }
-  if (!data.balance_reset_period_days || data.balance_reset_period_days < 1) {
+  const periodDays = data.balance_reset_period_days
+  if (
+    typeof periodDays !== 'number' ||
+    !Number.isInteger(periodDays) ||
+    periodDays < 1
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Reset period must be at least 1 day',
@@ -282,26 +331,37 @@ export function transformChannelToFormDefaults(
       const parsed = JSON.parse(channel.setting)
       channelPrice = parsed.price
       extraSettings = {
-        force_format: parsed.force_format || false,
-        thinking_to_content: parsed.thinking_to_content || false,
+        force_format: coerceBoolean(parsed.force_format),
+        thinking_to_content: coerceBoolean(parsed.thinking_to_content),
         proxy: parsed.proxy || '',
-        pass_through_body_enabled: parsed.pass_through_body_enabled || false,
+        pass_through_body_enabled: coerceBoolean(
+          parsed.pass_through_body_enabled
+        ),
         system_prompt: parsed.system_prompt || '',
-        system_prompt_override: parsed.system_prompt_override || false,
-        anti_cache_test: parsed.anti_cache_test || false,
-        anti_cache_retry_enabled: parsed.anti_cache_retry_enabled || false,
+        system_prompt_override: coerceBoolean(parsed.system_prompt_override),
+        anti_cache_test: coerceBoolean(parsed.anti_cache_test),
+        anti_cache_retry_enabled: coerceBoolean(parsed.anti_cache_retry_enabled),
         anti_cache_retry_content: parsed.anti_cache_retry_content || '',
-        response_detection_enabled: parsed.response_detection?.enabled || false,
+        response_detection_enabled: coerceBoolean(
+          parsed.response_detection?.enabled
+        ),
         response_detection_keywords: Array.isArray(
           parsed.response_detection?.keywords
         )
           ? parsed.response_detection.keywords.join(',')
           : '',
-        response_detection_max_retries:
-          parsed.response_detection?.max_retries || 0,
-        response_detection_on_hit: parsed.response_detection?.on_hit || 'retry',
-        response_detection_treat_empty_as_hit:
-          parsed.response_detection?.treat_empty_as_hit || false,
+        response_detection_max_retries: coerceNumber(
+          parsed.response_detection?.max_retries,
+          0
+        ),
+        response_detection_on_hit: pickEnum(
+          parsed.response_detection?.on_hit,
+          ['retry', 'abort'] as const,
+          'retry'
+        ),
+        response_detection_treat_empty_as_hit: coerceBoolean(
+          parsed.response_detection?.treat_empty_as_hit
+        ),
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -328,10 +388,13 @@ export function transformChannelToFormDefaults(
   if (channel.settings) {
     try {
       const parsed = JSON.parse(channel.settings)
-      vertexKeyType = parsed.vertex_key_type || 'json'
-      azureResponsesVersion = parsed.azure_responses_version || ''
+      vertexKeyType = pickEnum(parsed.vertex_key_type, ['json', 'api_key'] as const, 'json')
+      azureResponsesVersion =
+        typeof parsed.azure_responses_version === 'string'
+          ? parsed.azure_responses_version
+          : ''
       isEnterpriseAccount = parsed.openrouter_enterprise === true
-      awsKeyType = parsed.aws_key_type || 'ak_sk'
+      awsKeyType = pickEnum(parsed.aws_key_type, ['ak_sk', 'api_key'] as const, 'ak_sk')
       allowServiceTier = parsed.allow_service_tier === true
       disableStore = parsed.disable_store === true
       allowSafetyIdentifier = parsed.allow_safety_identifier === true
@@ -370,6 +433,16 @@ export function transformChannelToFormDefaults(
   // Parse scheduled time windows from time_windows JSON
   const timeWindows = parseTimeWindowsJson(channel.time_windows || '')
 
+  // Periodic balance reset (top-level channel fields)
+  // 后端约定：功能停用时三个字段存 0（next_time <= 0 视为未启用）。停用状态下
+  // 表单值统一归一为 undefined，避免存量 0 值触发 schema 校验或残留在表单状态中。
+  const balanceResetEnabled =
+    channel.balance_reset_amount != null &&
+    channel.balance_reset_period_days != null &&
+    channel.balance_reset_period_days > 0 &&
+    channel.balance_reset_next_time != null &&
+    channel.balance_reset_next_time > 0
+
   return {
     name: channel.name || '',
     type: channel.type,
@@ -396,7 +469,11 @@ export function transformChannelToFormDefaults(
     settings: channel.settings || '{}',
     other: channel.other || '',
     multi_key_mode: 'single',
-    multi_key_type: channel.channel_info.multi_key_mode || 'random',
+    multi_key_type: pickEnum(
+      channel.channel_info?.multi_key_mode,
+      ['random', 'polling'] as const,
+      'random'
+    ),
     batch_add_set_key_prefix_2_name: false,
     key_mode: 'append', // Default to append mode for editing multi-key channels
     // Channel extra settings
@@ -419,15 +496,16 @@ export function transformChannelToFormDefaults(
     fallback_channel_ids: fallbackChannelIds,
     timeWindows,
     // Periodic balance reset (top-level channel fields)
-    balance_reset_enabled:
-      channel.balance_reset_amount != null &&
-      channel.balance_reset_period_days != null &&
-      channel.balance_reset_period_days > 0 &&
-      channel.balance_reset_next_time != null &&
-      channel.balance_reset_next_time > 0,
-    balance_reset_amount: channel.balance_reset_amount ?? undefined,
-    balance_reset_period_days: channel.balance_reset_period_days ?? undefined,
-    balance_reset_next_time: channel.balance_reset_next_time ?? undefined,
+    balance_reset_enabled: balanceResetEnabled,
+    balance_reset_amount: balanceResetEnabled
+      ? channel.balance_reset_amount
+      : undefined,
+    balance_reset_period_days: balanceResetEnabled
+      ? channel.balance_reset_period_days
+      : undefined,
+    balance_reset_next_time: balanceResetEnabled
+      ? channel.balance_reset_next_time
+      : undefined,
     // Channel price factors (stored in setting JSON under "price")
     ...parseChannelPriceSettings(channelPrice),
   }
@@ -491,28 +569,32 @@ export type ChannelPriceFormFields = Pick<
 export function parseChannelPriceSettings(
   price: ChannelPriceSettings | undefined
 ): ChannelPriceFormFields {
+  // 存量数据归一：数字字段可能是字符串（如 "0.5"）；时段行的 ratio 无法转换时
+  // 整行丢弃，避免垃圾值被静默归为 0（免费）。
   const timeWindows: ChannelPriceTimeWindow[] = Array.isArray(
     price?.time_windows
   )
-    ? price.time_windows
-        .filter(
-          (w) =>
-            w &&
-            typeof w.start === 'string' &&
-            typeof w.end === 'string' &&
-            typeof w.ratio === 'number'
-        )
-        .map((w) => ({ start: w.start, end: w.end, ratio: w.ratio }))
+    ? price.time_windows.flatMap((w) => {
+        if (
+          !w ||
+          typeof w.start !== 'string' ||
+          typeof w.end !== 'string'
+        ) {
+          return []
+        }
+        const ratio = coerceOptionalNumber(w.ratio)
+        return ratio === undefined ? [] : [{ start: w.start, end: w.end, ratio }]
+      })
     : []
   return {
-    price_total: price?.total,
-    price_input: price?.input,
-    price_completion: price?.completion,
-    price_cache_read: price?.cache_read,
-    price_cache_write: price?.cache_write,
-    price_image_input: price?.image_input,
-    price_audio_input: price?.audio_input,
-    price_audio_output: price?.audio_output,
+    price_total: coerceOptionalNumber(price?.total),
+    price_input: coerceOptionalNumber(price?.input),
+    price_completion: coerceOptionalNumber(price?.completion),
+    price_cache_read: coerceOptionalNumber(price?.cache_read),
+    price_cache_write: coerceOptionalNumber(price?.cache_write),
+    price_image_input: coerceOptionalNumber(price?.image_input),
+    price_audio_input: coerceOptionalNumber(price?.audio_input),
+    price_audio_output: coerceOptionalNumber(price?.audio_output),
     priceTimeWindows: timeWindows,
   }
 }

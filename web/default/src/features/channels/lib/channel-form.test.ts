@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Channel } from '../types'
 import {
+  channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
   transformFormDataToUpdatePayload,
@@ -548,6 +549,115 @@ describe('retry_times payloads', () => {
   })
 })
 
+describe('stored-data type coercion (存量类型归一)', () => {
+  const createLegacyMockChannel = (overrides: Partial<Channel> = {}): Channel =>
+    ({
+      id: 1,
+      type: 1,
+      key: 'test-key',
+      status: 1,
+      name: 'Test Channel',
+      created_time: 0,
+      test_time: 0,
+      response_time: 0,
+      models: 'gpt-4',
+      group: 'default',
+      settings: '{}',
+      channel_info: {
+        is_multi_key: false,
+        multi_key_size: 0,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'random',
+      },
+      ...overrides,
+    }) as Channel
+
+  it('should coerce legacy mistyped values and produce schema-valid form state', () => {
+    // 模拟旧版本/外部 API 写入的存量数据：数字存成字符串、枚举非法、布尔为字符串
+    const channel = createLegacyMockChannel({
+      setting: JSON.stringify({
+        force_format: 'true',
+        thinking_to_content: 'false',
+        response_detection: {
+          enabled: true,
+          max_retries: '3',
+          on_hit: 'error',
+          treat_empty_as_hit: 'yes',
+        },
+        price: {
+          total: '0.5',
+          input: '',
+          time_windows: [
+            { start: '22:00', end: '08:00', ratio: '0.8' },
+            { start: '10:00', end: '12:00', ratio: 'abc' },
+          ],
+        },
+      }),
+      settings: JSON.stringify({
+        vertex_key_type: 'service_account',
+        aws_key_type: 123,
+        azure_responses_version: 2024,
+      }),
+      channel_info: {
+        is_multi_key: true,
+        multi_key_size: 3,
+        multi_key_polling_index: 0,
+        multi_key_mode: 'batch',
+      } as unknown as Channel['channel_info'],
+    })
+
+    const form = transformChannelToFormDefaults(channel)
+
+    expect(form.force_format).toBe(true)
+    expect(form.thinking_to_content).toBe(false)
+    expect(form.response_detection_max_retries).toBe(3)
+    expect(form.response_detection_on_hit).toBe('retry')
+    expect(form.response_detection_treat_empty_as_hit).toBe(false)
+    expect(form.price_total).toBe(0.5)
+    expect(form.price_input).toBeUndefined()
+    // ratio 无法转换的时段行被丢弃，不静默归为 0（免费）
+    expect(form.priceTimeWindows).toEqual([
+      { start: '22:00', end: '08:00', ratio: 0.8 },
+    ])
+    expect(form.vertex_key_type).toBe('json')
+    expect(form.aws_key_type).toBe('ak_sk')
+    expect(form.azure_responses_version).toBe('')
+    expect(form.multi_key_type).toBe('random')
+
+    // 归一后的表单值必须能整体通过 schema（此前字符串值会被 zod 拒绝，
+    // 且出错字段可能未渲染，表现为“点击更新按钮无反应”）
+    const result = channelFormSchema.safeParse(form)
+    expect(result.success).toBe(true)
+  })
+
+  it('should keep properly-typed stored values unchanged through coercion', () => {
+    const channel = createLegacyMockChannel({
+      setting: JSON.stringify({
+        force_format: true,
+        response_detection: {
+          enabled: true,
+          max_retries: 5,
+          on_hit: 'abort',
+        },
+        price: { total: 0, time_windows: [{ start: '01:00', end: '02:00', ratio: 0 }] },
+      }),
+      settings: JSON.stringify({ vertex_key_type: 'api_key' }),
+    })
+
+    const form = transformChannelToFormDefaults(channel)
+
+    expect(form.force_format).toBe(true)
+    expect(form.response_detection_max_retries).toBe(5)
+    expect(form.response_detection_on_hit).toBe('abort')
+    // 显式 0 必须保留（0=免费）
+    expect(form.price_total).toBe(0)
+    expect(form.priceTimeWindows).toEqual([
+      { start: '01:00', end: '02:00', ratio: 0 },
+    ])
+    expect(form.vertex_key_type).toBe('api_key')
+  })
+})
+
 describe('balance reset (周期重置余额)', () => {
   const createMockChannel = (overrides: Partial<Channel> = {}): Channel =>
     ({
@@ -599,6 +709,60 @@ describe('balance reset (周期重置余额)', () => {
 
     expect(transformChannelToFormDefaults(nullChannel).balance_reset_enabled).toBe(false)
     expect(transformChannelToFormDefaults(zeroChannel).balance_reset_enabled).toBe(false)
+  })
+
+  // 回归：功能停用时后端约定存 0（next_time <= 0 = 未启用）。此前表单会保留
+  // period_days=0，且该字段在停用状态下不渲染，schema 基础校验 min(1) 会拒绝它，
+  // 导致“点击更新按钮无反应”（字段错误不可见）。
+  it('should normalize disabled 0/0/0 stored values to undefined in form state', () => {
+    const zeroChannel = createMockChannel({
+      balance_reset_amount: 0,
+      balance_reset_period_days: 0,
+      balance_reset_next_time: 0,
+    })
+
+    const form = transformChannelToFormDefaults(zeroChannel)
+
+    expect(form.balance_reset_enabled).toBe(false)
+    expect(form.balance_reset_amount).toBeUndefined()
+    expect(form.balance_reset_period_days).toBeUndefined()
+    expect(form.balance_reset_next_time).toBeUndefined()
+  })
+
+  it('schema should accept disabled form state carrying legacy period_days=0', () => {
+    const result = channelFormSchema.safeParse({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      models: 'gpt-4',
+      balance_reset_enabled: false,
+      balance_reset_period_days: 0,
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('schema should reject enabled state with missing/invalid period days', () => {
+    const base = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      models: 'gpt-4',
+      balance_reset_enabled: true,
+      balance_reset_amount: 10,
+      balance_reset_next_time: 1800000000,
+    }
+
+    expect(
+      channelFormSchema.safeParse({ ...base, balance_reset_period_days: 0 })
+        .success
+    ).toBe(false)
+    expect(
+      channelFormSchema.safeParse({ ...base, balance_reset_period_days: 0.5 })
+        .success
+    ).toBe(false)
+    expect(
+      channelFormSchema.safeParse({ ...base, balance_reset_period_days: 7 })
+        .success
+    ).toBe(true)
   })
 
   it('should send reset values on create when enabled', () => {
