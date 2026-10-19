@@ -8,6 +8,9 @@ import (
 	"math"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
 
@@ -153,4 +156,30 @@ func TestComputeEmbeddingFingerprint_JSONUnmarshalSanity(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"data":[{"embedding":[0.1,0.2]}]}`), &r))
 	require.Len(t, r.Data, 1)
 	require.Equal(t, []float64{0.1, 0.2}, r.Data[0].Embedding)
+}
+
+// TestBuildTestRequestWebTools 测试网页工具端点的测试请求构建
+func TestBuildTestRequestWebTools(t *testing.T) {
+	searchReq, ok := buildTestRequest("deepseek-search", string(constant.EndpointTypeWebSearch), nil, false).(*dto.WebSearchRequest)
+	require.True(t, ok)
+	require.Equal(t, "deepseek-search", searchReq.Model)
+	require.NotEmpty(t, searchReq.Query)
+	require.NotNil(t, searchReq.Count)
+
+	fetchReq, ok := buildTestRequest("deepseek-fetch", string(constant.EndpointTypeWebFetch), nil, false).(*dto.WebFetchRequest)
+	require.True(t, ok)
+	require.Equal(t, "deepseek-fetch", fetchReq.Model)
+	require.NotEmpty(t, fetchReq.Url)
+}
+
+// TestNormalizeChannelTestEndpointWebTools 测试 DeepSeek 渠道 *-search/*-fetch 模型的端点自动识别
+func TestNormalizeChannelTestEndpointWebTools(t *testing.T) {
+	dsChannel := &model.Channel{Type: constant.ChannelTypeDeepSeek}
+	require.Equal(t, string(constant.EndpointTypeWebSearch), normalizeChannelTestEndpoint(dsChannel, "deepseek-search", ""))
+	require.Equal(t, string(constant.EndpointTypeWebFetch), normalizeChannelTestEndpoint(dsChannel, "deepseek-fetch", ""))
+	// 显式指定端点时优先
+	require.Equal(t, string(constant.EndpointTypeOpenAI), normalizeChannelTestEndpoint(dsChannel, "deepseek-search", string(constant.EndpointTypeOpenAI)))
+	// 非 DeepSeek 渠道不做后缀自动识别，避免误伤 gpt-4o-search-preview 之类模型
+	openaiChannel := &model.Channel{Type: constant.ChannelTypeOpenAI}
+	require.Equal(t, "", normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-search-preview", ""))
 }

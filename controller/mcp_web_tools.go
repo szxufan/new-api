@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -32,14 +30,6 @@ import (
 // 分组+模型 选渠道 → 按次计费（模型固定价格）→ 上游调用 → 结算」的链路执行，
 // 首期支持 DeepSeek 渠道（POST /v1/tools/search、POST /v1/tools/fetch）。
 
-// 上游参数限制（DeepSeek 文档）
-const (
-	maxWebSearchQueryChars = 128
-	minWebSearchCount      = 1
-	maxWebSearchCount      = 50
-	maxWebFetchURLLength   = 8192
-)
-
 // webSearchInputSchema 返回 web_search 工具的 JSON Schema
 func webSearchInputSchema() json.RawMessage {
 	schema := map[string]any{
@@ -51,8 +41,8 @@ func webSearchInputSchema() json.RawMessage {
 			},
 			"count": map[string]any{
 				"type":        "integer",
-				"minimum":     minWebSearchCount,
-				"maximum":     maxWebSearchCount,
+				"minimum":     dto.MinWebSearchCount,
+				"maximum":     dto.MaxWebSearchCount,
 				"description": "Optional. Number of results to return (1-50, default 10)",
 			},
 			"ori_question": map[string]any{
@@ -256,26 +246,19 @@ func handleMCPWebSearch(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Cal
 	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
 		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
 	}
-	query := strings.TrimSpace(args.Query)
-	if query == "" {
-		return newMCPErrorResult("query is required"), nil
-	}
-	if queryChars := utf8.RuneCountInString(query); queryChars > maxWebSearchQueryChars {
-		return newMCPErrorResult(fmt.Sprintf("query supports at most %d characters, got %d", maxWebSearchQueryChars, queryChars)), nil
-	}
-	if args.Count != nil && (*args.Count < minWebSearchCount || *args.Count > maxWebSearchCount) {
-		return newMCPErrorResult(fmt.Sprintf("count must be between %d and %d, got %d", minWebSearchCount, maxWebSearchCount, *args.Count)), nil
-	}
 	var oriQuestion *string
 	if args.OriQuestion != nil && strings.TrimSpace(*args.OriQuestion) != "" {
 		oriQuestion = args.OriQuestion
 	}
 
 	searchReq := &dto.WebSearchRequest{
-		Query:       query,
+		Query:       strings.TrimSpace(args.Query),
 		Count:       args.Count,
 		OriQuestion: oriQuestion,
 		NeedContent: args.NeedContent,
+	}
+	if err := searchReq.Validate(); err != nil {
+		return newMCPErrorResult(err.Error()), nil
 	}
 	var searchResp dto.WebSearchResponse
 	return invokeMCPWebTool(ginCtx, mcpSceneSearch, relayconstant.RelayModeWebSearch, "/v1/tools/search",
@@ -295,22 +278,11 @@ func handleMCPWebFetch(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Call
 	if err := common.Unmarshal(req.Params.Arguments, &args); err != nil {
 		return newMCPErrorResult(fmt.Sprintf("invalid arguments: %s", err.Error())), nil
 	}
-	rawURL := strings.TrimSpace(args.URL)
-	if rawURL == "" {
-		return newMCPErrorResult("url is required"), nil
-	}
-	if len(rawURL) > maxWebFetchURLLength {
-		return newMCPErrorResult(fmt.Sprintf("url supports at most %d characters, got %d", maxWebFetchURLLength, len(rawURL))), nil
-	}
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
-		return newMCPErrorResult("url must be a valid http(s) URL with a host"), nil
-	}
-	if parsedURL.User != nil {
-		return newMCPErrorResult("url must not contain a username or password"), nil
-	}
 
-	fetchReq := &dto.WebFetchRequest{Url: rawURL}
+	fetchReq := &dto.WebFetchRequest{Url: args.URL}
+	if err := fetchReq.Validate(); err != nil {
+		return newMCPErrorResult(err.Error()), nil
+	}
 	var fetchResp dto.WebFetchResponse
 	return invokeMCPWebTool(ginCtx, mcpSceneFetch, relayconstant.RelayModeWebFetch, "/v1/tools/fetch",
 		fetchReq, &fetchResp, func() bool { return fetchResp.Content != "" }), nil

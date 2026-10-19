@@ -15,6 +15,8 @@ const (
 	EndpointTypeTTS                   EndpointType = "tts"
 	EndpointTypeASR                   EndpointType = "asr"
 	EndpointTypeSystemOne             EndpointType = "systemone"
+	EndpointTypeWebSearch             EndpointType = "web-search"
+	EndpointTypeWebFetch              EndpointType = "web-fetch"
 	//EndpointTypeMidjourney     EndpointType = "midjourney-proxy"
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"

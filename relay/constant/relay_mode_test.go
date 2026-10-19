@@ -48,3 +48,21 @@ func TestPath2RelayModeChatCompletionsRegression(t *testing.T) {
 func TestPath2RelayModeUnknown(t *testing.T) {
 	assert.Equal(t, RelayModeUnknown, Path2RelayMode("/pg/unknown/path"))
 }
+func TestPath2RelayModeWebTools(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "v1 tools search", path: "/v1/tools/search", want: RelayModeWebSearch},
+		{name: "v1 tools fetch", path: "/v1/tools/fetch", want: RelayModeWebFetch},
+		{name: "v1 tools search with query", path: "/v1/tools/search?count=3", want: RelayModeWebSearch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, Path2RelayMode(tt.path))
+		})
+	}
+	// 未知的 tools 子路径不应误命中
+	assert.Equal(t, RelayModeUnknown, Path2RelayMode("/v1/tools/other"))
+}

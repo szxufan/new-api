@@ -11,8 +11,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/mcp_setting"
+
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // setMCPModelPoolsForTest 覆盖指定模型池配置（键：image/i2i/t2v/i2v/kf2v/r2v/search/fetch），
@@ -83,9 +88,68 @@ func emptyMCPModelPools(overrides map[string]map[string]string) map[string]map[s
 	return all
 }
 
-// TestMCPToolVisible 测试工具可见性规则：任一依赖场景配置了模型即可见，
-// 不依赖模型池的工具始终可见
+// setupMCPFilterChannelDB 为可见性测试初始化独立的内存 sqlite（Channel + Ability），
+// 并强制走 DB 路径（MemoryCacheEnabled=false）。id 用于区分同一测试内多个互不污染的库。
+func setupMCPFilterChannelDB(t *testing.T, id string) *gorm.DB {
+	t.Helper()
+	originalDB := model.DB
+	originalMemoryCache := common.MemoryCacheEnabled
+	originalUsingSQLite := common.UsingSQLite
+	originalUsingPostgreSQL := common.UsingPostgreSQL
+	common.MemoryCacheEnabled = false
+	common.UsingSQLite = true
+	common.UsingPostgreSQL = false
+	// 直接注入 DB 不会经过 chooseDB，手动初始化 commonGroupCol 等跨库列名变量
+	model.InitCommonColumnNames()
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name()+id, "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	t.Cleanup(func() {
+		model.DB = originalDB
+		common.MemoryCacheEnabled = originalMemoryCache
+		common.UsingSQLite = originalUsingSQLite
+		common.UsingPostgreSQL = originalUsingPostgreSQL
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return db
+}
+
+// seedMCPFilterChannel 插入启用状态的 DeepSeek 渠道及其 abilities
+func seedMCPFilterChannel(t *testing.T, db *gorm.DB, name, group, models string) {
+	t.Helper()
+	ch := &model.Channel{
+		Name:   name,
+		Type:   constant.ChannelTypeDeepSeek,
+		Status: common.ChannelStatusEnabled,
+		Group:  group,
+		Models: models,
+		Key:    "sk-test",
+	}
+	require.NoError(t, db.Create(ch).Error)
+	for _, g := range strings.Split(group, ",") {
+		for _, m := range strings.Split(models, ",") {
+			require.NoError(t, db.Create(&model.Ability{
+				Group:     g,
+				Model:     m,
+				ChannelId: ch.Id,
+				Enabled:   true,
+			}).Error)
+		}
+	}
+}
+
+// TestMCPToolVisible 测试工具可见性规则：任一依赖场景配置了模型且该分组
+// 有可用渠道即可见，不依赖模型池的工具始终可见
 func TestMCPToolVisible(t *testing.T) {
+	// 场景一：仅配置 search 池，default 分组有 deepseek-search 渠道
+	db1 := setupMCPFilterChannelDB(t, "case1")
+	seedMCPFilterChannel(t, db1, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))
@@ -94,7 +158,7 @@ func TestMCPToolVisible(t *testing.T) {
 	visibleTools := []string{"web_search", "get_video_task", "request_upload_ticket", "unknown-future-tool"}
 	for _, tool := range visibleTools {
 		if !mcpToolVisible("default", tool) {
-			t.Errorf("expected tool %q to be visible when search pool configured", tool)
+			t.Errorf("expected tool %q to be visible when search pool configured with channel", tool)
 		}
 	}
 	hiddenTools := []string{"web_fetch", "generate_image", "generate_video", "generate_video_from_frames", "generate_video_from_reference"}
@@ -104,19 +168,24 @@ func TestMCPToolVisible(t *testing.T) {
 		}
 	}
 
-	// 任一依赖场景命中即可见：仅 image（无 i2i）→ generate_image 可见
+	// 场景二：任一依赖场景命中即可见：仅 image（无 i2i）→ generate_image 可见
+	db2 := setupMCPFilterChannelDB(t, "case2")
+	seedMCPFilterChannel(t, db2, "openai-image", "default", "dall-e-3")
 	restore2 := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"image": {"default": "dall-e-3"},
 	}))
 	defer restore2()
 	if !mcpToolVisible("default", "generate_image") {
-		t.Error("expected generate_image visible when image pool configured")
+		t.Error("expected generate_image visible when image pool configured with channel")
 	}
 	if mcpToolVisible("default", "generate_video") {
 		t.Error("expected generate_video hidden when t2v pool empty")
 	}
 
-	// 分组隔离：仅 vip 配置 search 池时，default 分组（无 default 回退）不可见
+	// 场景三：分组隔离：仅 vip 配置 search 池且渠道也只在 vip 分组，
+	// default 分组（无 default 回退、无渠道）不可见
+	db3 := setupMCPFilterChannelDB(t, "case3")
+	seedMCPFilterChannel(t, db3, "ds-vip", "vip", "deepseek-search")
 	restore3 := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"vip": "deepseek-search"},
 	}))
@@ -126,6 +195,45 @@ func TestMCPToolVisible(t *testing.T) {
 	}
 	if mcpToolVisible("default", "web_search") {
 		t.Error("expected web_search hidden for group default when only vip configured")
+	}
+}
+
+// TestMCPToolVisible_RequiresChannel 测试模型已配置但分组下无可用渠道时工具隐藏
+func TestMCPToolVisible_RequiresChannel(t *testing.T) {
+	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
+		"search": {"default": "deepseek-search"},
+		"fetch":  {"default": "deepseek-fetch"},
+	}))
+	defer restore()
+
+	// 模型已配置但无任何渠道 → 隐藏
+	db := setupMCPFilterChannelDB(t, "nochannel")
+	if mcpToolVisible("default", "web_search") {
+		t.Error("expected web_search hidden when no channel provides the model")
+	}
+
+	// 渠道只存在于其他分组 → 对当前分组仍隐藏
+	seedMCPFilterChannel(t, db, "ds-other", "other", "deepseek-search,deepseek-fetch")
+	if mcpToolVisible("default", "web_search") {
+		t.Error("expected web_search hidden for default when channel only in other group")
+	}
+
+	// 本分组存在启用渠道 → 可见
+	seedMCPFilterChannel(t, db, "ds-default", "default", "deepseek-search")
+	if !mcpToolVisible("default", "web_search") {
+		t.Error("expected web_search visible when enabled channel exists in group")
+	}
+
+	// 唯一渠道被禁用（ability enabled=false）→ 隐藏
+	var ch model.Channel
+	require.NoError(t, db.Where("name = ?", "ds-default").First(&ch).Error)
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", ch.Id).Update("enabled", false).Error)
+	if mcpToolVisible("default", "web_search") {
+		t.Error("expected web_search hidden when the only channel ability is disabled")
+	}
+	// web_fetch 的渠道只在 other 分组，对 default 始终隐藏
+	if mcpToolVisible("default", "web_fetch") {
+		t.Error("expected web_fetch hidden for default group")
 	}
 }
 
@@ -193,6 +301,8 @@ func toolNamesFromBody(t *testing.T, body []byte) []string {
 
 // TestFilterMCPToolsListBody_JSON 测试 JSON 形态响应的过滤与透传
 func TestFilterMCPToolsListBody_JSON(t *testing.T) {
+	db := setupMCPFilterChannelDB(t, "json")
+	seedMCPFilterChannel(t, db, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))
@@ -215,6 +325,8 @@ func TestFilterMCPToolsListBody_JSON(t *testing.T) {
 	}
 
 	// 全部场景配置后无工具被移除：返回原始字节、changed=false
+	seedMCPFilterChannel(t, db, "all-mcp", "default",
+		"dall-e-3,qwen-image-edit,wan-t2v,wan-i2v,wan-kf2v,wan-r2v,deepseek-search,deepseek-fetch")
 	restoreAll := setMCPModelPoolsForTest(map[string]map[string]string{
 		"image": {"default": "dall-e-3"}, "i2i": {"default": "qwen-image-edit"},
 		"t2v": {"default": "wan-t2v"}, "i2v": {"default": "wan-i2v"},
@@ -247,6 +359,8 @@ func TestFilterMCPToolsListBody_JSON(t *testing.T) {
 
 // TestFilterMCPToolsListBody_JSONBatch 测试批量 JSON 响应只过滤其中的 tools/list 消息
 func TestFilterMCPToolsListBody_JSONBatch(t *testing.T) {
+	db := setupMCPFilterChannelDB(t, "batch")
+	seedMCPFilterChannel(t, db, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))
@@ -277,6 +391,8 @@ func TestFilterMCPToolsListBody_JSONBatch(t *testing.T) {
 
 // TestFilterMCPToolsListBody_SSE 测试 SSE 形态响应的过滤：data: 行改写，其余行保留
 func TestFilterMCPToolsListBody_SSE(t *testing.T) {
+	db := setupMCPFilterChannelDB(t, "sse")
+	seedMCPFilterChannel(t, db, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))
@@ -327,6 +443,8 @@ func newMCPFilterTestRequest(method, path, body string, group string) *http.Requ
 // TestWrapMCPToolsListFilter 测试 wrapper：tools/list 响应被过滤，
 // 其余请求（tools/call、GET）原样透传且请求体完整恢复
 func TestWrapMCPToolsListFilter(t *testing.T) {
+	db := setupMCPFilterChannelDB(t, "wrap")
+	seedMCPFilterChannel(t, db, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))
@@ -396,6 +514,8 @@ func TestWrapMCPToolsListFilter_NoGinContext(t *testing.T) {
 // TestMCPServerHandler_ToolsListFiltered 端到端：真实 SDK 链路的 tools/list
 // 按调用方分组过滤工具（stateless + JSONResponse，无需先 initialize）
 func TestMCPServerHandler_ToolsListFiltered(t *testing.T) {
+	db := setupMCPFilterChannelDB(t, "e2e")
+	seedMCPFilterChannel(t, db, "ds-search", "default", "deepseek-search")
 	restore := setMCPModelPoolsForTest(emptyMCPModelPools(map[string]map[string]string{
 		"search": {"default": "deepseek-search"},
 	}))

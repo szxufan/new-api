@@ -61,6 +61,15 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if common.IsSystemOneModel(modelName) {
 		return string(constant.EndpointTypeSystemOne)
 	}
+	// DeepSeek 渠道的网页工具虚拟模型（*-search / *-fetch）：按端点测试
+	if channel != nil && channel.Type == constant.ChannelTypeDeepSeek {
+		if strings.HasSuffix(modelName, "-search") {
+			return string(constant.EndpointTypeWebSearch)
+		}
+		if strings.HasSuffix(modelName, "-fetch") {
+			return string(constant.EndpointTypeWebFetch)
+		}
+	}
 	return normalized
 }
 
@@ -212,6 +221,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			relayFormat = types.RelayFormatRerank
 		case constant.EndpointTypeSystemOne:
 			relayFormat = types.RelayFormatSystemOne
+		case constant.EndpointTypeWebSearch, constant.EndpointTypeWebFetch:
+			relayFormat = types.RelayFormatWebTools
 		case constant.EndpointTypeImageGeneration:
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
@@ -366,6 +377,18 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 				newAPIError: types.NewError(errors.New("invalid systemone request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeWebSearch, relayconstant.RelayModeWebFetch:
+		// 网页工具请求：DTO 即上游格式，无需适配器转换
+		switch request.(type) {
+		case *dto.WebSearchRequest, *dto.WebFetchRequest:
+			convertedRequest = request
+		default:
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid web tools request type"),
+				newAPIError: types.NewError(errors.New("invalid web tools request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
 	case relayconstant.RelayModeResponses:
 		// Response 请求 - request 已经是正确的类型
 		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
@@ -487,7 +510,14 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			}
 		}
 	}
-	usageA, respErr := adaptor.DoResponse(c, httpResp, info)
+	var usageA any
+	var respErr *types.NewAPIError
+	if info.RelayMode == relayconstant.RelayModeWebSearch || info.RelayMode == relayconstant.RelayModeWebFetch {
+		// 网页工具响应无统一 DoResponse 实现：直接解析校验并透传给测试结果
+		usageA, respErr = webToolsTestResponse(c, httpResp, info)
+	} else {
+		usageA, respErr = adaptor.DoResponse(c, httpResp, info)
+	}
 	if respErr != nil {
 		return testResult{
 			context:     c,
@@ -882,6 +912,39 @@ func applyAntiCache(req dto.Request, enabled bool) dto.Request {
 	return req
 }
 
+// webToolsTestResponse 处理网页工具端点的渠道测试响应：
+// 读取上游响应体、按端点校验 JSON 结构、原样写入测试记录器（供测试结果展示），
+// 返回按次计费 usage（与正式链路一致按 1 次计）。
+func webToolsTestResponse(c *gin.Context, httpResp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	if httpResp == nil || httpResp.Body == nil {
+		return nil, types.NewOpenAIError(errors.New("empty web tools test response"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	defer httpResp.Body.Close()
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	switch info.RelayMode {
+	case relayconstant.RelayModeWebSearch:
+		var parsed dto.WebSearchResponse
+		if err := common.Unmarshal(respBody, &parsed); err != nil {
+			return nil, types.NewOpenAIError(fmt.Errorf("invalid web search response: %w", err), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	default:
+		var parsed dto.WebFetchResponse
+		if err := common.Unmarshal(respBody, &parsed); err != nil {
+			return nil, types.NewOpenAIError(fmt.Errorf("invalid web fetch response: %w", err), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	}
+	c.Data(http.StatusOK, "application/json", respBody)
+	usage := &dto.Usage{
+		TotalTokens:      1,
+		PromptTokens:     1,
+		CompletionTokens: 0,
+	}
+	return usage, nil
+}
+
 func buildTestRequest(model string, endpointType string, _ *model.Channel, isStream bool) dto.Request {
 	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
 
@@ -922,6 +985,19 @@ func buildTestRequest(model string, endpointType string, _ *model.Channel, isStr
 						Criteria:     json.RawMessage(`{"billing":"Refund or charge related issues","quality":"Product defect or damage","other":"Anything else"}`),
 					},
 				},
+			}
+		case constant.EndpointTypeWebSearch:
+			// 网页搜索端点测试请求（按次计费，count 不影响价格）
+			return &dto.WebSearchRequest{
+				Model: model,
+				Query: "DeepSeek",
+				Count: lo.ToPtr(3),
+			}
+		case constant.EndpointTypeWebFetch:
+			// 网页抓取端点测试请求（目标选择稳定的小型页面）
+			return &dto.WebFetchRequest{
+				Model: model,
+				Url:   "https://example.com",
 			}
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest

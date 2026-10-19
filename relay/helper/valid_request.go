@@ -45,6 +45,8 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 		request, err = GetAndValidateRerankRequest(c)
 	case types.RelayFormatSystemOne:
 		request, err = GetAndValidateSystemOneRequest(c)
+	case types.RelayFormatWebTools:
+		request, err = GetAndValidateWebToolsRequest(c, relayMode)
 	case types.RelayFormatOpenAIAudio:
 		request, err = GetAndValidAudioRequest(c, relayMode)
 	case types.RelayFormatOpenAIRealtime:
@@ -116,6 +118,32 @@ func GetAndValidateSystemOneRequest(c *gin.Context) (*dto.SystemOneRequest, erro
 		}
 	}
 	return request, nil
+}
+
+// GetAndValidateWebToolsRequest 解析并校验网页工具请求（/v1/tools/search、/v1/tools/fetch）
+func GetAndValidateWebToolsRequest(c *gin.Context, relayMode int) (dto.Request, error) {
+	switch relayMode {
+	case relayconstant.RelayModeWebSearch:
+		request := &dto.WebSearchRequest{}
+		if err := common.UnmarshalBodyReusable(c, request); err != nil {
+			return nil, err
+		}
+		if err := request.Validate(); err != nil {
+			return nil, err
+		}
+		return request, nil
+	case relayconstant.RelayModeWebFetch:
+		request := &dto.WebFetchRequest{}
+		if err := common.UnmarshalBodyReusable(c, request); err != nil {
+			return nil, err
+		}
+		if err := request.Validate(); err != nil {
+			return nil, err
+		}
+		return request, nil
+	default:
+		return nil, fmt.Errorf("unsupported web tools relay mode: %d", relayMode)
+	}
 }
 
 func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.EmbeddingRequest, error) {

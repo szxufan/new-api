@@ -462,6 +462,12 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 				modelRequest.Model = req.Model
 			}
 		}
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/search") || strings.HasPrefix(c.Request.URL.Path, "/pg/tools/search") {
+		// 网页搜索端点：body 中可选 model 字段缺省时按端点默认虚拟模型路由
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-search")
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/fetch") || strings.HasPrefix(c.Request.URL.Path, "/pg/tools/fetch") {
+		// 网页抓取端点：body 中可选 model 字段缺省时按端点默认虚拟模型路由
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-fetch")
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
 		relayMode := relayconstant.RelayModeAudioSpeech

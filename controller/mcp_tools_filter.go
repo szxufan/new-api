@@ -9,19 +9,23 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/mcp_setting"
 
 	"github.com/gin-gonic/gin"
 )
 
-// MCP tools/list 按分组模型池过滤：
-// 调用方分组未配置对应场景模型的工具不出现在工具列表中，
-// 其余请求原样透传。tools/call 直接点名调用未列出的工具时，
-// 仍由各工具 handler 的"未配置模型"校验拦截，过滤仅影响工具发现体验。
+// MCP tools/list 按分组模型池 + 渠道可用性过滤：
+// 调用方分组配置了场景模型、且该分组下存在声明此模型的可用渠道时，工具才出现在
+// 工具列表中；其余请求原样透传。tools/call 直接点名调用未列出的工具时，
+// 仍由各工具 handler 的"未配置模型 / 无可用渠道"校验拦截，过滤仅影响工具发现体验。
 //
-// 注意可见性与调用时的模型解析保持一致（mcpSceneConfiguredModel 的
+// 可见性与调用时的模型解析保持一致（mcpSceneConfiguredModel 的
 // 分组 → default 回退），但不含 X-MCP-*-Model 请求头跨分组指定的能力：
 // 工具被隐藏时仍可能通过请求头指定其他分组模型成功调用。
+//
+// 渠道可用性不含后备渠道机制（CacheGetFallbackChannel / 被禁用渠道后备链）：
+// 常规候选为空但存在后备渠道时工具会被隐藏，实际调用可能仍成功。
 
 // mcpToolScenes 工具 → 依赖的模型池场景列表（任一场景配置了模型即可见）。
 // 不在表中的工具（get_video_task / request_upload_ticket）不依赖模型池，始终可见。
@@ -48,15 +52,24 @@ func mcpGroupFromRequest(r *http.Request) (string, bool) {
 	return group, true
 }
 
+// mcpModelHasChannel 判断分组下是否存在声明该模型的可用渠道。
+// 与调用时 CacheGetRandomSatisfiedChannel 的常规候选来源一致
+// （内存缓存 group2model2channels 或 abilities 查询，自动兼容 MemoryCacheEnabled 开关）。
+func mcpModelHasChannel(group, modelName string) bool {
+	return len(model.GetSortedChannelsByPriorityAndAffinity(group, modelName, nil, nil)) > 0
+}
+
 // mcpToolVisible 返回工具对指定分组是否可见：
-// 依赖场景中任一场景在分组模型池中配置了模型（含 default 回退）即可见
+// 依赖场景中任一场景在分组模型池中配置了模型（含 default 回退），
+// 且该分组下存在此模型的可用渠道，才可见
 func mcpToolVisible(group, tool string) bool {
 	scenes, ok := mcpToolScenes[tool]
 	if !ok || len(scenes) == 0 {
 		return true
 	}
 	for _, scene := range scenes {
-		if mcpSceneConfiguredModel(scene, group) != "" {
+		modelName := mcpSceneConfiguredModel(scene, group)
+		if modelName != "" && mcpModelHasChannel(group, modelName) {
 			return true
 		}
 	}

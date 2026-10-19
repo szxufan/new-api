@@ -601,8 +601,9 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
 	case types.RelayFormatWebTools:
-		// MCP web_search / web_fetch 工具（RelayMode 由调用方手动指定）
-		info = genBaseRelayInfo(c, nil)
+		// MCP web_search / web_fetch 工具与 REST /v1/tools/* 端点；
+		// REST 路径的 RelayMode 由 Path2RelayMode 推导，MCP 路径由调用方手动指定
+		info = genBaseRelayInfo(c, request)
 	default:
 		err = errors.New("invalid relay format")
 	}

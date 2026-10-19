@@ -120,6 +120,8 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
     value: 'systemone',
     label: 'SystemOne Decision (/v1/systemone)',
   },
+  { value: 'web-search', label: 'Web Search (/v1/tools/search)' },
+  { value: 'web-fetch', label: 'Web Fetch (/v1/tools/fetch)' },
 ]
 
 const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
@@ -128,6 +130,8 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'jina-rerank',
   'openai-response-compact',
   'systemone',
+  'web-search',
+  'web-fetch',
 ])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'

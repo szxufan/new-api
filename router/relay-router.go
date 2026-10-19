@@ -127,6 +127,15 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatEmbedding)
 		})
 
+		// web tools routes (search / fetch), body 中可选 model 字段缺省时
+		// 由 distributor 按端点默认虚拟模型（deepseek-search / deepseek-fetch）路由
+		httpRouter.POST("/tools/search", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatWebTools)
+		})
+		httpRouter.POST("/tools/fetch", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatWebTools)
+		})
+
 		// audio related routes
 		httpRouter.POST("/audio/transcriptions", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIAudio)

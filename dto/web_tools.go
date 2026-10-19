@@ -1,8 +1,23 @@
 package dto
 
+import (
+	"fmt"
+	"net/url"
+	"strings"
+	"unicode/utf8"
+)
+
 // DeepSeek 网页搜索 / 抓取工具 API（POST /v1/tools/search、POST /v1/tools/fetch）
-// 的请求与响应结构，供 MCP web_search / web_fetch 工具中继使用。
+// 的请求与响应结构，供 MCP web_search / web_fetch 工具与 REST /v1/tools/* 端点中继使用。
 // 文档：https://api-docs.deepseek.com/zh-cn/api/search 、/zh-cn/api/fetch
+
+// 上游参数限制（DeepSeek 文档），REST 校验与 MCP 工具共用
+const (
+	MaxWebSearchQueryChars = 128
+	MinWebSearchCount      = 1
+	MaxWebSearchCount      = 50
+	MaxWebFetchURLLength   = 8192
+)
 
 // WebSearchRequest 网页搜索请求。
 // 可选标量使用指针 + omitempty（规则 6）：显式零值仍需发送到上游。
@@ -22,6 +37,26 @@ type WebSearchRequest struct {
 
 func (r *WebSearchRequest) SetModelName(modelName string) {
 	r.Model = modelName
+}
+
+// Validate 校验搜索请求参数（与上游限制一致）
+func (r *WebSearchRequest) Validate() error {
+	query := strings.TrimSpace(r.Query)
+	if query == "" {
+		return fmt.Errorf("query is required")
+	}
+	if queryChars := utf8.RuneCountInString(query); queryChars > MaxWebSearchQueryChars {
+		return fmt.Errorf("query supports at most %d characters, got %d", MaxWebSearchQueryChars, queryChars)
+	}
+	if r.Count != nil && (*r.Count < MinWebSearchCount || *r.Count > MaxWebSearchCount) {
+		return fmt.Errorf("count must be between %d and %d, got %d", MinWebSearchCount, MaxWebSearchCount, *r.Count)
+	}
+	if r.OriQuestion != nil {
+		if q := strings.TrimSpace(*r.OriQuestion); q != "" && utf8.RuneCountInString(q) > MaxWebSearchQueryChars {
+			return fmt.Errorf("ori_question supports at most %d characters, got %d", MaxWebSearchQueryChars, utf8.RuneCountInString(q))
+		}
+	}
+	return nil
 }
 
 // WebSearchResult 单条搜索结果
@@ -61,6 +96,25 @@ type WebFetchRequest struct {
 
 func (r *WebFetchRequest) SetModelName(modelName string) {
 	r.Model = modelName
+}
+
+// Validate 校验抓取请求参数（与上游限制一致）
+func (r *WebFetchRequest) Validate() error {
+	rawURL := strings.TrimSpace(r.Url)
+	if rawURL == "" {
+		return fmt.Errorf("url is required")
+	}
+	if len(rawURL) > MaxWebFetchURLLength {
+		return fmt.Errorf("url supports at most %d characters, got %d", MaxWebFetchURLLength, len(rawURL))
+	}
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return fmt.Errorf("url must be a valid http(s) URL with a host")
+	}
+	if parsedURL.User != nil {
+		return fmt.Errorf("url must not contain a username or password")
+	}
+	return nil
 }
 
 // WebFetchResponse 网页抓取响应，Content 为抓取后的 Markdown 正文
