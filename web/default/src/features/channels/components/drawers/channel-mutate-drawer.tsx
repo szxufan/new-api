@@ -386,6 +386,13 @@ export function ChannelMutateDrawer({
       ),
   })
 
+  // Fetch all channels (any status) for the balance-share selector
+  const { data: balanceShareChannelsData } = useQuery({
+    queryKey: ['channels', 'balance-share-options'],
+    queryFn: () =>
+      searchChannels({ page_size: 200 }).then((res) => res.data?.items ?? []),
+  })
+
   const { copyToClipboard } = useCopyToClipboard()
 
   const {
@@ -577,6 +584,25 @@ export function ChannelMutateDrawer({
     },
     [form]
   )
+
+  // Build balance-share channel options: exclude the current channel and
+  // channels that already share balance themselves (no chained sharing)
+  const balanceShareChannelOptions = useMemo(() => {
+    const channels = balanceShareChannelsData ?? []
+    return channels
+      .filter(
+        (ch) =>
+          ch.id !== channelId && (ch.balance_share_channel_id ?? 0) === 0
+      )
+      .map((ch) => {
+        const typeLabel =
+          CHANNEL_TYPES[ch.type as keyof typeof CHANNEL_TYPES] || `#${ch.type}`
+        return {
+          value: String(ch.id),
+          label: `#${ch.id} ${ch.name} (${t(typeLabel)})`,
+        }
+      })
+  }, [balanceShareChannelsData, channelId, t])
 
   const modelMappingGuardrail = useMemo<ModelMappingGuardrail>(() => {
     if (!currentModelMapping?.trim()) {
@@ -1394,8 +1420,9 @@ export function ChannelMutateDrawer({
                 />
               </div>
 
-              {/* ── Periodic Balance Reset ── */}
-              <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
+              {/* ── Periodic Balance Reset（与共享余额互斥） ── */}
+              {!form.watch('balance_share_enabled') && (
+                <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
                 <CardHeading
                   title={t('Periodic Balance Reset')}
                   icon={<RefreshCw className='h-4 w-4' />}
@@ -1518,6 +1545,82 @@ export function ChannelMutateDrawer({
                       )}
                     />
                   </div>
+                )}
+                </div>
+              )}
+
+              {/* ── Shared Balance ── */}
+              <div className='bg-card space-y-4 rounded-xl border p-3 sm:p-5'>
+                <CardHeading
+                  title={t('Shared Balance')}
+                  icon={<Link2 className='h-4 w-4' />}
+                />
+                <FormField
+                  control={form.control}
+                  name='balance_share_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>
+                          {t('Share Balance With Another Channel')}
+                        </FormLabel>
+                        <FormDescription className='text-xs'>
+                          {t(
+                            "When enabled, this channel's balance and usage are no longer tracked separately: billing deducts directly from the shared channel's balance. This channel's own price factors still apply. Chain sharing is not allowed."
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value === true}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked)
+                          }}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {form.watch('balance_share_enabled') && (
+                  <FormField
+                    control={form.control}
+                    name='balance_share_channel_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Shared Balance Channel')}</FormLabel>
+                        <Select
+                          items={balanceShareChannelOptions}
+                          value={field.value ? String(field.value) : null}
+                          onValueChange={(v) =>
+                            field.onChange(v ? Number(v) : 0)
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger className='w-full'>
+                              <SelectValue
+                                placeholder={t('Select a channel')}
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              {balanceShareChannelOptions.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription className='text-xs'>
+                          {t(
+                            'Requests served by this channel deduct quota and balance from the selected channel.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
               </div>
 

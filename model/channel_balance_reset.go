@@ -10,13 +10,15 @@ import (
 
 // GetDueBalanceResetChannels 查询到期（next_time <= now）需要重置余额的渠道，
 // 按下次重置时间升序返回，最多 limit 条。next_time 为 NULL 或 0 表示未启用，不会被命中。
+// 开启共享余额的渠道自身余额不再起作用，跳过重置。
 func GetDueBalanceResetChannels(limit int) ([]*Channel, error) {
 	if limit <= 0 {
 		limit = 300
 	}
 	now := GetDBTimestamp()
 	var channels []*Channel
-	err := DB.Where("balance_reset_next_time IS NOT NULL AND balance_reset_next_time > 0 AND balance_reset_next_time <= ?", now).
+	err := DB.Where("balance_reset_next_time IS NOT NULL AND balance_reset_next_time > 0 AND balance_reset_next_time <= ?"+
+		" AND (balance_share_channel_id IS NULL OR balance_share_channel_id = 0)", now).
 		Order("balance_reset_next_time asc").
 		Limit(limit).
 		Find(&channels).Error
@@ -46,6 +48,7 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 		channelId := ch.Id
 		amount := *ch.BalanceResetAmount
 		wasAutoDisabled := false
+		wasEnabled := false
 		err := DB.Transaction(func(tx *gorm.DB) error {
 			var locked Channel
 			// SQLite 不支持 FOR UPDATE（且 SQLite 部署为单写入者，无需行锁）
@@ -87,6 +90,7 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 				return err
 			}
 			wasAutoDisabled = locked.Status == common.ChannelStatusAutoDisabled
+			wasEnabled = locked.Status == common.ChannelStatusEnabled
 			return nil
 		})
 		if err != nil {
@@ -103,6 +107,15 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 		// 重置为正余额且渠道此前被自动禁用时，自动重新启用（含缓存与 ability 联动）
 		if amount > 0 && wasAutoDisabled {
 			UpdateChannelScheduleStatus(channelId, common.ChannelStatusEnabled, "周期重置余额")
+		}
+		// 共享余额联动恢复：共享本渠道余额、因余额耗尽被自动禁用的渠道一并恢复。
+		// 仅当本渠道重置后实际处于启用状态（原本启用或被自动恢复）时联动，手动禁用的渠道不带动恢复。
+		if amount > 0 && (wasEnabled || wasAutoDisabled) {
+			if sharers, serr := GetChannelsSharingBalanceOf(channelId, common.ChannelStatusAutoDisabled); serr == nil {
+				for _, sharer := range sharers {
+					UpdateChannelScheduleStatus(sharer.Id, common.ChannelStatusEnabled, "共享余额渠道已重置")
+				}
+			}
 		}
 	}
 	return resetCount, nil

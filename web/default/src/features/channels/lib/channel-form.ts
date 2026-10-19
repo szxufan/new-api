@@ -192,7 +192,18 @@ export const channelFormSchema = z.object({
   // 启用状态的必填/整数/下限校验在下方 superRefine 中执行。
   balance_reset_period_days: z.number().nullish(),
   balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
+  // 共享余额（顶层渠道字段；enabled 开关仅表单使用，0=未启用）
+  balance_share_enabled: z.boolean().optional(),
+  balance_share_channel_id: z.number().optional(),
 }).superRefine((data, ctx) => {
+  // 开启共享余额时必须选择共享目标渠道
+  if (data.balance_share_enabled && !data.balance_share_channel_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Please select a channel to share balance with',
+      path: ['balance_share_channel_id'],
+    })
+  }
   // 启用周期重置时，金额/周期/下次时间三项必填
   if (!data.balance_reset_enabled) return
   if (data.balance_reset_amount === undefined || data.balance_reset_amount === null) {
@@ -295,6 +306,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   fallback_channel_ids: [],
   // Periodic balance reset
   balance_reset_enabled: false,
+  // Shared balance
+  balance_share_enabled: false,
+  balance_share_channel_id: 0,
 }
 
 // ============================================================================
@@ -506,6 +520,9 @@ export function transformChannelToFormDefaults(
     balance_reset_next_time: balanceResetEnabled
       ? channel.balance_reset_next_time
       : undefined,
+    // 共享余额（顶层渠道字段）
+    balance_share_enabled: (channel.balance_share_channel_id ?? 0) > 0,
+    balance_share_channel_id: channel.balance_share_channel_id ?? 0,
     // Channel price factors (stored in setting JSON under "price")
     ...parseChannelPriceSettings(channelPrice),
   }
@@ -840,6 +857,10 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     balance_reset_next_time: formData.balance_reset_enabled
       ? (formData.balance_reset_next_time ?? null)
       : null,
+    // 共享余额：始终显式提交数字（0=未启用）
+    balance_share_channel_id: formData.balance_share_enabled
+      ? (formData.balance_share_channel_id ?? 0)
+      : 0,
   }
 
   // Write fallback_channel_ids into other_info
@@ -939,15 +960,22 @@ export function transformFormDataToUpdatePayload(
   // time_windows 为空时提交空字符串（而非 null），让 GORM Updates 能清空该字段
   payload.time_windows = formatTimeWindowsJson(formData.timeWindows)
   // 周期重置余额：关闭时显式提交 0（而非 null），让 GORM Updates 能清空旧值；
-  // 后端约定 next_time <= 0 视为未启用
-  payload.balance_reset_amount = formData.balance_reset_enabled
+  // 后端约定 next_time <= 0 视为未启用。共享余额与周期重置互斥，
+  // 开启共享时强制提交 0 清空周期重置配置（后端也会跳过共享渠道的重置）。
+  const resetEnabled =
+    formData.balance_reset_enabled && !formData.balance_share_enabled
+  payload.balance_reset_amount = resetEnabled
     ? (formData.balance_reset_amount ?? 0)
     : 0
-  payload.balance_reset_period_days = formData.balance_reset_enabled
+  payload.balance_reset_period_days = resetEnabled
     ? (formData.balance_reset_period_days ?? 0)
     : 0
-  payload.balance_reset_next_time = formData.balance_reset_enabled
+  payload.balance_reset_next_time = resetEnabled
     ? (formData.balance_reset_next_time ?? 0)
+    : 0
+  // 共享余额：始终显式提交数字（0=关闭），让 GORM Updates 能清空旧值
+  payload.balance_share_channel_id = formData.balance_share_enabled
+    ? (formData.balance_share_channel_id ?? 0)
     : 0
 
   // Write fallback_channel_ids into other_info

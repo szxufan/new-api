@@ -122,25 +122,63 @@ func DisableChannelIfBalanceDepleted(channel *model.Channel, reason string) bool
 		channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan(),
 		channel.GetDisable429Ban(),
 	), reason)
+	// 联动禁用所有共享本渠道余额的渠道：它们的计费扣减都落在本渠道上，
+	// 本渠道余额耗尽后继续放行只会透支，需一并禁用（各自尊重自身 AutoBan）
+	DisableChannelsSharingBalanceOf(channel.Id, reason)
 	return true
+}
+
+// DisableChannelsSharingBalanceOf 禁用所有共享了指定渠道余额且当前启用的渠道
+func DisableChannelsSharingBalanceOf(targetId int, reason string) {
+	if targetId <= 0 {
+		return
+	}
+	sharers, err := model.GetChannelsSharingBalanceOf(targetId, common.ChannelStatusEnabled)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to query balance-share channels of #%d: %v", targetId, err))
+		return
+	}
+	shareReason := fmt.Sprintf("共享余额渠道 #%d %s", targetId, reason)
+	for _, sharer := range sharers {
+		DisableChannel(*types.NewChannelError(
+			sharer.Id, sharer.Type, sharer.Name,
+			sharer.ChannelInfo.IsMultiKey, "", sharer.GetAutoBan(),
+			sharer.GetDisable429Ban(),
+		), shareReason)
+	}
+}
+
+// ResolveBalanceAccountingChannelId 返回渠道计费记账（used_quota/balance 扣减）应作用于的渠道 ID：
+// 渠道开启了共享余额时重定向到目标渠道，否则返回自身
+func ResolveBalanceAccountingChannelId(channelId int) int {
+	channel, err := model.CacheGetChannel(channelId)
+	if err != nil || channel == nil {
+		return channelId
+	}
+	if targetId := channel.GetBalanceShareChannelId(); targetId > 0 {
+		return targetId
+	}
+	return channelId
 }
 
 // UpdateChannelQuotaAndBalance 更新渠道已用额度并扣减余额，检查余额耗尽自动禁用
 // 供所有计费路径调用，替代直接调用 model.UpdateChannelUsedQuota
 func UpdateChannelQuotaAndBalance(channelId int, quota int) {
+	// 共享余额：本渠道的记账（已用额度、余额扣减、耗尽禁用）全部重定向到共享目标渠道
+	accountingChannelId := ResolveBalanceAccountingChannelId(channelId)
 	// 1. 更新已用额度统计（可能批量延迟）
-	model.UpdateChannelUsedQuota(channelId, quota)
+	model.UpdateChannelUsedQuota(accountingChannelId, quota)
 	if quota <= 0 {
 		return
 	}
 	// 2. 防御 QuotaPerUnit 异常配置（除零保护）
 	if common.QuotaPerUnit <= 0 {
-		common.SysLog(fmt.Sprintf("skip balance deduction: QuotaPerUnit is invalid (%v), channel_id=%d", common.QuotaPerUnit, channelId))
+		common.SysLog(fmt.Sprintf("skip balance deduction: QuotaPerUnit is invalid (%v), channel_id=%d", common.QuotaPerUnit, accountingChannelId))
 		return
 	}
 	// 3. 即时扣减余额（独立于批量更新，使用 quota/QuotaPerUnit 作为近似上游成本）
 	deduction := float64(quota) / common.QuotaPerUnit
-	channel, err := model.DeductChannelBalance(channelId, deduction)
+	channel, err := model.DeductChannelBalance(accountingChannelId, deduction)
 	if err != nil || channel == nil {
 		return
 	}
@@ -148,7 +186,7 @@ func UpdateChannelQuotaAndBalance(channelId int, quota int) {
 	if common.MemoryCacheEnabled {
 		model.CacheUpdateChannel(channel)
 	}
-	// 5. 检查余额耗尽自动禁用
+	// 5. 检查余额耗尽自动禁用（作用于记账渠道，含共享渠道联动）
 	DisableChannelIfBalanceDepleted(channel, "余额耗尽（自动扣减）")
 }
 

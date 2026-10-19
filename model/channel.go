@@ -44,6 +44,12 @@ type Channel struct {
 	BalanceResetAmount     *float64 `json:"balance_reset_amount"`
 	BalanceResetPeriodDays *int     `json:"balance_reset_period_days"`
 	BalanceResetNextTime   *int64   `json:"balance_reset_next_time" gorm:"bigint;index"`
+	// BalanceShareChannelId 共享余额目标渠道 ID：>0 时本渠道计费记账（used_quota 累计与
+	// balance 扣减、余额耗尽自动禁用判定）全部重定向到目标渠道，本渠道自身的余额与消费
+	// 不再起作用；渠道价格系数仍取本渠道 Setting.price。nil 或 0 表示未启用；目标渠道自身
+	// 不允许再开启共享（禁止链式）。使用指针类型以便编辑渠道时能清空（gorm struct Updates
+	// 跳过零值字段，前端关闭时需提交 0 而非 null）。
+	BalanceShareChannelId *int `json:"balance_share_channel_id"`
 	Models             string  `json:"models"`
 	Group              string  `json:"group" gorm:"type:varchar(64);default:'default'"`
 	// GroupBlacklist 用户分组黑名单，逗号分隔。命中黑名单的用户分组在调度时无法选择本渠道。
@@ -452,6 +458,14 @@ func (channel *Channel) GetAutoBan() bool {
 	return *channel.AutoBan == 1
 }
 
+// GetBalanceShareChannelId 返回共享余额目标渠道 ID，nil 或 <=0 视为未启用（返回 0）
+func (channel *Channel) GetBalanceShareChannelId() int {
+	if channel.BalanceShareChannelId == nil || *channel.BalanceShareChannelId <= 0 {
+		return 0
+	}
+	return *channel.BalanceShareChannelId
+}
+
 // GetDisable429Ban 返回是否禁用 429 自动限流。
 // true=跳过 429 自动限流与 fallback，走正常重试；false=维持现状（限流+fallback）。
 func (channel *Channel) GetDisable429Ban() bool {
@@ -733,6 +747,51 @@ func DeductChannelBalance(id int, deduction float64) (*Channel, error) {
 		return nil, err
 	}
 	return GetChannelById(id, true)
+}
+
+// GetChannelsSharingBalanceOf 查询共享了指定渠道余额的渠道列表（balance_share_channel_id = targetId）。
+// status > 0 时按状态过滤（联动禁用传启用态、联动恢复传自动禁用态），status <= 0 表示不过滤。
+func GetChannelsSharingBalanceOf(targetId int, status int) ([]*Channel, error) {
+	if targetId <= 0 {
+		return nil, nil
+	}
+	query := DB.Omit("key").Where("balance_share_channel_id = ?", targetId)
+	if status > 0 {
+		query = query.Where("status = ?", status)
+	}
+	var channels []*Channel
+	err := query.Find(&channels).Error
+	if err != nil {
+		return nil, err
+	}
+	return channels, nil
+}
+
+// GetChannelBalanceByIds 批量查询指定渠道的余额信息，仅取 id/balance/balance_updated_time，
+// 供列表/详情接口把共享渠道展示的余额替换为目标渠道的真实余额。
+func GetChannelBalanceByIds(ids []int) (map[int]*Channel, error) {
+	result := make(map[int]*Channel)
+	if len(ids) == 0 {
+		return result, nil
+	}
+	var channels []*Channel
+	err := DB.Select("id", "balance", "balance_updated_time").Where("id IN ?", ids).Find(&channels).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, ch := range channels {
+		result[ch.Id] = ch
+	}
+	return result, nil
+}
+
+// ClearBalanceShareReferences 清理所有指向被删除渠道的共享余额引用（置 0 = 关闭共享）
+func ClearBalanceShareReferences(deletedIds []int) error {
+	if len(deletedIds) == 0 {
+		return nil
+	}
+	return DB.Model(&Channel{}).Where("balance_share_channel_id IN ?", deletedIds).
+		Update("balance_share_channel_id", 0).Error
 }
 
 func (channel *Channel) Delete() error {

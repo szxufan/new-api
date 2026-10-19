@@ -268,6 +268,8 @@ func GetAllChannels(c *gin.Context) {
 	for _, r := range results {
 		typeCounts[r.Type] = r.Count
 	}
+	// 共享余额渠道展示共享目标的余额
+	applySharedBalanceDisplay(channelData)
 	common.ApiSuccess(c, gin.H{
 		"items":       channelData,
 		"total":       total,
@@ -479,6 +481,8 @@ func SearchChannels(c *gin.Context) {
 	if !sortOptions.SortByAffinityCount {
 		service.FillChannelAffinityCounts(pagedData)
 	}
+	// 共享余额渠道展示共享目标的余额
+	applySharedBalanceDisplay(pagedData)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -506,6 +510,25 @@ func GetChannel(c *gin.Context) {
 		clearChannelInfo(channel)
 	}
 
+	// 附带共享余额渠道信息，并把展示余额替换为共享目标的真实余额
+	type BalanceShareChannelInfo struct {
+		Id   int    `json:"id"`
+		Name string `json:"name"`
+		Type int    `json:"type"`
+	}
+	balanceShareChannel := (*BalanceShareChannelInfo)(nil)
+	if targetId := channel.GetBalanceShareChannelId(); targetId > 0 {
+		if target, terr := model.GetChannelById(targetId, false); terr == nil {
+			balanceShareChannel = &BalanceShareChannelInfo{
+				Id:   target.Id,
+				Name: target.Name,
+				Type: target.Type,
+			}
+			channel.Balance = target.Balance
+			channel.BalanceUpdatedTime = target.BalanceUpdatedTime
+		}
+	}
+
 	// 附带后备渠道信息
 	type FallbackChannelInfo struct {
 		Id   int    `json:"id"`
@@ -524,10 +547,11 @@ func GetChannel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":           true,
-		"message":           "",
-		"data":              channel,
-		"fallback_channels": fallbackInfos,
+		"success":               true,
+		"message":               "",
+		"data":                  channel,
+		"fallback_channels":     fallbackInfos,
+		"balance_share_channel": balanceShareChannel,
 	})
 }
 
@@ -601,6 +625,20 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 		if channel.BalanceResetPeriodDays == nil || *channel.BalanceResetPeriodDays <= 0 {
 			return fmt.Errorf("周期重置间隔[balance_reset_period_days] 必须大于 0 天")
+		}
+	}
+
+	// 校验共享余额渠道：目标必须存在、不能是自己、目标自身不能开启共享（禁止链式共享）
+	if targetId := channel.GetBalanceShareChannelId(); targetId > 0 {
+		if targetId == channel.Id {
+			return fmt.Errorf("渠道不能与自身共享余额")
+		}
+		target, err := model.GetChannelById(targetId, false)
+		if err != nil || target == nil {
+			return fmt.Errorf("共享余额渠道 #%d 不存在", targetId)
+		}
+		if target.GetBalanceShareChannelId() > 0 {
+			return fmt.Errorf("共享余额渠道 #%d 自身已开启共享余额，不支持链式共享", targetId)
 		}
 	}
 
@@ -775,6 +813,42 @@ func cleanFallbackReferences(deletedIds []int) {
 			if err := model.DB.Model(ch).Update("other_info", ch.OtherInfo).Error; err != nil {
 				common.SysLog(fmt.Sprintf("清理渠道 #%d 的后备引用失败: %v", ch.Id, err))
 			}
+		}
+	}
+}
+
+// cleanBalanceShareReferences 清理所有渠道中指向被删除渠道的共享余额引用（置 0 = 关闭共享）
+func cleanBalanceShareReferences(deletedIds []int) {
+	if err := model.ClearBalanceShareReferences(deletedIds); err != nil {
+		common.SysLog(fmt.Sprintf("清理共享余额渠道引用失败: %v", err))
+	}
+}
+
+// applySharedBalanceDisplay 将开启共享余额的渠道在响应中展示的余额替换为共享目标渠道的真实余额
+// （仅修改响应结构体，不落库）。本渠道自身余额已不参与计费，展示共享来源更符合实际含义。
+func applySharedBalanceDisplay(channels []*model.Channel) {
+	targetIds := make([]int, 0)
+	for _, ch := range channels {
+		if targetId := ch.GetBalanceShareChannelId(); targetId > 0 {
+			targetIds = append(targetIds, targetId)
+		}
+	}
+	if len(targetIds) == 0 {
+		return
+	}
+	balances, err := model.GetChannelBalanceByIds(targetIds)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("查询共享余额展示失败: %v", err))
+		return
+	}
+	for _, ch := range channels {
+		targetId := ch.GetBalanceShareChannelId()
+		if targetId <= 0 {
+			continue
+		}
+		if target, ok := balances[targetId]; ok {
+			ch.Balance = target.Balance
+			ch.BalanceUpdatedTime = target.BalanceUpdatedTime
 		}
 	}
 }
@@ -964,6 +1038,7 @@ func DeleteChannel(c *gin.Context) {
 	}
 	// 清理其他渠道中指向已删除渠道的后备引用
 	cleanFallbackReferences([]int{id})
+	cleanBalanceShareReferences([]int{id})
 	model.InitChannelCache()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1210,6 +1285,7 @@ func DeleteChannelBatch(c *gin.Context) {
 	}
 	// 清理其他渠道中指向已删除渠道的后备引用
 	cleanFallbackReferences(channelBatch.Ids)
+	cleanBalanceShareReferences(channelBatch.Ids)
 	model.InitChannelCache()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1355,7 +1431,8 @@ func UpdateChannel(c *gin.Context) {
 	}
 	// 手动设余额为0且曾经有过非0余额时触发禁用（仅当渠道当前为启用状态）
 	// channel.Update() 内部已 First() 重新加载，channel 此时是最新值
-	if channel.Balance <= 0 && channel.Status == common.ChannelStatusEnabled {
+	// 开启共享余额的渠道自身余额不再起作用，清零不触发禁用
+	if channel.Balance <= 0 && channel.Status == common.ChannelStatusEnabled && channel.GetBalanceShareChannelId() == 0 {
 		service.DisableChannelIfBalanceDepleted(&channel.Channel, "余额被手动清零")
 	}
 	model.InitChannelCache()

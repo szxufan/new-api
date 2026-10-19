@@ -377,6 +377,15 @@ func UpdateChannelBalance(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 共享余额渠道：本渠道余额不再起作用，实际刷新并返回共享目标渠道的余额
+	if targetId := channel.GetBalanceShareChannelId(); targetId > 0 {
+		target, terr := model.CacheGetChannel(targetId)
+		if terr != nil {
+			common.ApiError(c, terr)
+			return
+		}
+		channel = target
+	}
 	if channel.ChannelInfo.IsMultiKey {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -405,6 +414,10 @@ func updateAllChannelsBalance() error {
 	}
 	for _, channel := range channels {
 		if channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		// 共享余额渠道自身余额不再起作用，跳过刷新（共享目标渠道会被正常刷新）
+		if channel.GetBalanceShareChannelId() > 0 {
 			continue
 		}
 		if channel.ChannelInfo.IsMultiKey {

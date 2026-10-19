@@ -25,6 +25,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Link2,
   ListOrdered,
   Shuffle,
 } from 'lucide-react'
@@ -362,6 +363,9 @@ function RemainingCell({ channel }: { channel: Channel }) {
   const tokenSuffix = currencyLabel === 'Tokens' ? ' Tokens' : ''
   const withSuffix = (value: string) =>
     tokenSuffix && value !== '-' ? `${value}${tokenSuffix}` : value
+  // 共享余额渠道：展示/刷新的是共享目标渠道的余额，本渠道自身余额已不参与计费
+  const sharedBalanceChannelId = channel.balance_share_channel_id ?? 0
+  const isSharedBalance = sharedBalanceChannelId > 0
 
   const remainingDisplay = withSuffix(formatBalance(balance))
   const variant = getBalanceVariant(balance)
@@ -403,15 +407,20 @@ function RemainingCell({ channel }: { channel: Channel }) {
         queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
       } else {
         toast.error(response.message || t('Failed to update balance'))
-        setManualBalanceValue(String(balance))
-        setManualBalanceOpen(true)
+        // 共享余额渠道的手动余额无意义（后端展示的是共享目标余额），不弹手动输入框
+        if (!isSharedBalance) {
+          setManualBalanceValue(String(balance))
+          setManualBalanceOpen(true)
+        }
       }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('Failed to update balance')
       )
-      setManualBalanceValue(String(balance))
-      setManualBalanceOpen(true)
+      if (!isSharedBalance) {
+        setManualBalanceValue(String(balance))
+        setManualBalanceOpen(true)
+      }
     } finally {
       setIsUpdating(false)
     }
@@ -469,9 +478,24 @@ function RemainingCell({ channel }: { channel: Channel }) {
                 ? t('Click to view Codex usage')
                 : `${t('Remaining:')} ${remainingDisplay}`}
             </p>
+            {isSharedBalance && (
+              <p>
+                {t('Balance shared from channel #{{id}}', {
+                  id: sharedBalanceChannelId,
+                })}
+              </p>
+            )}
             {channel.type !== 57 && <p>{t('Click to update balance')}</p>}
           </TooltipContent>
         </Tooltip>
+        {isSharedBalance && (
+          <span
+            className='text-muted-foreground inline-flex items-center'
+            aria-label={t('Shared')}
+          >
+            <Link2 className='size-3 shrink-0' />
+          </span>
+        )}
       </div>
 
       <CodexUsageDialog
