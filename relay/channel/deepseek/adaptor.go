@@ -62,6 +62,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	case types.RelayFormatClaude:
 		return fmt.Sprintf("%s/anthropic/v1/messages", info.ChannelBaseUrl), nil
 	default:
+		switch info.RelayMode {
+		case constant.RelayModeWebSearch:
+			return fmt.Sprintf("%s/v1/tools/search", info.ChannelBaseUrl), nil
+		case constant.RelayModeWebFetch:
+			return fmt.Sprintf("%s/v1/tools/fetch", info.ChannelBaseUrl), nil
+		}
 		if !strings.HasSuffix(info.ChannelBaseUrl, "/beta") {
 			fimBaseUrl += "/beta"
 		}

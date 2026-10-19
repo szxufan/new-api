@@ -600,6 +600,9 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 	case types.RelayFormatMjProxy:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
+	case types.RelayFormatWebTools:
+		// MCP web_search / web_fetch 工具（RelayMode 由调用方手动指定）
+		info = genBaseRelayInfo(c, nil)
 	default:
 		err = errors.New("invalid relay format")
 	}

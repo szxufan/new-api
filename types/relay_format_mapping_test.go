@@ -76,6 +76,13 @@ func TestGetPreferredChannelTypesByRelayFormat_OpenAIRealtime(t *testing.T) {
 	}
 }
 
+func TestGetPreferredChannelTypesByRelayFormat_WebTools(t *testing.T) {
+	result := GetPreferredChannelTypesByRelayFormat(RelayFormatWebTools)
+	if len(result) != 1 || result[0] != constant.ChannelTypeDeepSeek {
+		t.Errorf("RelayFormatWebTools: expected [ChannelTypeDeepSeek], got %v", result)
+	}
+}
+
 func TestGetPreferredChannelTypesByRelayFormat_Task_ReturnsNil(t *testing.T) {
 	result := GetPreferredChannelTypesByRelayFormat(RelayFormatTask)
 	if result != nil {

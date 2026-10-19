@@ -41,11 +41,14 @@ var mcpGinContextKey = MCPGinContextKey{}
 // maxMCPReferenceImages MCP 图生图/参考图最多引用的临时图片数量
 const maxMCPReferenceImages = 3
 
-// MCP 场景常量：6 个能力场景各对应一个模型指定请求头与一个模型池配置。
-// 图片场景为 image/i2i；视频场景复用 mcp_setting.VideoModelKind*（t2v/i2v/kf2v/r2v）。
+// MCP 场景常量：各能力场景各对应一个模型指定请求头与一个模型池配置。
+// 图片场景为 image/i2i；视频场景复用 mcp_setting.VideoModelKind*（t2v/i2v/kf2v/r2v）；
+// 网页工具场景为 search/fetch（见 mcp_web_tools.go）。
 const (
-	mcpSceneImage = "image"
-	mcpSceneI2I   = "i2i"
+	mcpSceneImage  = "image"
+	mcpSceneI2I    = "i2i"
+	mcpSceneSearch = "search"
+	mcpSceneFetch  = "fetch"
 )
 
 // mcpSceneModelHeader 返回场景对应的模型指定请求头（命名风格对齐 X-MCP-Upload-Ticket）：
@@ -53,6 +56,7 @@ const (
 //	image → X-MCP-Image-Model     i2i  → X-MCP-I2I-Model
 //	t2v   → X-MCP-T2V-Model       i2v  → X-MCP-I2V-Model
 //	kf2v  → X-MCP-KF2V-Model      r2v  → X-MCP-R2V-Model
+//	search → X-MCP-Search-Model   fetch → X-MCP-Fetch-Model
 func mcpSceneModelHeader(scene string) string {
 	switch scene {
 	case mcpSceneImage:
@@ -67,6 +71,10 @@ func mcpSceneModelHeader(scene string) string {
 		return "X-MCP-KF2V-Model"
 	case mcp_setting.VideoModelKindR2V:
 		return "X-MCP-R2V-Model"
+	case mcpSceneSearch:
+		return "X-MCP-Search-Model"
+	case mcpSceneFetch:
+		return "X-MCP-Fetch-Model"
 	default:
 		return ""
 	}
@@ -79,6 +87,10 @@ func mcpSceneConfiguredModel(scene, group string) string {
 		return mcp_setting.GetGroupImageModel(group)
 	case mcpSceneI2I:
 		return mcp_setting.GetGroupI2IModel(group)
+	case mcpSceneSearch:
+		return mcp_setting.GetGroupSearchModel(group)
+	case mcpSceneFetch:
+		return mcp_setting.GetGroupFetchModel(group)
 	default:
 		return mcp_setting.GetGroupVideoModel(scene, group)
 	}
@@ -181,6 +193,20 @@ func init() {
 		Description: "Get a short-lived upload ticket and URL. Call this FIRST, then run the returned example curl command (or any multipart POST) to upload a local image, and use the returned image id in generate_image / generate_video_from_frames / generate_video_from_reference. No API token needed; ticket is valid for 10 minutes",
 		InputSchema: requestUploadTicketInputSchema(),
 	}, handleMCPRequestUploadTicket)
+
+	// 注册网页搜索工具（web_search，分组模型池路由，首期支持 DeepSeek 渠道）
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "web_search",
+		Description: "Search the web and return structured results (title, url, snippet, summary). Uses the search model configured for the current group",
+		InputSchema: webSearchInputSchema(),
+	}, handleMCPWebSearch)
+
+	// 注册网页抓取工具（web_fetch，分组模型池路由，首期支持 DeepSeek 渠道）
+	mcpServer.AddTool(&mcp.Tool{
+		Name:        "web_fetch",
+		Description: "Fetch a web page and return its title and markdown content. Uses the fetch model configured for the current group",
+		InputSchema: webFetchInputSchema(),
+	}, handleMCPWebFetch)
 }
 
 // generateImageInputSchema 返回 generate_image 工具的 JSON Schema

@@ -34,6 +34,9 @@ func GetPreferredChannelTypesByRelayFormat(relayFormat RelayFormat) []int {
 	case RelayFormatOpenAIRealtime:
 		// 实时通信
 		return []int{constant.ChannelTypeOpenAI}
+	case RelayFormatWebTools:
+		// MCP 网页搜索/抓取工具，首期支持 DeepSeek 渠道
+		return []int{constant.ChannelTypeDeepSeek}
 	// 以下 RelayFormat 不参与类型优先选择：
 	// - RelayFormatTask: 异步任务，通过 TaskPlatform 选择
 	// - RelayFormatMjProxy: Midjourney 代理，专用渠道

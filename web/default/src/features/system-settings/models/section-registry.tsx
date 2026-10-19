@@ -171,9 +171,9 @@ const MODELS_SECTIONS = [
   },
   {
     id: 'mcp-image',
-    titleKey: 'MCP Image Generation',
+    titleKey: 'MCP Tools',
     descriptionKey:
-      'Configure per-group models for MCP endpoints (image & video generation)',
+      'Configure per-group models for MCP endpoints (image, video & web search/fetch)',
     build: (settings: ModelSettings) => (
       <McpSettingsCard
         defaultValues={{
@@ -200,6 +200,14 @@ const MODELS_SECTIONS = [
           'mcp_setting.group_video_r2v_models': formatJsonForEditor(
             settings['mcp_setting.group_video_r2v_models'],
             '{}'
+          ),
+          'mcp_setting.group_search_models': formatJsonForEditor(
+            settings['mcp_setting.group_search_models'],
+            '{"default":"deepseek-search"}'
+          ),
+          'mcp_setting.group_fetch_models': formatJsonForEditor(
+            settings['mcp_setting.group_fetch_models'],
+            '{"default":"deepseek-fetch"}'
           ),
         }}
       />

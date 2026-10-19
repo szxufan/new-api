@@ -54,6 +54,9 @@ const (
 	RelayModeResponsesCompact
 
 	RelayModeSystemOne
+
+	RelayModeWebSearch
+	RelayModeWebFetch
 )
 
 func Path2RelayMode(path string) int {

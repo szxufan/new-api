@@ -51,6 +51,8 @@ const MCP_MODEL_MAP_KEYS = [
   'mcp_setting.group_video_i2v_models',
   'mcp_setting.group_video_kf2v_models',
   'mcp_setting.group_video_r2v_models',
+  'mcp_setting.group_search_models',
+  'mcp_setting.group_fetch_models',
 ] as const
 
 type McpModelMapKey = (typeof MCP_MODEL_MAP_KEYS)[number]
@@ -69,6 +71,8 @@ const FORM_FIELD_KEYS = [
   'group_video_i2v_models',
   'group_video_kf2v_models',
   'group_video_r2v_models',
+  'group_search_models',
+  'group_fetch_models',
 ] as const
 
 type FormFieldKey = (typeof FORM_FIELD_KEYS)[number]
@@ -80,6 +84,8 @@ const OPTION_TO_FIELD: Record<McpModelMapKey, FormFieldKey> = {
   'mcp_setting.group_video_i2v_models': 'group_video_i2v_models',
   'mcp_setting.group_video_kf2v_models': 'group_video_kf2v_models',
   'mcp_setting.group_video_r2v_models': 'group_video_r2v_models',
+  'mcp_setting.group_search_models': 'group_search_models',
+  'mcp_setting.group_fetch_models': 'group_fetch_models',
 }
 
 const FIELD_TO_OPTION: Record<FormFieldKey, McpModelMapKey> = {
@@ -89,6 +95,8 @@ const FIELD_TO_OPTION: Record<FormFieldKey, McpModelMapKey> = {
   group_video_i2v_models: 'mcp_setting.group_video_i2v_models',
   group_video_kf2v_models: 'mcp_setting.group_video_kf2v_models',
   group_video_r2v_models: 'mcp_setting.group_video_r2v_models',
+  group_search_models: 'mcp_setting.group_search_models',
+  group_fetch_models: 'mcp_setting.group_fetch_models',
 }
 
 const schema = z.object(
@@ -234,13 +242,27 @@ export function McpSettingsCard(props: McpSettingsCardProps) {
       description: t('Used by generate_video_from_reference (max 3 images)'),
       tool: 'generate_video_from_reference',
     },
+    {
+      optionKey: 'mcp_setting.group_search_models',
+      fieldKey: 'group_search_models',
+      label: t('Web search models'),
+      description: t('Used by web_search (DeepSeek channels)'),
+      tool: 'web_search',
+    },
+    {
+      optionKey: 'mcp_setting.group_fetch_models',
+      fieldKey: 'group_fetch_models',
+      label: t('Web fetch models'),
+      description: t('Used by web_fetch (DeepSeek channels)'),
+      tool: 'web_fetch',
+    },
   ]
 
   return (
     <SettingsSection
-      title={t('MCP Image Generation')}
+      title={t('MCP Tools')}
       description={t(
-        "Configure per-group models for MCP tools (image & video generation). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group."
+        "Configure per-group models for MCP tools (image, video & web search/fetch). When an MCP client calls a tool, the model of the caller's group is used, falling back to the default group."
       )}
     >
       <Form {...form}>

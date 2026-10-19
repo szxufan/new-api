@@ -251,3 +251,75 @@ func TestGetGroupVideoModel_Fallback(t *testing.T) {
 		t.Errorf("GetGroupVideoModel i2v empty pool = %q, want empty string", got)
 	}
 }
+
+// setWebToolModels 设置网页工具模型池测试数据并返回还原函数
+func setWebToolModels(field string, m map[string]string) func() {
+	setting := GetGroupImageModelSetting()
+	var original map[string]string
+	if field == "search" {
+		original = setting.GroupSearchModels
+		setting.GroupSearchModels = m
+	} else {
+		original = setting.GroupFetchModels
+		setting.GroupFetchModels = m
+	}
+	return func() {
+		if field == "search" {
+			setting.GroupSearchModels = original
+		} else {
+			setting.GroupFetchModels = original
+		}
+	}
+}
+
+// TestGetGroupSearchModel 测试搜索模型池：命中、default 回退、空配置
+func TestGetGroupSearchModel(t *testing.T) {
+	restore := setWebToolModels("search", map[string]string{
+		"default": "deepseek-search",
+		"vip":     "tavily-search",
+	})
+	defer restore()
+
+	if got := GetGroupSearchModel("vip"); got != "tavily-search" {
+		t.Errorf("GetGroupSearchModel(\"vip\") = %q, want %q", got, "tavily-search")
+	}
+	if got := GetGroupSearchModel("unknown"); got != "deepseek-search" {
+		t.Errorf("GetGroupSearchModel(\"unknown\") = %q, want default %q", got, "deepseek-search")
+	}
+}
+
+// TestGetGroupSearchModel_Empty 测试搜索模型池空配置返回空串
+func TestGetGroupSearchModel_Empty(t *testing.T) {
+	restore := setWebToolModels("search", map[string]string{})
+	defer restore()
+
+	if got := GetGroupSearchModel("default"); got != "" {
+		t.Errorf("GetGroupSearchModel with empty config = %q, want empty string", got)
+	}
+}
+
+// TestGetGroupFetchModel 测试抓取模型池：命中、default 回退、空配置
+func TestGetGroupFetchModel(t *testing.T) {
+	restore := setWebToolModels("fetch", map[string]string{
+		"default": "deepseek-fetch",
+		"vip":     "jina-fetch",
+	})
+	defer restore()
+
+	if got := GetGroupFetchModel("vip"); got != "jina-fetch" {
+		t.Errorf("GetGroupFetchModel(\"vip\") = %q, want %q", got, "jina-fetch")
+	}
+	if got := GetGroupFetchModel("unknown"); got != "deepseek-fetch" {
+		t.Errorf("GetGroupFetchModel(\"unknown\") = %q, want default %q", got, "deepseek-fetch")
+	}
+}
+
+// TestGetGroupFetchModel_Empty 测试抓取模型池空配置返回空串
+func TestGetGroupFetchModel_Empty(t *testing.T) {
+	restore := setWebToolModels("fetch", map[string]string{})
+	defer restore()
+
+	if got := GetGroupFetchModel("default"); got != "" {
+		t.Errorf("GetGroupFetchModel with empty config = %q, want empty string", got)
+	}
+}

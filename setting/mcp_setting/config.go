@@ -5,7 +5,7 @@ import (
 )
 
 // GroupImageModelSetting 存储 MCP 各能力「分组 → 模型」的映射配置。
-// 每类能力（文生图/图生图/文生视频/图生视频/首尾帧/参考图生视频）独立配置，
+// 每类能力（文生图/图生图/文生视频/图生视频/首尾帧/参考图生视频/网页搜索/网页抓取）独立配置，
 // 未配置的分组回退到 default 分组的模型，default 也未配置时返回空串（调用方报错）。
 type GroupImageModelSetting struct {
 	// GroupImageModels 文生图模型映射（generate_image 纯文生图路径）
@@ -20,6 +20,10 @@ type GroupImageModelSetting struct {
 	GroupVideoKF2VModels map[string]string `json:"group_video_kf2v_models,omitempty"`
 	// GroupVideoR2VModels 参考图生视频模型映射（generate_video_from_reference）
 	GroupVideoR2VModels map[string]string `json:"group_video_r2v_models,omitempty"`
+	// GroupSearchModels 网页搜索模型映射（web_search）
+	GroupSearchModels map[string]string `json:"group_search_models,omitempty"`
+	// GroupFetchModels 网页抓取模型映射（web_fetch）
+	GroupFetchModels map[string]string `json:"group_fetch_models,omitempty"`
 }
 
 var groupImageModelSetting = GroupImageModelSetting{
@@ -31,6 +35,12 @@ var groupImageModelSetting = GroupImageModelSetting{
 	GroupVideoI2VModels:  map[string]string{},
 	GroupVideoKF2VModels: map[string]string{},
 	GroupVideoR2VModels:  map[string]string{},
+	GroupSearchModels: map[string]string{
+		"default": "deepseek-search",
+	},
+	GroupFetchModels: map[string]string{
+		"default": "deepseek-fetch",
+	},
 }
 
 func init() {
@@ -56,10 +66,10 @@ func GetGroupI2IModel(group string) string {
 
 // 视频模型池 kind 常量（GetGroupVideoModel 的 kind 参数取值）
 const (
-	VideoModelKindT2V = "t2v" // 文生视频
-	VideoModelKindI2V = "i2v" // 图生视频（仅首帧）
+	VideoModelKindT2V  = "t2v"  // 文生视频
+	VideoModelKindI2V  = "i2v"  // 图生视频（仅首帧）
 	VideoModelKindKF2V = "kf2v" // 首尾帧生视频
-	VideoModelKindR2V = "r2v" // 参考图生视频
+	VideoModelKindR2V  = "r2v"  // 参考图生视频
 )
 
 // GetGroupVideoModel 根据视频模型池类型和分组名获取配置的视频生成模型
@@ -79,6 +89,16 @@ func GetGroupVideoModel(kind string, group string) string {
 		return ""
 	}
 	return lookupGroupModel(m, group)
+}
+
+// GetGroupSearchModel 根据分组名获取配置的网页搜索模型（web_search 使用）
+func GetGroupSearchModel(group string) string {
+	return lookupGroupModel(groupImageModelSetting.GroupSearchModels, group)
+}
+
+// GetGroupFetchModel 根据分组名获取配置的网页抓取模型（web_fetch 使用）
+func GetGroupFetchModel(group string) string {
+	return lookupGroupModel(groupImageModelSetting.GroupFetchModels, group)
 }
 
 // lookupGroupModel 分组 → default → 空串 的回退查找

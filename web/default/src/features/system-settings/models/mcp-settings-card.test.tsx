@@ -52,6 +52,8 @@ const baseDefaults = {
   'mcp_setting.group_video_i2v_models': '{}',
   'mcp_setting.group_video_kf2v_models': '{}',
   'mcp_setting.group_video_r2v_models': '{}',
+  'mcp_setting.group_search_models': '{"default":"deepseek-search"}',
+  'mcp_setting.group_fetch_models': '{"default":"deepseek-fetch"}',
 }
 
 const renderCard = (defaultValues: typeof baseDefaults = baseDefaults) =>
@@ -64,7 +66,7 @@ const renderCard = (defaultValues: typeof baseDefaults = baseDefaults) =>
 const clickSave = async () => {
   fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }))
   await waitFor(() => {
-    expect(mockUpdate).toHaveBeenCalledTimes(6)
+    expect(mockUpdate).toHaveBeenCalledTimes(8)
   })
 }
 
@@ -77,7 +79,7 @@ describe('McpSettingsCard 保存行为', () => {
     mockUpdate.mockResolvedValue({ success: true, message: '' })
   })
 
-  it('点击保存应无条件提交全部 6 个配置项（即使与服务器值相同）', async () => {
+  it('点击保存应无条件提交全部 8 个配置项（即使与服务器值相同）', async () => {
     renderCard()
     await clickSave()
 
@@ -87,16 +89,30 @@ describe('McpSettingsCard 保存行为', () => {
       value: '{\n  "default": "dall-e-3"\n}',
     })
     expect(sentValue('mcp_setting.group_video_r2v_models')).toBe('{}')
+    expect(sentValue('mcp_setting.group_search_models')).toBe(
+      '{\n  "default": "deepseek-search"\n}'
+    )
+    expect(sentValue('mcp_setting.group_fetch_models')).toBe(
+      '{\n  "default": "deepseek-fetch"\n}'
+    )
   })
 
+  // 仅文生图池有内容行的默认值：使"新增行 = 全部 combobox 的最后两个"成立，
+  // 避免 search/fetch 池默认行干扰行定位
+  const imageOnlyDefaults = {
+    ...baseDefaults,
+    'mcp_setting.group_search_models': '{}',
+    'mcp_setting.group_fetch_models': '{}',
+  }
+
   it('端到端：真实编辑器中添加行并输入分组/模型后保存，请求体应包含新值', async () => {
-    renderCard()
+    renderCard(imageOnlyDefaults)
 
     // 在第一个编辑器（文生图模型）中添加一行
     const addButtons = screen.getAllByRole('button', { name: /Add/ })
     fireEvent.click(addButtons[0])
 
-    // 新行出现两个 combobox 输入框（分组 + 模型）
+    // 新行出现两个 combobox 输入框（分组 + 模型），且是全部 combobox 的最后两个
     const comboboxes = screen.getAllByRole('combobox')
     const groupInput = comboboxes[comboboxes.length - 2]
     const modelInput = comboboxes[comboboxes.length - 1]
@@ -110,10 +126,12 @@ describe('McpSettingsCard 保存行为', () => {
     expect(sentValue('mcp_setting.group_image_models')).toBe(
       JSON.stringify({ default: 'dall-e-3', vip: 'gpt-image-1' }, null, 2)
     )
+    // 未编辑的 search/fetch 池保持空配置原样提交
+    expect(sentValue('mcp_setting.group_search_models')).toBe('{}')
   })
 
   it('端到端：defaultValues 引用变化（refetch/重渲染）后，用户编辑不被覆盖', async () => {
-    const { rerender } = renderCard()
+    const { rerender } = renderCard(imageOnlyDefaults)
 
     // 用户先添加一行并输入
     fireEvent.click(screen.getAllByRole('button', { name: /Add/ })[0])
@@ -129,7 +147,7 @@ describe('McpSettingsCard 保存行为', () => {
     // 模拟父组件重渲染（refetch 后新引用、内容相同）
     rerender(
       <QueryClientProvider client={new QueryClient()}>
-        <McpSettingsCard defaultValues={{ ...baseDefaults }} />
+        <McpSettingsCard defaultValues={{ ...imageOnlyDefaults }} />
       </QueryClientProvider>
     )
 
