@@ -1939,6 +1939,7 @@
     "Forgot password": "Забыли пароль",
     "Forgot password?": "Забыли пароль?",
     "Form reset to saved values": "Форма сброшена к сохранённым значениям",
+    "Form validation failed: {{fields}}": "Ошибка проверки формы: {{fields}}",
     "Format": "Формат",
     "Format JSON": "Форматировать JSON",
     "Format:": "Формат:",

@@ -24,7 +24,7 @@ import {
   useCallback,
   useRef,
 } from 'react'
-import { useForm } from 'react-hook-form'
+import { FieldValues, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -1023,6 +1023,12 @@ export function ChannelMutateDrawer({
   // Submit handler
   const onSubmit = useCallback(
     async (data: ChannelFormValues) => {
+      // 诊断日志：确认提交事件已到达处理器（用于排查“点击更新无反应”类问题）
+      console.info('[ChannelForm] submit start', {
+        editing: isEditing,
+        channelId: currentRow?.id ?? null,
+      })
+
       // Validate key is required when creating
       if (!isEditing && !data.key?.trim()) {
         form.setError('key', {
@@ -1118,6 +1124,9 @@ export function ChannelMutateDrawer({
           if (response.success) {
             toast.success(t(SUCCESS_MESSAGES.UPDATED))
             handleSuccess()
+          } else {
+            // 业务失败由 axios 拦截器统一 toast，这里补一条日志便于线上排查
+            console.warn('[ChannelForm] update rejected by server', response)
           }
         } else {
           // Create new channel(s)
@@ -1126,9 +1135,12 @@ export function ChannelMutateDrawer({
           if (response.success) {
             toast.success(t(SUCCESS_MESSAGES.CREATED))
             handleSuccess()
+          } else {
+            console.warn('[ChannelForm] create rejected by server', response)
           }
         }
       } catch (error: unknown) {
+        console.error('[ChannelForm] submit request error', error)
         toast.error(getErrorMessage(error) || t(ERROR_MESSAGES.CREATE_FAILED))
       } finally {
         setIsSubmitting(false)
@@ -1144,6 +1156,33 @@ export function ChannelMutateDrawer({
       confirmStatusCodeRisk,
       t,
     ]
+  )
+
+  // handleSubmit 的校验失败回调。此前校验失败是完全静默的：不弹提示、不发请求、
+  // 抽屉也不关闭；若出错字段位于默认折叠的高级设置区内，行内错误同样不可见，
+  // 用户侧表现为“点击更新按钮无反应”。这里统一输出字段级错误日志并给出提示，
+  // 同时展开高级设置，保证任何隐藏字段的错误都能被看到。
+  const onInvalid = useCallback(
+    (errors: FieldValues) => {
+      const fieldErrors = Object.entries(errors).map(([field, error]) => ({
+        field,
+        message: (error as { message?: string })?.message ?? 'invalid',
+      }))
+      console.error('[ChannelForm] validation failed', {
+        channelId: currentRow?.id ?? null,
+        advancedSettingsOpen,
+        errors: fieldErrors,
+      })
+      toast.error(
+        t('Form validation failed: {{fields}}', {
+          fields: fieldErrors.map((item) => item.field).join(', '),
+        })
+      )
+      if (!advancedSettingsOpen) {
+        setAdvancedSettingsOpen(true)
+      }
+    },
+    [currentRow, advancedSettingsOpen, t]
   )
 
   // Handle drawer close
@@ -1229,7 +1268,7 @@ export function ChannelMutateDrawer({
           <Form {...form}>
             <form
               id='channel-form'
-              onSubmit={form.handleSubmit(onSubmit)}
+              onSubmit={form.handleSubmit(onSubmit, onInvalid)}
               className='flex-1 space-y-4 overflow-y-auto px-3 py-3 pb-4 sm:space-y-5 sm:px-4'
             >
               {/* ── Basic Information ── */}

@@ -1939,6 +1939,7 @@
     "Forgot password": "Mot de passe oublié",
     "Forgot password?": "Mot de passe oublié ?",
     "Form reset to saved values": "Formulaire réinitialisé aux valeurs enregistrées",
+    "Form validation failed: {{fields}}": "Échec de validation du formulaire : {{fields}}",
     "Format": "Format",
     "Format JSON": "Formater JSON",
     "Format:": "Format :",
