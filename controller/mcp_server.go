@@ -1033,13 +1033,17 @@ func stripBase64Prefix(s string) string {
 }
 
 // MCPServerHandler 返回 MCP StreamableHTTP handler
-// 使用 Stateless 模式，每个请求独立处理，不维护会话状态
+// 使用 Stateless 模式，每个请求独立处理，不维护会话状态。
+// JSONResponse 使单条消息 POST（含 tools/list）以 application/json 响应，
+// 便于 wrapMCPToolsListFilter 按调用方分组的模型池配置过滤工具列表。
 func MCPServerHandler() http.Handler {
-	return mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
-		Stateless: true,
+		Stateless:    true,
+		JSONResponse: true,
 	})
+	return wrapMCPToolsListFilter(handler)
 }
 
 // ServeMCPImage 从缓存中获取图片并返回给客户端

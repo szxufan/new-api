@@ -58,6 +58,9 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
+	if common.IsSystemOneModel(modelName) {
+		return string(constant.EndpointTypeSystemOne)
+	}
 	return normalized
 }
 
@@ -350,6 +353,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 				context:     c,
 				localErr:    errors.New("invalid rerank request type"),
 				newAPIError: types.NewError(errors.New("invalid rerank request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+	case relayconstant.RelayModeSystemOne:
+		// SystemOne 决策模型请求 - request 已经是正确的类型
+		if systemOneReq, ok := request.(*dto.SystemOneRequest); ok {
+			convertedRequest, err = adaptor.ConvertSystemOneRequest(c, info, *systemOneReq)
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid systemone request type"),
+				newAPIError: types.NewError(errors.New("invalid systemone request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeResponses:
