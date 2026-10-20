@@ -3032,6 +3032,7 @@
     "Parameters": "参数",
     "Parsed {{count}} service account file(s)": "已解析 {{count}} 个服务账号文件",
     "Partial Submission": "部分提交确认",
+    "Parser Model": "解析模型",
     "Pass Headers": "透传请求头",
     "Pass request body directly to upstream": "将请求体直接传递给上游",
     "Pass specified request headers to upstream": "把指定请求头透传到上游请求",

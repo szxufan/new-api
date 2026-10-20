@@ -3032,6 +3032,7 @@
     "Parameters": "Параметры",
     "Parsed {{count}} service account file(s)": "Проанализировано файлов сервисного аккаунта {{count}}",
     "Partial Submission": "Частичная отправка",
+    "Parser Model": "Модель-парсер",
     "Pass Headers": "Пропустить заголовки",
     "Pass request body directly to upstream": "Передать тело запроса напрямую вышестоящему серверу",
     "Pass specified request headers to upstream": "Передать указанные заголовки запроса вышестоящему серверу",

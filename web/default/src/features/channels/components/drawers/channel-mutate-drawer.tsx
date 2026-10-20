@@ -2911,6 +2911,14 @@ export function ChannelMutateDrawer({
                           value={field.value || ''}
                           onChange={field.onChange}
                           disabled={isSubmitting}
+                          sourceLabel={t('Model')}
+                          targetLabel={t('Parser Model')}
+                          fromPlaceholder='or-free'
+                          toPlaceholder='deepseek-v4-flash-nothink-free'
+                          jsonPlaceholder='{"or-free": "deepseek-v4-flash-nothink-free"}'
+                          fillTemplate={{
+                            'or-free': 'deepseek-v4-flash-nothink-free',
+                          }}
                         />
                       </FormControl>
                       <FormDescription>

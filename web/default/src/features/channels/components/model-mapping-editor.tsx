@@ -33,12 +33,25 @@ type ModelMappingEditorProps = {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  // 列头/占位符/模板可定制：复用本组件做其他「键→值」映射（如工具解析模型映射）时覆盖
+  sourceLabel?: string
+  targetLabel?: string
+  fromPlaceholder?: string
+  toPlaceholder?: string
+  jsonPlaceholder?: string
+  fillTemplate?: Record<string, string>
 }
 
 export function ModelMappingEditor({
   value,
   onChange,
   disabled = false,
+  sourceLabel,
+  targetLabel,
+  fromPlaceholder,
+  toPlaceholder,
+  jsonPlaceholder,
+  fillTemplate,
 }: ModelMappingEditorProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
@@ -100,7 +113,7 @@ export function ModelMappingEditor({
 
   const handleFillTemplate = () => {
     const template = JSON.stringify(
-      { 'gpt-3.5-turbo': 'gpt-3.5-turbo-0125' },
+      fillTemplate ?? { 'gpt-3.5-turbo': 'gpt-3.5-turbo-0125' },
       null,
       2
     )
@@ -168,8 +181,8 @@ export function ModelMappingEditor({
           {rows.length > 0 ? (
             <div className='space-y-2'>
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
-                <div>{t('Original Model')}</div>
-                <div>{t('Replacement Model')}</div>
+                <div>{sourceLabel ?? t('Original Model')}</div>
+                <div>{targetLabel ?? t('Replacement Model')}</div>
                 <div className='w-10'></div>
               </div>
               {rows.map((row) => (
@@ -182,7 +195,7 @@ export function ModelMappingEditor({
                     onChange={(e) =>
                       handleRowChange(row.id, 'from', e.target.value)
                     }
-                    placeholder='gpt-3.5-turbo'
+                    placeholder={fromPlaceholder ?? 'gpt-3.5-turbo'}
                     disabled={disabled}
                   />
                   <Input
@@ -190,7 +203,7 @@ export function ModelMappingEditor({
                     onChange={(e) =>
                       handleRowChange(row.id, 'to', e.target.value)
                     }
-                    placeholder='gpt-3.5-turbo-0125'
+                    placeholder={toPlaceholder ?? 'gpt-3.5-turbo-0125'}
                     disabled={disabled}
                   />
                   <Button
@@ -229,7 +242,7 @@ export function ModelMappingEditor({
         <Textarea
           value={value}
           onChange={(e) => handleJsonChange(e.target.value)}
-          placeholder={t('{"original-model": "replacement-model"}')}
+          placeholder={jsonPlaceholder ?? t('{"original-model": "replacement-model"}')}
           disabled={disabled}
           rows={8}
           className={cn('font-mono text-sm')}

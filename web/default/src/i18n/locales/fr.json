@@ -3032,6 +3032,7 @@
     "Parameters": "Paramètres",
     "Parsed {{count}} service account file(s)": "{{count}} fichier(s) de compte de service analysé(s)",
     "Partial Submission": "Soumission partielle",
+    "Parser Model": "Modèle d'analyse",
     "Pass Headers": "Transmettre les en-têtes",
     "Pass request body directly to upstream": "Transmettre le corps de la requête directement à l'upstream",
     "Pass specified request headers to upstream": "Transmettre les en-têtes de requête spécifiés en amont",
