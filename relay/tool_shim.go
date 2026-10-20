@@ -24,6 +24,9 @@ import (
 const (
 	toolCallOpenTag  = "<tool_call>"
 	toolCallCloseTag = "</tool_call>"
+	// toolCallVariantPrefix 无下划线的标签变体（<toolcall>、<toolcall/>、<toolcall_status> 等），
+	// 模型格式漂移时的常见形态，出现即视为有调用意图，交由解析模型裁决
+	toolCallVariantPrefix = "<toolcall"
 	// parserCallTimeout 解析模型调用的独立超时，超时后降级为快速路径结果
 	parserCallTimeout = 60 * time.Second
 	// parserMaxTokens 解析模型输出上限（只需输出提取结果）
@@ -298,8 +301,8 @@ func extractToolCallsFast(content string, tools []dto.ToolCallRequest) (calls []
 		return nil, "", true
 	}
 
-	// 2) 出现过开标签（有调用意图但块不完整）→ 解析器裁决
-	if strings.Contains(content, toolCallOpenTag) {
+	// 2) 出现过开标签或其变体（有调用意图但块不完整/格式漂移）→ 解析器裁决
+	if strings.Contains(content, toolCallOpenTag) || strings.Contains(content, toolCallVariantPrefix) {
 		return nil, "", true
 	}
 

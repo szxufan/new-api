@@ -248,6 +248,28 @@ func TestExtractToolCallsFastPartialTagNeedsParser(t *testing.T) {
 	}
 }
 
+func TestExtractToolCallsFastVariantTagNeedsParser(t *testing.T) {
+	// 无下划线变体标签 + 可提取的 JSON（混合漂移）
+	content := `<toolcall>` + "\n" + `{"name": "get_weather", "arguments": {"city": "Shanghai"}}` + "\n" + `</toolcall>`
+	calls, _, needParser := extractToolCallsFast(content, shimTestTools())
+	if !needParser || len(calls) != 0 {
+		t.Fatalf("variant tag with JSON should trigger parser: calls=%+v needParser=%v", calls, needParser)
+	}
+
+	// 自创状态协议：无函数名无参数
+	content = "<toolcall_status>waiting</toolcall_status>\n<toolcall/>"
+	calls, _, needParser = extractToolCallsFast(content, shimTestTools())
+	if !needParser || len(calls) != 0 {
+		t.Fatalf("status-protocol variant should trigger parser: calls=%+v needParser=%v", calls, needParser)
+	}
+
+	// 正文里不带尖括号的 toolcall 字样不应误触发
+	calls, _, needParser = extractToolCallsFast("I would use the toolcall mechanism to check.", shimTestTools())
+	if needParser || len(calls) != 0 {
+		t.Fatalf("prose 'toolcall' should not trigger parser: calls=%+v needParser=%v", calls, needParser)
+	}
+}
+
 func TestExtractToolCallsFastAmbiguousTaglessNeedsParser(t *testing.T) {
 	content := `{"name": "get_weather", "arguments": {"city": "A"}} and also {"name": "read_file", "arguments": {"path": "B"}}`
 	calls, _, needParser := extractToolCallsFast(content, shimTestTools())
