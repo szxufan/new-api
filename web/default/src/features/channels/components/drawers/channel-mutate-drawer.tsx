@@ -2872,6 +2872,57 @@ export function ChannelMutateDrawer({
 
                 <FormField
                   control={form.control}
+                  name='model_parser_mapping'
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className='flex items-center gap-2'>
+                        <FormLabel className='mb-0'>
+                          {t('Tool Parser Mapping')}
+                        </FormLabel>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon-sm'
+                                className='text-muted-foreground hover:text-foreground size-auto p-0'
+                                aria-label='How tool parser mapping works'
+                              />
+                            }
+                          >
+                            <HelpCircle className='h-4 w-4' />
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side='top'
+                            align='start'
+                            className='max-w-xs space-y-2 text-left'
+                          >
+                            <p className='text-[11px] leading-relaxed opacity-80'>
+                              {t(
+                                'For models with broken native function calling, tool definitions are injected into the prompt, and the mapped parser model extracts tool calls from the text response.'
+                              )}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <FormControl>
+                        <ModelMappingEditor
+                          value={field.value || ''}
+                          onChange={field.onChange}
+                          disabled={isSubmitting}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(FIELD_DESCRIPTIONS.MODEL_PARSER_MAPPING)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name='group'
                   render={({ field }) => (
                     <FormItem>

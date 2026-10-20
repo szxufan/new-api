@@ -38,9 +38,10 @@ const (
 	ContextKeyChannelAutoBan        ContextKey = "auto_ban"
 	ContextKeyChannelDisable429Ban  ContextKey = "disable_429_ban"
 	// ContextKeyChannelRetryTimes 渠道专属重试次数：0=使用全局，-1=禁止重试，N>0=覆盖全局
-	ContextKeyChannelRetryTimes        ContextKey = "channel_retry_times"
-	ContextKeyChannelModelMapping      ContextKey = "model_mapping"
-	ContextKeyChannelStatusCodeMapping ContextKey = "status_code_mapping"
+	ContextKeyChannelRetryTimes         ContextKey = "channel_retry_times"
+	ContextKeyChannelModelMapping       ContextKey = "model_mapping"
+	ContextKeyChannelModelParserMapping ContextKey = "model_parser_mapping"
+	ContextKeyChannelStatusCodeMapping  ContextKey = "status_code_mapping"
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"

@@ -58,6 +58,10 @@ type Channel struct {
 	GroupBlacklist *string `json:"group_blacklist" gorm:"type:varchar(255);default:''"`
 	UsedQuota      int64   `json:"used_quota" gorm:"bigint;default:0"`
 	ModelMapping   *string `json:"model_mapping" gorm:"type:text"`
+	// ModelParserMapping 工具调用降级映射：{"模型名": "解析模型名"}。
+	// 命中的模型走 prompt 注入工具定义 + 解析模型提取工具调用的降级链路
+	// （用于原生 function calling 损坏的上游模型）。使用指针类型以便编辑渠道时能清空。
+	ModelParserMapping *string `json:"model_parser_mapping" gorm:"type:text"`
 	//MaxInputTokens     *int    `json:"max_input_tokens" gorm:"default:0"`
 	StatusCodeMapping *string `json:"status_code_mapping" gorm:"type:varchar(1024);default:''"`
 	Priority          *int64  `json:"priority" gorm:"bigint;default:0"`
@@ -634,6 +638,13 @@ func (channel *Channel) GetModelMapping() string {
 		return ""
 	}
 	return *channel.ModelMapping
+}
+
+func (channel *Channel) GetModelParserMapping() string {
+	if channel.ModelParserMapping == nil {
+		return ""
+	}
+	return *channel.ModelParserMapping
 }
 
 func (channel *Channel) GetStatusCodeMapping() string {

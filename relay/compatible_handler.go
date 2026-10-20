@@ -40,6 +40,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	request.DeduplicateToolCallIDs()
 	request.MergeConsecutiveMessages()
 
+	// 工具调用降级：渠道配置了 model_parser_mapping 且命中当前模型时启用
+	toolShim := applyToolCallShimRequest(c, info, request)
+
 	// 重试防缓存：重试时在最后一条 user 消息末尾追加内容，避免命中上游错误缓存
 	if info.ChannelSetting.AntiCacheRetryEnabled && info.ChannelSetting.AntiCacheRetryContent != "" && info.RetryIndex > 1 {
 		applyRetryAntiCacheOpenAI(request.Messages, info.ChannelSetting.AntiCacheRetryContent, info.RetryIndex)
@@ -83,7 +86,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	adaptor.Init(info)
 
 	passThroughGlobal := model_setting.GetGlobalSettings().PassThroughRequestEnabled
-	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
+	if toolShim == nil &&
+		info.RelayMode == relayconstant.RelayModeChatCompletions &&
 		!passThroughGlobal &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
@@ -106,7 +110,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 
 	var requestBody io.Reader
 
-	if passThroughGlobal || info.ChannelSetting.PassThroughBodyEnabled {
+	// shim 需要改写请求体，激活时强制走转换路径而非透传原始 body
+	if (passThroughGlobal || info.ChannelSetting.PassThroughBodyEnabled) && toolShim == nil {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -216,7 +221,14 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 	}
 
-	usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
+	var usage any
+	var newApiErr *types.NewAPIError
+	if toolShim != nil && httpResp != nil {
+		// 工具调用降级：缓冲改写响应（流式也内部缓冲后合成）
+		usage, newApiErr = handleToolShimResponse(c, info, httpResp, toolShim)
+	} else {
+		usage, newApiErr = adaptor.DoResponse(c, httpResp, info)
+	}
 	if newApiErr != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)

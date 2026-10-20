@@ -80,6 +80,8 @@ type ChannelMeta struct {
 	UpstreamModelName    string
 	IsModelMapped        bool
 	SupportStreamOptions bool // 是否支持流式选项
+	// ModelParserMapping 渠道配置的工具调用降级映射 JSON（{"模型名": "解析模型名"}）
+	ModelParserMapping string
 }
 
 type TokenCountMeta struct {
@@ -233,6 +235,8 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	if ok {
 		channelMeta.ChannelSetting = channelSetting
 	}
+
+	channelMeta.ModelParserMapping = common.GetContextKeyString(c, constant.ContextKeyChannelModelParserMapping)
 
 	channelOtherSettings, ok := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
 	if ok {

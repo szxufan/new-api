@@ -367,6 +367,7 @@ export const FIELD_PLACEHOLDERS = {
   GROUP: 'Please Select user groups that can access this channel.',
   GROUP_BLACKLIST: 'Select user groups to block from this channel.',
   MODEL_MAPPING: '{"request_model": "actual_model"}',
+  MODEL_PARSER_MAPPING: '{"or-free": "deepseek-v4-flash-nothink-free"}',
   TEST_MODEL: 'Model to use for testing',
   TAG: 'Optional tag for grouping channels',
   REMARK: 'Optional notes about this channel',
@@ -387,6 +388,8 @@ export const FIELD_DESCRIPTIONS = {
     'Users in these groups cannot use this channel. Matched against the user account group, independent of the channel groups above.',
   MODEL_MAPPING:
     'Map request model names to actual provider model names (JSON format)',
+  MODEL_PARSER_MAPPING:
+    'Tool call downgrade mapping: model name → parser model name (JSON format). For models with broken native function calling, tool definitions are injected into the prompt and the parser model extracts tool calls from the text response. Leave empty to disable.',
   PRIORITY: 'Higher priority channels are selected first',
   WEIGHT: 'Used for load balancing. Higher weight = more requests',
   TEST_MODEL: 'Model to use when testing channel connectivity',

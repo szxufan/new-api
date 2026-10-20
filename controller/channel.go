@@ -658,6 +658,19 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
+	// 校验工具调用降级映射：必须是 {模型名: 解析模型名} 的字符串映射
+	if channel.ModelParserMapping != nil && strings.TrimSpace(*channel.ModelParserMapping) != "" {
+		var parserMapping map[string]string
+		if err := common.Unmarshal([]byte(*channel.ModelParserMapping), &parserMapping); err != nil {
+			return fmt.Errorf("工具调用降级映射[model_parser_mapping] 格式错误：必须是 {\"模型名\": \"解析模型名\"} 的 JSON 对象")
+		}
+		for from, to := range parserMapping {
+			if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
+				return fmt.Errorf("工具调用降级映射[model_parser_mapping] 的键值均不能为空")
+			}
+		}
+	}
+
 	// 如果是添加操作，检查 channel 和 key 是否为空
 	if isAdd {
 		if channel == nil || channel.Key == "" {

@@ -85,6 +85,7 @@ export const channelFormSchema = z.object({
   group: z.array(z.string()).min(1, 'At least one group is required'),
   group_blacklist: z.array(z.string()).optional(),
   model_mapping: z.string().optional(),
+  model_parser_mapping: z.string().optional(),
   priority: z.number().optional(),
   weight: z.number().optional(),
   test_model: z.string().optional(),
@@ -250,6 +251,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   group: ['default'],
   group_blacklist: [],
   model_mapping: '',
+  model_parser_mapping: '',
   priority: 0,
   weight: 0,
   test_model: '',
@@ -467,6 +469,7 @@ export function transformChannelToFormDefaults(
     group: parseGroups(channel.group || 'default'),
     group_blacklist: parseGroups(channel.group_blacklist || ''),
     model_mapping: channel.model_mapping || '',
+    model_parser_mapping: channel.model_parser_mapping || '',
     priority: channel.priority || 0,
     weight: channel.weight || 0,
     test_model: channel.test_model || '',
@@ -833,6 +836,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     group: formatGroups(formData.group),
     group_blacklist: formatGroups(formData.group_blacklist || []),
     model_mapping: formData.model_mapping || null,
+    model_parser_mapping: formData.model_parser_mapping || null,
     priority: formData.priority || null,
     weight: formData.weight || null,
     test_model: formData.test_model || null,
@@ -908,6 +912,7 @@ export function transformFormDataToUpdatePayload(
     group: formatGroups(formData.group),
     group_blacklist: formatGroups(formData.group_blacklist || []),
     model_mapping: formData.model_mapping || null,
+    model_parser_mapping: formData.model_parser_mapping || null,
     priority: formData.priority ?? 0,
     weight: formData.weight ?? 0,
     test_model: formData.test_model || null,
@@ -954,6 +959,8 @@ export function transformFormDataToUpdatePayload(
   payload.tag = formData.tag || ''
   payload.remark = formData.remark || ''
   payload.model_mapping = formData.model_mapping || ''
+  // 工具调用降级映射：空时提交空字符串（而非 null），让 GORM Updates 能清空该字段
+  payload.model_parser_mapping = formData.model_parser_mapping || ''
   payload.status_code_mapping = formData.status_code_mapping || ''
   payload.param_override = formData.param_override || ''
   payload.header_override = formData.header_override || ''

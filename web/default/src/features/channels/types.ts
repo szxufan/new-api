@@ -64,6 +64,8 @@ export const channelSchema = z.object({
   used_quota: z.number().default(0),
   affinity_count: z.number().default(0), // 当前亲和性缓存条目数（后端列表接口回填）
   model_mapping: z.string().nullish(),
+  // 工具调用降级映射：{"模型名": "解析模型名"}，命中的模型走 prompt 注入 + 解析模型提取工具调用
+  model_parser_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
   auto_ban: z.number().nullish(),
@@ -376,6 +378,7 @@ export interface ChannelFormData {
   group: string
   group_blacklist?: string
   model_mapping?: string
+  model_parser_mapping?: string
   priority?: number
   weight?: number
   test_model?: string
