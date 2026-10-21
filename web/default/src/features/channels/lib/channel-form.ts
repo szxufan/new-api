@@ -193,6 +193,8 @@ export const channelFormSchema = z.object({
   // 启用状态的必填/整数/下限校验在下方 superRefine 中执行。
   balance_reset_period_days: z.number().nullish(),
   balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
+  // 重置余额时是否同时将消耗额度（含共享本渠道余额的渠道）清零
+  balance_reset_used_quota: z.boolean().optional(),
   // 共享余额（顶层渠道字段；enabled 开关仅表单使用，0=未启用）
   balance_share_enabled: z.boolean().optional(),
   balance_share_channel_id: z.number().optional(),
@@ -308,6 +310,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   fallback_channel_ids: [],
   // Periodic balance reset
   balance_reset_enabled: false,
+  balance_reset_used_quota: false,
   // Shared balance
   balance_share_enabled: false,
   balance_share_channel_id: 0,
@@ -523,6 +526,9 @@ export function transformChannelToFormDefaults(
     balance_reset_next_time: balanceResetEnabled
       ? channel.balance_reset_next_time
       : undefined,
+    balance_reset_used_quota: balanceResetEnabled
+      ? channel.balance_reset_used_quota === true
+      : false,
     // 共享余额（顶层渠道字段）
     balance_share_enabled: (channel.balance_share_channel_id ?? 0) > 0,
     balance_share_channel_id: channel.balance_share_channel_id ?? 0,
@@ -861,6 +867,9 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     balance_reset_next_time: formData.balance_reset_enabled
       ? (formData.balance_reset_next_time ?? null)
       : null,
+    balance_reset_used_quota:
+      formData.balance_reset_enabled &&
+      (formData.balance_reset_used_quota ?? false),
     // 共享余额：始终显式提交数字（0=未启用）
     balance_share_channel_id: formData.balance_share_enabled
       ? (formData.balance_share_channel_id ?? 0)
@@ -980,6 +989,9 @@ export function transformFormDataToUpdatePayload(
   payload.balance_reset_next_time = resetEnabled
     ? (formData.balance_reset_next_time ?? 0)
     : 0
+  // "同时重置消耗额度"始终显式提交布尔（false 也要写入以清除旧值）
+  payload.balance_reset_used_quota =
+    resetEnabled && (formData.balance_reset_used_quota ?? false)
   // 共享余额：始终显式提交数字（0=关闭），让 GORM Updates 能清空旧值
   payload.balance_share_channel_id = formData.balance_share_enabled
     ? (formData.balance_share_channel_id ?? 0)

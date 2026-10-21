@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -1315,10 +1317,35 @@ type PatchChannel struct {
 }
 
 func UpdateChannel(c *gin.Context) {
+	// 先读取原始请求体，用于判断哪些字段是客户端显式提交的
+	// （GORM 结构体 Updates 跳过零值，used_quota=0 需要显式检测才能写入）
+	bodyBytes, readErr := io.ReadAll(c.Request.Body)
+	if readErr != nil {
+		common.ApiError(c, readErr)
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
 	channel := PatchChannel{}
 	err := c.ShouldBindJSON(&channel)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+
+	// used_quota 为显式提交时允许手动设置（包括清零）；
+	// 先暂存请求值，Update() 内部会从数据库重新加载实体
+	var rawFields map[string]json.RawMessage
+	usedQuotaExplicit := false
+	if common.Unmarshal(bodyBytes, &rawFields) == nil {
+		_, usedQuotaExplicit = rawFields["used_quota"]
+	}
+	requestedUsedQuota := channel.UsedQuota
+	if usedQuotaExplicit && requestedUsedQuota < 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "消耗额度[used_quota] 不能为负数",
+		})
 		return
 	}
 
@@ -1441,6 +1468,15 @@ func UpdateChannel(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	// 结构体 Updates 跳过零值，显式提交的 used_quota 用 map 更新强制写入（允许清零）
+	if usedQuotaExplicit {
+		if err = model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).
+			Update("used_quota", requestedUsedQuota).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		channel.UsedQuota = requestedUsedQuota
 	}
 	// 手动设余额为0且曾经有过非0余额时触发禁用（仅当渠道当前为启用状态）
 	// channel.Update() 内部已 First() 重新加载，channel 此时是最新值

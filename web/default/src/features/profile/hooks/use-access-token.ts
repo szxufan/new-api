@@ -20,7 +20,7 @@ import { useState, useCallback } from 'react'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { generateAccessToken } from '../api'
+import { getAccessToken, regenerateAccessToken } from '../api'
 
 // ============================================================================
 // Access Token Hook
@@ -28,14 +28,39 @@ import { generateAccessToken } from '../api'
 
 export function useAccessToken() {
   const [token, setToken] = useState<string>('')
-  const [generating, setGenerating] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const { copyToClipboard } = useCopyToClipboard({ notify: false })
 
-  // Generate new access token
-  const generate = useCallback(async (): Promise<boolean> => {
+  // Load the current access token; never regenerates an existing one
+  const load = useCallback(async (): Promise<boolean> => {
     try {
-      setGenerating(true)
-      const response = await generateAccessToken()
+      setLoading(true)
+      const response = await getAccessToken()
+
+      if (response.success && response.data) {
+        setToken(response.data)
+        return true
+      }
+
+      toast.error(response.message || i18next.t('Failed to load token'))
+      return false
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load token:', error)
+      toast.error(i18next.t('Failed to load token'))
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Regenerate access token; invalidates the previous token, only call on
+  // explicit user action
+  const regenerate = useCallback(async (): Promise<boolean> => {
+    try {
+      setRegenerating(true)
+      const response = await regenerateAccessToken()
 
       if (response.success && response.data) {
         setToken(response.data)
@@ -48,17 +73,19 @@ export function useAccessToken() {
       return false
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error('Failed to generate token:', error)
+      console.error('Failed to regenerate token:', error)
       toast.error(i18next.t('Failed to generate token'))
       return false
     } finally {
-      setGenerating(false)
+      setRegenerating(false)
     }
   }, [copyToClipboard])
 
   return {
     token,
-    generating,
-    generate,
+    loading,
+    regenerating,
+    load,
+    regenerate,
   }
 }

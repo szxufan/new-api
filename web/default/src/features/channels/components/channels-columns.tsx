@@ -31,7 +31,11 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getCurrencyLabel, formatCurrencyFromUSD } from '@/lib/currency'
+import {
+  getCurrencyDisplay,
+  getCurrencyLabel,
+  formatCurrencyFromUSD,
+} from '@/lib/currency'
 import {
   formatTimestampToDate,
   formatQuota as formatQuotaValue,
@@ -56,7 +60,7 @@ import {
   textColorMap,
 } from '@/components/status-badge'
 import { TruncatedText } from '@/components/truncated-text'
-import { getCodexUsage, updateChannelBalance } from '../api'
+import { getCodexUsage, updateChannel, updateChannelBalance } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   formatBalance,
@@ -302,10 +306,11 @@ function WeightCell({ channel }: { channel: Channel }) {
 }
 
 /**
- * Used quota cell component
+ * Used quota cell component with click to set manually.
  */
 function UsedQuotaCell({ channel }: { channel: Channel }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const isTagRow = isTagAggregateRow(channel)
   const usedQuota = channel.used_quota || 0
   const currencyLabel = getCurrencyLabel()
@@ -314,6 +319,48 @@ function UsedQuotaCell({ channel }: { channel: Channel }) {
     tokenSuffix && value !== '-' ? `${value}${tokenSuffix}` : value
 
   const usedDisplay = withSuffix(formatQuotaValue(usedQuota))
+  const [manualQuotaOpen, setManualQuotaOpen] = useState(false)
+  const [manualQuotaValue, setManualQuotaValue] = useState('')
+  const [isSubmittingQuota, setIsSubmittingQuota] = useState(false)
+  // 弹窗输入以 USD 计（与手动余额一致），提交时经 quotaPerUnit 换算回配额单位
+  const quotaPerUnit = getCurrencyDisplay().config.quotaPerUnit || 500000
+
+  const handleClickEdit = () => {
+    if (isTagRow) return
+    setManualQuotaValue(String(usedQuota / quotaPerUnit))
+    setManualQuotaOpen(true)
+  }
+
+  const handleManualQuotaSubmit = async () => {
+    const parsedUSD = parseFloat(manualQuotaValue)
+    if (isNaN(parsedUSD) || parsedUSD < 0) {
+      toast.error(t('Please enter a valid number'))
+      return
+    }
+
+    setIsSubmittingQuota(true)
+    try {
+      const quota = Math.round(parsedUSD * quotaPerUnit)
+      const response = await updateChannel(channel.id, { used_quota: quota })
+      if (response.success) {
+        toast.success(
+          t('Used quota updated: {{quota}}', {
+            quota: formatQuotaValue(quota),
+          })
+        )
+        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+        setManualQuotaOpen(false)
+      } else {
+        toast.error(response.message || t('Failed to update used quota'))
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to update used quota')
+      )
+    } finally {
+      setIsSubmittingQuota(false)
+    }
+  }
 
   if (isTagRow) {
     return (
@@ -330,7 +377,12 @@ function UsedQuotaCell({ channel }: { channel: Channel }) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger
-          render={<span className='text-muted-foreground cursor-help' />}
+          render={
+            <span
+              className='text-muted-foreground cursor-pointer transition-opacity hover:opacity-70'
+              onClick={handleClickEdit}
+            />
+          }
         >
           {usedDisplay}
         </TooltipTrigger>
@@ -338,8 +390,38 @@ function UsedQuotaCell({ channel }: { channel: Channel }) {
           <p>
             {t('Used:')} {usedDisplay}
           </p>
+          <p>{t('Click to set used quota manually')}</p>
         </TooltipContent>
       </Tooltip>
+
+      <ConfirmDialog
+        open={manualQuotaOpen}
+        onOpenChange={setManualQuotaOpen}
+        title={t('Set Used Quota Manually')}
+        desc={t(
+          'Enter the used quota value below in USD. Set 0 to reset the consumption.'
+        )}
+        confirmText={t('Save')}
+        disabled={isSubmittingQuota}
+        isLoading={isSubmittingQuota}
+        handleConfirm={handleManualQuotaSubmit}
+      >
+        <div className='flex items-center gap-2 py-2'>
+          <Input
+            type='number'
+            step='0.01'
+            min={0}
+            value={manualQuotaValue}
+            onChange={(e) => setManualQuotaValue(e.target.value)}
+            placeholder={t('Enter used quota')}
+            className='h-8'
+            autoFocus
+          />
+          <span className='text-muted-foreground text-xs whitespace-nowrap'>
+            USD
+          </span>
+        </div>
+      </ConfirmDialog>
     </TooltipProvider>
   )
 }

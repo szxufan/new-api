@@ -56,6 +56,8 @@ export const channelSchema = z.object({
   balance_reset_amount: z.number().nullish(), // 重置目标金额（USD，绝对值）
   balance_reset_period_days: z.number().nullish(), // 重置周期（天）
   balance_reset_next_time: z.number().nullish(), // 下次重置时间（unix 秒）
+  // 重置余额时是否同时将消耗额度（含共享本渠道余额的渠道）清零
+  balance_reset_used_quota: z.boolean().nullish(),
   // 共享余额目标渠道 ID：>0 时计费扣减重定向到目标渠道，null/0 表示未启用
   balance_share_channel_id: z.number().nullish(),
   models: z.string().default(''),

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CopyButton } from '@/components/copy-button'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useAccessToken } from '../../hooks'
 
 // ============================================================================
@@ -47,14 +48,15 @@ export function AccessTokenDialog({
   onOpenChange,
 }: AccessTokenDialogProps) {
   const { t } = useTranslation()
-  const { token, generating, generate } = useAccessToken()
+  const { token, loading, regenerating, load, regenerate } = useAccessToken()
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
-  // Auto-generate token when dialog opens if no token exists
+  // Load the current token when dialog opens; never regenerates
   useEffect(() => {
     if (open && !token) {
-      generate()
+      load()
     }
-  }, [open, token, generate])
+  }, [open, token, load])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -78,7 +80,7 @@ export function AccessTokenDialog({
                 value={token}
                 readOnly
                 className='font-mono text-xs'
-                placeholder={t('Click "Generate" to create a token')}
+                placeholder={loading ? t('Loading...') : ''}
               />
               <CopyButton
                 value={token}
@@ -105,19 +107,33 @@ export function AccessTokenDialog({
           </Button>
           <Button
             type='button'
-            onClick={generate}
-            disabled={generating}
+            variant='destructive'
+            onClick={() => setConfirmOpen(true)}
+            disabled={regenerating || loading}
             className='gap-2'
           >
-            {generating ? (
+            {regenerating ? (
               <Loader2 className='h-4 w-4 animate-spin' />
             ) : (
               <RefreshCw className='h-4 w-4' />
             )}
-            {generating ? t('Generating...') : t('Regenerate')}
+            {regenerating ? t('Generating...') : t('Regenerate')}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={t('Regenerate access token?')}
+        desc={t(
+          'The current access token will be invalidated immediately. Clients or scripts using it must be updated to the new token.'
+        )}
+        destructive
+        confirmText={t('Regenerate')}
+        isLoading={regenerating}
+        handleConfirm={() => regenerate()}
+      />
     </Dialog>
   )
 }

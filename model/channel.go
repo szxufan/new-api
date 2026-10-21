@@ -44,6 +44,10 @@ type Channel struct {
 	BalanceResetAmount     *float64 `json:"balance_reset_amount"`
 	BalanceResetPeriodDays *int     `json:"balance_reset_period_days"`
 	BalanceResetNextTime   *int64   `json:"balance_reset_next_time" gorm:"bigint;index"`
+	// BalanceResetUsedQuota 重置余额时是否同时将消耗额度（used_quota）清零：
+	// true 时本渠道与所有共享本渠道余额的渠道的 used_quota 一并清零；
+	// nil 或 false 表示只重置余额。仅在后三个字段启用周期重置时生效。
+	BalanceResetUsedQuota *bool `json:"balance_reset_used_quota" gorm:"default:false"`
 	// BalanceShareChannelId 共享余额目标渠道 ID：>0 时本渠道计费记账（used_quota 累计与
 	// balance 扣减、余额耗尽自动禁用判定）全部重定向到目标渠道，本渠道自身的余额与消费
 	// 不再起作用；渠道价格系数仍取本渠道 Setting.price。nil 或 0 表示未启用；目标渠道自身

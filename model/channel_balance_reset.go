@@ -49,6 +49,7 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 		amount := *ch.BalanceResetAmount
 		wasAutoDisabled := false
 		wasEnabled := false
+		resetUsedQuota := false
 		err := DB.Transaction(func(tx *gorm.DB) error {
 			var locked Channel
 			// SQLite 不支持 FOR UPDATE（且 SQLite 部署为单写入者，无需行锁）
@@ -86,6 +87,16 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 			} else {
 				updates["balance_reset_next_time"] = nil
 			}
+			// 开启"同时重置消耗额度"时，本渠道与所有共享本渠道余额的渠道的 used_quota 一并清零
+			resetUsedQuota = locked.BalanceResetUsedQuota != nil && *locked.BalanceResetUsedQuota
+			if resetUsedQuota {
+				updates["used_quota"] = 0
+				if err := tx.Model(&Channel{}).
+					Where("balance_share_channel_id = ?", channelId).
+					Update("used_quota", 0).Error; err != nil {
+					return err
+				}
+			}
 			if err := tx.Model(&Channel{}).Where("id = ?", channelId).Updates(updates).Error; err != nil {
 				return err
 			}
@@ -97,7 +108,7 @@ func ResetDueChannelBalances(batchSize int) (int, error) {
 			return resetCount, err
 		}
 		resetCount++
-		common.SysLog(fmt.Sprintf("channel balance reset: channel_id=%d, amount=%v", channelId, amount))
+		common.SysLog(fmt.Sprintf("channel balance reset: channel_id=%d, amount=%v, reset_used_quota=%v", channelId, amount, resetUsedQuota))
 		// best-effort 刷新内存缓存中的余额（接受短暂不一致）
 		if common.MemoryCacheEnabled {
 			if fresh, err := GetChannelById(channelId, true); err == nil {

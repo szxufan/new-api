@@ -288,28 +288,75 @@ func GetUser(c *gin.Context) {
 	})
 }
 
-func GenerateAccessToken(c *gin.Context) {
+// generateAccessTokenKey generates a random access token key and retries on
+// collision with the unique index.
+func generateAccessTokenKey() (string, error) {
+	for i := 0; i < 3; i++ {
+		// get rand int 29-32
+		randI := common.GetRandomInt(4)
+		key, err := common.GenerateRandomKey(29 + randI)
+		if err != nil {
+			return "", err
+		}
+		var count int64
+		if err := model.DB.Model(&model.User{}).Where("access_token = ?", key).Count(&count).Error; err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return key, nil
+		}
+	}
+	return "", errors.New("failed to generate a unique access token")
+}
+
+// GetAccessToken returns the current user's system access token. If the user
+// has no token yet one is created lazily; an existing token is never
+// invalidated by this handler.
+func GetAccessToken(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	// get rand int 28-32
-	randI := common.GetRandomInt(4)
-	key, err := common.GenerateRandomKey(29 + randI)
+	if user.GetAccessToken() == "" {
+		key, err := generateAccessTokenKey()
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgGenerateFailed)
+			common.SysLog("failed to generate key: " + err.Error())
+			return
+		}
+		user.SetAccessToken(key)
+		if err := user.Update(false); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    user.AccessToken,
+	})
+}
+
+// ResetAccessToken regenerates the current user's system access token. The
+// previous token is invalidated immediately, so this must only run on an
+// explicit user action.
+func ResetAccessToken(c *gin.Context) {
+	id := c.GetInt("id")
+	user, err := model.GetUserById(id, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	key, err := generateAccessTokenKey()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgGenerateFailed)
 		common.SysLog("failed to generate key: " + err.Error())
 		return
 	}
 	user.SetAccessToken(key)
-
-	if model.DB.Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
-		common.ApiErrorI18n(c, i18n.MsgUuidDuplicate)
-		return
-	}
-
 	if err := user.Update(false); err != nil {
 		common.ApiError(c, err)
 		return

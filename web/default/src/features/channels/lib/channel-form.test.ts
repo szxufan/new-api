@@ -830,4 +830,56 @@ describe('balance reset (周期重置余额)', () => {
     expect(payload.balance_reset_period_days).toBe(0)
     expect(payload.balance_reset_next_time).toBe(0)
   })
+
+  it('should derive balance_reset_used_quota from a configured channel and default to false otherwise', () => {
+    const enabled = createMockChannel({
+      balance_reset_amount: 10,
+      balance_reset_period_days: 7,
+      balance_reset_next_time: 1800000000,
+      balance_reset_used_quota: true,
+    })
+    const disabled = createMockChannel({
+      balance_reset_amount: 10,
+      balance_reset_period_days: 7,
+      balance_reset_next_time: 1800000000,
+      balance_reset_used_quota: true,
+    })
+    disabled.balance_reset_next_time = 0
+
+    expect(
+      transformChannelToFormDefaults(enabled).balance_reset_used_quota
+    ).toBe(true)
+    expect(
+      transformChannelToFormDefaults(disabled).balance_reset_used_quota
+    ).toBe(false)
+  })
+
+  it('should send balance_reset_used_quota on create/update and clear it when reset is disabled', () => {
+    const base = {
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Test',
+      key: 'k',
+      models: 'gpt-4',
+      balance_reset_enabled: true,
+      balance_reset_amount: 10,
+      balance_reset_period_days: 7,
+      balance_reset_next_time: 1800000000,
+    }
+
+    expect(
+      transformFormDataToCreatePayload({ ...base, balance_reset_used_quota: true })
+        .channel.balance_reset_used_quota
+    ).toBe(true)
+    expect(
+      transformFormDataToUpdatePayload({ ...base, balance_reset_used_quota: true }, 1)
+        .balance_reset_used_quota
+    ).toBe(true)
+    // 重置关闭时显式提交 false，清掉数据库中可能存在的旧 true
+    expect(
+      transformFormDataToUpdatePayload(
+        { ...base, balance_reset_enabled: false, balance_reset_used_quota: true },
+        1
+      ).balance_reset_used_quota
+    ).toBe(false)
+  })
 })

@@ -1546,6 +1546,30 @@ export function ChannelMutateDrawer({
                     />
                   </div>
                 )}
+                {form.watch('balance_reset_enabled') && (
+                  <FormField
+                    control={form.control}
+                    name='balance_reset_used_quota'
+                    render={({ field }) => (
+                      <FormItem className='flex items-center justify-between'>
+                        <div className='space-y-0.5'>
+                          <FormLabel>{t('Also Reset Used Quota')}</FormLabel>
+                          <FormDescription className='text-xs'>
+                            {t(
+                              'When enabled, the used quota of this channel and all channels sharing its balance is also reset to 0 at each balance reset.'
+                            )}
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value === true}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
                 </div>
               )}
 

@@ -152,6 +152,50 @@ func TestResetDueChannelBalances_SkipsIncompleteConfig(t *testing.T) {
 	require.Equal(t, 0.0, dbCh.Balance)
 }
 
+// TestResetDueChannelBalances_ResetUsedQuotaWithSharers 开启"同时重置消耗额度"时，
+// 本渠道与所有共享本渠道余额的渠道 used_quota 一并清零；未开启时不清零
+func TestResetDueChannelBalances_ResetUsedQuotaWithSharers(t *testing.T) {
+	cleanupBalanceTestChannels(t)
+	now := GetDBTimestamp()
+	amount := 10.0
+	period := 1
+	past := now - 60
+
+	withReset := true
+	withoutReset := false
+
+	// 开启 used_quota 清零的主渠道 + 两个共享渠道（不同状态都要清）
+	resetOn := createResetChannel(t, common.ChannelStatusEnabled, &amount, &period, &past)
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", resetOn.Id).
+		Updates(map[string]interface{}{"balance_reset_used_quota": withReset, "used_quota": 500}).Error)
+	sharer1 := &Channel{Name: "sharer1", Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled,
+		Key: "sk-test", UsedQuota: 100, BalanceShareChannelId: &resetOn.Id}
+	sharer2 := &Channel{Name: "sharer2", Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusManuallyDisabled,
+		Key: "sk-test", UsedQuota: 200, BalanceShareChannelId: &resetOn.Id}
+	require.NoError(t, DB.Create(sharer1).Error)
+	require.NoError(t, DB.Create(sharer2).Error)
+
+	// 未开启 used_quota 清零的对照渠道
+	resetOff := createResetChannel(t, common.ChannelStatusEnabled, &amount, &period, &past)
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", resetOff.Id).
+		Updates(map[string]interface{}{"balance_reset_used_quota": withoutReset, "used_quota": 300}).Error)
+
+	n, err := ResetDueChannelBalances(100)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+
+	var dbResetOn, dbSharer1, dbSharer2, dbResetOff Channel
+	require.NoError(t, DB.Where("id = ?", resetOn.Id).First(&dbResetOn).Error)
+	require.NoError(t, DB.Where("id = ?", sharer1.Id).First(&dbSharer1).Error)
+	require.NoError(t, DB.Where("id = ?", sharer2.Id).First(&dbSharer2).Error)
+	require.NoError(t, DB.Where("id = ?", resetOff.Id).First(&dbResetOff).Error)
+
+	require.Equal(t, int64(0), dbResetOn.UsedQuota)
+	require.Equal(t, int64(0), dbSharer1.UsedQuota)
+	require.Equal(t, int64(0), dbSharer2.UsedQuota)
+	require.Equal(t, int64(300), dbResetOff.UsedQuota)
+}
+
 // TestResetDueChannelBalances_NotDue 未到期的渠道不被重置
 func TestResetDueChannelBalances_NotDue(t *testing.T) {
 	cleanupBalanceTestChannels(t)
