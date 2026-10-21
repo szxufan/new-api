@@ -202,7 +202,7 @@ func toolShimStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	}
 	usage = foldUsage(usage, parserUsage)
 	if info.ShouldIncludeUsage {
-		helper.ObjectData(c, helper.GenerateFinalUsageResponse(responseId, created, modelName, *usage))
+		_ = helper.SendFinalUsageResponse(c, info, responseId, created, modelName, usage)
 	}
 	helper.Done(c)
 	return usage, nil

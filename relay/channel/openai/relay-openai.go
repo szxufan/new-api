@@ -178,7 +178,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp && !info.DetectionHit {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+			dataToSend := lastStreamData
+			if containStreamUsage {
+				// 末块捆绑的上游 usage 不透传，剥离后转发；客户端统一接收网关合成的权威 usage chunk
+				dataToSend = stripLastStreamUsage(lastStreamData)
+			}
+			_ = sendStreamData(c, info, dataToSend, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
 

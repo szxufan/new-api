@@ -240,11 +240,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			}
 		}
 		// emit usage frame
-		if final := helper.GenerateFinalUsageResponse(responseId, created, model, *usage); final != nil {
-			if data, err := common.Marshal(final); err == nil {
-				_ = helper.StringData(c, string(data))
-			}
-		}
+		_ = helper.SendFinalUsageResponse(c, info, responseId, created, model, usage)
 		// send [DONE]
 		helper.Done(c)
 		break

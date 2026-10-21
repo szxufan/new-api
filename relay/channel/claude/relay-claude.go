@@ -916,8 +916,7 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		if info.ShouldIncludeUsage {
 			openAIUsage := BuildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
-			response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, openAIUsage)
-			err := helper.ObjectData(c, response)
+			err := helper.SendFinalUsageResponse(c, info, claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, &openAIUsage)
 			if err != nil {
 				common.SysLog("send final response failed: " + err.Error())
 			}

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -134,14 +133,33 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 	if service.ValidUsage(lastStreamResponse.Usage) {
 		*containStreamUsage = true
 		*usage = lastStreamResponse.Usage
-		if !info.ShouldIncludeUsage {
-			*shouldSendLastResp = lo.SomeBy(lastStreamResponse.Choices, func(choice dto.ChatCompletionsStreamResponseChoice) bool {
-				return choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != ""
-			})
-		}
+		// 上游 usage 块不透传：纯 usage 末块（无内容、无 finish_reason）不再原样转发，
+		// 统一由 HandleFinalResponse 用归一化后的权威 usage 合成最终 usage chunk；
+		// 捆绑了内容/finish_reason 的末块仍需转发（usage 在 OaiStreamHandler 中剥离）
+		*shouldSendLastResp = lo.SomeBy(lastStreamResponse.Choices, func(choice dto.ChatCompletionsStreamResponseChoice) bool {
+			return choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != "" || choice.FinishReason != nil
+		})
 	}
 
 	return nil
+}
+
+// stripLastStreamUsage 剥离末块中捆绑的上游 usage（少数供应商将 finish_reason 与 usage 放在同一块），
+// 解析或序列化失败时原样返回。上游 usage 不透传，客户端统一接收网关合成的权威 usage chunk。
+func stripLastStreamUsage(data string) string {
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+		return data
+	}
+	if streamResponse.Usage == nil {
+		return data
+	}
+	streamResponse.Usage = nil
+	stripped, err := common.Marshal(streamResponse)
+	if err != nil {
+		return data
+	}
+	return string(stripped)
 }
 
 func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string,
@@ -149,20 +167,18 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 	usage *dto.Usage, containStreamUsage bool) {
 
 	// token 开启"响应返回消耗金额"：在最终 usage chunk 上附加消耗金额扩展字段（与结算共用计算）
-	consumedAmount := ""
-	if usage != nil && common.GetContextKeyBool(c, constant.ContextKeyTokenReturnConsumedQuota) {
-		consumedAmount = service.CalculateTextConsumedAmount(c, info, usage)
-	}
+	consumedAmount := helper.CalculateStreamConsumedAmount(c, info, usage)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if info.ShouldIncludeUsage && !containStreamUsage {
+		// 上游 usage 块不透传：客户端要 usage 时一律由网关用归一化后的权威 usage 合成最终 chunk
+		if info.ShouldIncludeUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
 			response.XNewApiConsumedAmount = consumedAmount
-			helper.ObjectData(c, response)
+			_ = helper.ObjectData(c, response)
 		} else if consumedAmount != "" {
-			// usage chunk 已由上游原样转发（或客户端未要求 usage）：追加仅含金额的空 choices chunk
+			// 客户端未要求 usage：仅追加金额扩展 chunk（与 usage chunk 同形的空 choices chunk）
 			helper.ObjectData(c, &dto.ChatCompletionsStreamResponse{
 				Id:                    responseId,
 				Object:                "chat.completion.chunk",
@@ -184,6 +200,8 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			return
 		}
 
+		// 上游 usage 不透传：以网关归一化后的权威 usage 覆盖后再转换
+		streamResponse.Usage = usage
 		info.ClaudeConvertInfo.Usage = usage
 
 		claudeResponses := service.StreamResponseOpenAI2Claude(&streamResponse, info)
@@ -201,6 +219,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			common.SysLog("error unmarshalling stream response: " + err.Error())
 			return
 		}
+
+		// 上游 usage 不透传：以网关归一化后的权威 usage 覆盖，usageMetadata 反映真实计费口径
+		streamResponse.Usage = usage
 
 		// 这里处理的是 openai 最后一个流响应，其 delta 为空，有 finish_reason 字段
 		// 因此相比较于 google 官方的流响应，由 openai 转换而来会多一个 parts 为空，finishReason 为 STOP 的响应
