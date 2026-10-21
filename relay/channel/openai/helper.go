@@ -171,22 +171,13 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		// 上游 usage 块不透传：客户端要 usage 时一律由网关用归一化后的权威 usage 合成最终 chunk
+		// 上游 usage 块不透传：客户端要 usage 时一律由网关用归一化后的权威 usage 合成最终 chunk；
+		// 客户端未要 usage（include_usage=false）则不追加任何块——不关心用量也就不返回金额
 		if info.ShouldIncludeUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
 			response.XNewApiConsumedAmount = consumedAmount
 			_ = helper.ObjectData(c, response)
-		} else if consumedAmount != "" {
-			// 客户端未要求 usage：仅追加金额扩展 chunk（与 usage chunk 同形的空 choices chunk）
-			helper.ObjectData(c, &dto.ChatCompletionsStreamResponse{
-				Id:                    responseId,
-				Object:                "chat.completion.chunk",
-				Created:               createAt,
-				Model:                 model,
-				Choices:               make([]dto.ChatCompletionsStreamResponseChoice, 0),
-				XNewApiConsumedAmount: consumedAmount,
-			})
 		}
 		// 检测命中时抑制 [DONE]，避免客户端提前关闭连接导致重试内容丢失
 		if !info.DetectionHit {

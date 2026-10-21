@@ -44,7 +44,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	// Check for error in response
 	if chatResp.Error != nil {
 		openAIError := chatResp.GetOpenAIError()
-		return nil, types.NewError(fmt.Errorf(openAIError.Message), types.ErrorCodeBadResponse, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+		return nil, types.NewError(fmt.Errorf("%s", openAIError.Message), types.ErrorCodeBadResponse, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
 
 	// Convert ChatCompletions response to Responses format
