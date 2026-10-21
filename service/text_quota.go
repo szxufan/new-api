@@ -330,6 +330,35 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	return summary
 }
 
+// resolveTextQuotaSummary 计算文本请求的最终消耗摘要（含 tiered 计费覆盖）。
+// 纯计算无副作用，结算（PostTextConsumeQuota）与流式响应金额注入共用，保证两处金额一致。
+func resolveTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) (textQuotaSummary, *billingexpr.TieredResult, bool) {
+	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	channelPriceFactors := relaycommon.ResolveChannelPriceFactors(ctx, relayInfo)
+	var tieredResult *billingexpr.TieredResult
+	tieredApplied := false
+	if usage != nil {
+		var tieredUsedVars map[string]bool
+		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
+			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
+		}
+		tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParams(usage, summary.IsClaudeUsageSemantic, tieredUsedVars))
+		if tieredOk {
+			tieredApplied = true
+			tieredResult = tieredRes
+			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes, channelPriceFactors.Overall())
+		}
+	}
+	return summary, tieredResult, tieredApplied
+}
+
+// CalculateTextConsumedAmount 计算文本请求的消耗金额字符串（quota / QuotaPerUnit），
+// 与结算共用 resolveTextQuotaSummary，用于流式最终 usage chunk 的金额注入。
+func CalculateTextConsumedAmount(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) string {
+	summary, _, _ := resolveTextQuotaSummary(ctx, relayInfo, usage)
+	return FormatQuotaAmount(summary.Quota)
+}
+
 func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) string {
 	if usage != nil && usage.UsageSemantic != "" {
 		return usage.UsageSemantic
@@ -356,23 +385,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
-	summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+	summary, tieredResult, tieredBillingApplied := resolveTextQuotaSummary(ctx, relayInfo, originUsage)
 	channelPriceFactors := relaycommon.ResolveChannelPriceFactors(ctx, relayInfo)
 
-	var tieredResult *billingexpr.TieredResult
-	tieredBillingApplied := false
-	if originUsage != nil {
-		var tieredUsedVars map[string]bool
-		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
-			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
-		}
-		tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParams(usage, summary.IsClaudeUsageSemantic, tieredUsedVars))
-		if tieredOk {
-			tieredBillingApplied = true
-			tieredResult = tieredRes
-			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes, channelPriceFactors.Overall())
-		}
-	}
+	// token 开启"响应返回消耗金额"：在缓冲响应正式发出前注入金额响应头并冲刷（非缓冲/已冲刷时 no-op）
+	setConsumedAmountHeader(ctx, FormatQuotaAmount(summary.Quota))
 
 	if summary.WebSearchCallCount > 0 {
 		extraContent = append(extraContent, fmt.Sprintf("Web Search 调用 %d 次，调用花费 %s", summary.WebSearchCallCount, decimal.NewFromFloat(summary.WebSearchPrice).Mul(decimal.NewFromInt(int64(summary.WebSearchCallCount))).Div(decimal.NewFromInt(1000)).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))

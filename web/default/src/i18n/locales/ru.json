@@ -4897,6 +4897,8 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Return Consumed Amount": "Возвращать израсходованную сумму",
+    "Non-streaming: X-New-Api-Consumed-Amount response header; streaming: x_new_api_consumed_amount field in the final usage chunk": "Не потоковая передача: заголовок ответа X-New-Api-Consumed-Amount; потоковая: поле x_new_api_consumed_amount в финальном чанке usage"
   }
 }

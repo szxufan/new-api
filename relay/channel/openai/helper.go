@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -147,12 +148,29 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 	responseId string, createAt int64, model string, systemFingerprint string,
 	usage *dto.Usage, containStreamUsage bool) {
 
+	// token 开启"响应返回消耗金额"：在最终 usage chunk 上附加消耗金额扩展字段（与结算共用计算）
+	consumedAmount := ""
+	if usage != nil && common.GetContextKeyBool(c, constant.ContextKeyTokenReturnConsumedQuota) {
+		consumedAmount = service.CalculateTextConsumedAmount(c, info, usage)
+	}
+
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		if info.ShouldIncludeUsage && !containStreamUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
+			response.XNewApiConsumedAmount = consumedAmount
 			helper.ObjectData(c, response)
+		} else if consumedAmount != "" {
+			// usage chunk 已由上游原样转发（或客户端未要求 usage）：追加仅含金额的空 choices chunk
+			helper.ObjectData(c, &dto.ChatCompletionsStreamResponse{
+				Id:                    responseId,
+				Object:                "chat.completion.chunk",
+				Created:               createAt,
+				Model:                 model,
+				Choices:               make([]dto.ChatCompletionsStreamResponseChoice, 0),
+				XNewApiConsumedAmount: consumedAmount,
+			})
 		}
 		// 检测命中时抑制 [DONE]，避免客户端提前关闭连接导致重试内容丢失
 		if !info.DetectionHit {
@@ -170,6 +188,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 
 		claudeResponses := service.StreamResponseOpenAI2Claude(&streamResponse, info)
 		for _, resp := range claudeResponses {
+			if consumedAmount != "" && resp.Type == "message_delta" && resp.Usage != nil {
+				resp.XNewApiConsumedAmount = consumedAmount
+			}
 			_ = helper.ClaudeData(c, *resp)
 		}
 		info.ClaudeConvertInfo.Done = true
@@ -192,6 +213,8 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		if geminiResponse == nil {
 			return
 		}
+
+		geminiResponse.XNewApiConsumedAmount = consumedAmount
 
 		geminiResponseStr, err := common.Marshal(geminiResponse)
 		if err != nil {

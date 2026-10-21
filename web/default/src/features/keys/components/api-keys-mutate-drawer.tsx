@@ -597,6 +597,31 @@ export function ApiKeysMutateDrawer({
                         </FormItem>
                       )}
                     />
+
+                    <FormField
+                      control={form.control}
+                      name='return_consumed_quota'
+                      render={({ field }) => (
+                        <FormItem className='flex min-h-16 flex-row items-center justify-between gap-3 rounded-lg border px-3 py-2.5 sm:min-h-20 sm:gap-4 sm:px-4 sm:py-3'>
+                          <div className='space-y-0.5'>
+                            <FormLabel className='text-sm'>
+                              {t('Return Consumed Amount')}
+                            </FormLabel>
+                            <FormDescription className='text-xs'>
+                              {t(
+                                'Non-streaming: X-New-Api-Consumed-Amount response header; streaming: x_new_api_consumed_amount field in the final usage chunk'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
                   </div>
                 </CollapsibleContent>
               </section>

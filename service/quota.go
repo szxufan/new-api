@@ -385,6 +385,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		UpdateChannelQuotaAndBalance(relayInfo.ChannelId, quota)
 	}
 
+	// token 开启"响应返回消耗金额"：在缓冲响应正式发出前注入金额响应头并冲刷（非缓冲/已冲刷时 no-op）
+	setConsumedAmountHeader(ctx, FormatQuotaAmount(quota))
+
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}

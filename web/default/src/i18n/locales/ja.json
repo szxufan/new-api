@@ -4897,6 +4897,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Return Consumed Amount": "消費金額を返す",
+    "Non-streaming: X-New-Api-Consumed-Amount response header; streaming: x_new_api_consumed_amount field in the final usage chunk": "非ストリーミング：レスポンスヘッダー X-New-Api-Consumed-Amount；ストリーミング：最終 usage チャンクの x_new_api_consumed_amount フィールド"
   }
 }

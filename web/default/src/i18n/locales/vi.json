@@ -4897,6 +4897,8 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Return Consumed Amount": "Trả về số tiền đã tiêu thụ",
+    "Non-streaming: X-New-Api-Consumed-Amount response header; streaming: x_new_api_consumed_amount field in the final usage chunk": "Không stream: header phản hồi X-New-Api-Consumed-Amount; stream: trường x_new_api_consumed_amount trong chunk usage cuối cùng"
   }
 }

@@ -458,6 +458,8 @@ type GeminiChatResponse struct {
 	Candidates     []GeminiChatCandidate     `json:"candidates"`
 	PromptFeedback *GeminiChatPromptFeedback `json:"promptFeedback,omitempty"`
 	UsageMetadata  GeminiUsageMetadata       `json:"usageMetadata"`
+	// XNewApiConsumedAmount token 开启"响应返回消耗金额"时，在最终 chunk 上附加的消耗金额（USD）
+	XNewApiConsumedAmount string `json:"x_new_api_consumed_amount,omitempty"`
 }
 
 type GeminiUsageMetadata struct {

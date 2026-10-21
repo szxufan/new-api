@@ -4897,6 +4897,8 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Return Consumed Amount": "返回消耗金额",
+    "Non-streaming: X-New-Api-Consumed-Amount response header; streaming: x_new_api_consumed_amount field in the final usage chunk": "非流式请求通过响应头 X-New-Api-Consumed-Amount 返回；流式请求附加在最终 usage chunk 的 x_new_api_consumed_amount 字段"
   }
 }

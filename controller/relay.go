@@ -422,6 +422,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// token 开启"响应返回消耗金额"：非流式请求缓冲响应，待结算金额确定后注入响应头再冲刷；
+	// defer 兜底冲刷错误路径（正常路径已在结算函数内提前冲刷）
+	service.MaybeInstallQuotaHeaderBuffer(c, relayInfo, relayFormat)
+	defer service.FlushBufferedQuotaHeaderResponse(c)
+
 	// 虚拟模型：加载配置，预扣费与执行均按虚拟模型逻辑处理
 	var virtualModel *model.VirtualModel
 	if vmId := common.GetContextKeyInt(c, constant.ContextKeyVirtualModelId); vmId > 0 {

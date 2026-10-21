@@ -562,6 +562,8 @@ type ClaudeResponse struct {
 	ContentBlock *ClaudeMediaMessage  `json:"content_block,omitempty"`
 	Delta        *ClaudeMediaMessage  `json:"delta,omitempty"`
 	Message      *ClaudeMediaMessage  `json:"message,omitempty"`
+	// XNewApiConsumedAmount token 开启"响应返回消耗金额"时，在最终 message_delta 上附加的消耗金额（USD）
+	XNewApiConsumedAmount string `json:"x_new_api_consumed_amount,omitempty"`
 }
 
 // set index

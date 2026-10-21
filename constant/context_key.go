@@ -21,6 +21,8 @@ const (
 	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	// ContextKeyTokenReturnConsumedQuota 令牌开启"响应返回消耗金额"（非流式响应头/流式最终usage chunk）
+	ContextKeyTokenReturnConsumedQuota ContextKey = "token_return_consumed_quota"
 
 	/* channel related keys */
 	ContextKeyChannelId             ContextKey = "channel_id"

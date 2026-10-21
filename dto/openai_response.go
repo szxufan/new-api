@@ -147,6 +147,8 @@ type ChatCompletionsStreamResponse struct {
 	SystemFingerprint *string                               `json:"system_fingerprint"`
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
+	// XNewApiConsumedAmount token 开启"响应返回消耗金额"时，在最终 usage chunk 上附加的消耗金额（USD）
+	XNewApiConsumedAmount string `json:"x_new_api_consumed_amount,omitempty"`
 }
 
 func (c *ChatCompletionsStreamResponse) IsFinished() bool {
