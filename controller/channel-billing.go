@@ -400,11 +400,16 @@ func UpdateChannelBalance(c *gin.Context) {
 	}
 	// 上游查询返回的余额可能已更新 BalanceEverNonZero 标志，检查是否需要禁用
 	service.DisableChannelIfBalanceDepleted(channel, "余额不足")
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success": true,
 		"message": "",
 		"balance": balance,
-	})
+	}
+	// 开启周期性余额重置的渠道额外返回下次重置时间（unix 秒）
+	if channel.BalanceResetNextTime != nil && *channel.BalanceResetNextTime > 0 {
+		resp["balance_reset_next_time"] = *channel.BalanceResetNextTime
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func updateAllChannelsBalance() error {
