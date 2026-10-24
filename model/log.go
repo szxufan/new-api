@@ -566,6 +566,29 @@ func SumUserConsumedQuota(userId int, startTimestamp int64, endTimestamp int64) 
 	return int(quota), err
 }
 
+type UserConsumeModelStat struct {
+	ModelName string `json:"model_name"`
+	Quota     int64  `json:"quota"`
+}
+
+// GetUserTopConsumeModels 统计单个用户在时间区间内净消费额最高的模型（按 user_id 精确匹配、按模型聚合）。
+// 用于每日消费额度提醒展示当日 Top 消费模型；站点关闭消费日志（LogConsumeEnabled=false）时结果为空。
+func GetUserTopConsumeModels(userId int, startTimestamp int64, endTimestamp int64, limit int) ([]UserConsumeModelStat, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	var rows []UserConsumeModelStat
+	err := LOG_DB.Table("logs").
+		Select("model_name, COALESCE(sum(quota), 0) as quota").
+		Where("user_id = ? AND type = ? AND created_at >= ? AND created_at < ? AND model_name <> ''", userId, LogTypeConsume, startTimestamp, endTimestamp).
+		Group("model_name").
+		Having("COALESCE(sum(quota), 0) > 0").
+		Order("quota DESC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string, retryCount int) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 

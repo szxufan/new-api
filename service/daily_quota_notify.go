@@ -19,7 +19,8 @@ import (
 const DailyQuotaNotifyTitle = "每日消费提醒"
 
 const (
-	dailyQuotaNotifyLockTTL = 10 * time.Second
+	dailyQuotaNotifyLockTTL  = 10 * time.Second
+	dailyQuotaNotifyTopCount = 5
 )
 
 // ---- 内存降级存储（无 Redis 时使用，仅单节点有效）----
@@ -80,7 +81,14 @@ func checkDailyQuotaNotify(userId int, quota int, setting *operation_setting.Dai
 		return
 	}
 
-	if err := SendDingTalkNotify(setting.WebhookUrl, setting.Secret, DailyQuotaNotifyTitle, buildDailyQuotaNotifyText(userId, consumed, multiple, thresholdQuota)); err != nil {
+	// 查询失败不阻断提醒，只是缺少 Top 模型明细
+	topModels, topErr := model.GetUserTopConsumeModels(userId, dayStart.Unix(), dayEnd.Unix(), dailyQuotaNotifyTopCount)
+	if topErr != nil {
+		common.SysError(fmt.Sprintf("daily quota notify: failed to get top consume models for user %d: %s", userId, topErr.Error()))
+		topModels = nil
+	}
+
+	if err := SendDingTalkNotify(setting.WebhookUrl, setting.Secret, DailyQuotaNotifyTitle, buildDailyQuotaNotifyText(userId, consumed, multiple, thresholdQuota, topModels)); err != nil {
 		// 发送失败不更新标记，放开锁让下一笔消费重试
 		common.SysError(fmt.Sprintf("daily quota notify: failed to send dingtalk message for user %d: %s", userId, err.Error()))
 		releaseDailyNotifyLock(userId)
@@ -91,8 +99,9 @@ func checkDailyQuotaNotify(userId int, quota int, setting *operation_setting.Dai
 }
 
 // buildDailyQuotaNotifyText 组装提醒正文：展示用户名（取不到时回退"用户ID"占位），
-// 用户设置了显示名称时追加"（xxx）"，不展示用户 ID。
-func buildDailyQuotaNotifyText(userId int, consumed int, multiple int, thresholdQuota int) string {
+// 用户设置了显示名称时追加"（xxx）"，不展示用户 ID；
+// 当日 Top 消费模型查询成功时追加模型与金额明细。
+func buildDailyQuotaNotifyText(userId int, consumed int, multiple int, thresholdQuota int, topModels []model.UserConsumeModelStat) string {
 	username, err := model.GetUsernameById(userId, false)
 	if err != nil || username == "" {
 		username = fmt.Sprintf("用户%d", userId)
@@ -101,8 +110,17 @@ func buildDailyQuotaNotifyText(userId int, consumed int, multiple int, threshold
 	if displayName, dnErr := model.GetDisplayNameById(userId); dnErr == nil && displayName != "" && displayName != username {
 		userLabel = fmt.Sprintf("**%s**（%s）", username, displayName)
 	}
-	return fmt.Sprintf("### %s\n\n用户 %s 今日消费已达到 **%s**，为每日额度 %s 的 **%d** 倍。\n\n日期：%s",
-		DailyQuotaNotifyTitle, userLabel, logger.FormatQuota(consumed), logger.FormatQuota(thresholdQuota), multiple, time.Now().Format("2006-01-02"))
+	text := fmt.Sprintf("### %s\n\n用户 %s 今日消费已达到 **%s**，为每日额度 %s 的 **%d** 倍。",
+		DailyQuotaNotifyTitle, userLabel, logger.FormatQuota(consumed), logger.FormatQuota(thresholdQuota), multiple)
+	if len(topModels) > 0 {
+		text += fmt.Sprintf("\n\n**今日消费 Top%d 模型：**", len(topModels))
+		for i, m := range topModels {
+			// 钉钉 markdown 列表项之间需要空行才渲染为列表
+			text += fmt.Sprintf("\n\n%d. %s：%s", i+1, m.ModelName, logger.FormatQuota(int(m.Quota)))
+		}
+	}
+	text += fmt.Sprintf("\n\n日期：%s", time.Now().Format("2006-01-02"))
+	return text
 }
 
 // displayCurrencyToQuota 按站点货币显示类型把阈值换算为站内额度，换算逻辑与 logger.FormatQuota 一致
