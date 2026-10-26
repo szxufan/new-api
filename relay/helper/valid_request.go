@@ -308,6 +308,10 @@ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenA
 		return nil, err
 	}
 
+	// OpenAI兼容接口：客户端传入的 developer 角色统一映射为 system，
+	// 需要该角色的上游由渠道适配器再按需转换
+	textRequest.NormalizeDeveloperRole()
+
 	if relayMode == relayconstant.RelayModeModerations && textRequest.Model == "" {
 		textRequest.Model = "text-moderation-latest"
 	}

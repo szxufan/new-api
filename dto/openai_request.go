@@ -234,6 +234,53 @@ func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
 	return "system"
 }
 
+// IsSystemLikeRole 判断角色是否为系统类角色（system 或 developer）
+func IsSystemLikeRole(role string) bool {
+	return role == "system" || role == "developer"
+}
+
+// NormalizeDeveloperRole 将客户端传入的 developer 角色统一归一化为 system。
+// 网关内部以 system 表示系统消息；需要 developer 角色的上游（如 OpenAI o 系列/gpt-5）
+// 由对应渠道适配器再按需转换。
+// 同时传 system 与 developer 时会归一化出相邻的 system 消息，这里一并将纯文本的
+// 相邻 system 合并为一条，避免部分渠道（如百度只取最后一条）丢失内容。
+func (r *GeneralOpenAIRequest) NormalizeDeveloperRole() {
+	for i := range r.Messages {
+		if r.Messages[i].Role == "developer" {
+			r.Messages[i].Role = "system"
+		}
+	}
+	r.mergeConsecutiveSystemMessages()
+}
+
+// mergeConsecutiveSystemMessages 合并相邻的 system 消息。
+// 仅合并纯文本内容；任一方为多模态数组等内容时保持原样，避免丢数据。
+func (r *GeneralOpenAIRequest) mergeConsecutiveSystemMessages() {
+	if len(r.Messages) <= 1 {
+		return
+	}
+	merged := make([]Message, 0, len(r.Messages))
+	for _, msg := range r.Messages {
+		if msg.Role != "system" || len(merged) == 0 || merged[len(merged)-1].Role != "system" {
+			merged = append(merged, msg)
+			continue
+		}
+		last := &merged[len(merged)-1]
+		if !last.IsStringContent() || !msg.IsStringContent() {
+			merged = append(merged, msg)
+			continue
+		}
+		lastContent := last.StringContent()
+		currContent := msg.StringContent()
+		if lastContent == "" {
+			last.Content = currContent
+		} else if currContent != "" {
+			last.Content = lastContent + "\n" + currContent
+		}
+	}
+	r.Messages = merged
+}
+
 const CustomType = "custom"
 
 type ToolCallRequest struct {

@@ -135,7 +135,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			if ok {
 				containSystemPrompt := false
 				for _, message := range request.Messages {
-					if message.Role == request.GetSystemRoleName() {
+					if dto.IsSystemLikeRole(message.Role) {
 						containSystemPrompt = true
 						break
 					}
@@ -151,7 +151,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 					common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
 					// 如果有系统提示，且允许覆盖，则拼接到前面
 					for i, message := range request.Messages {
-						if message.Role == request.GetSystemRoleName() {
+						if dto.IsSystemLikeRole(message.Role) {
 							if message.IsStringContent() {
 								request.Messages[i].SetStringContent(info.ChannelSetting.SystemPrompt + "\n" + message.StringContent())
 							} else {
