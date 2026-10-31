@@ -53,6 +53,11 @@ export function ModelsTable() {
     description: false,
     bound_channels: false,
     quota_types: false,
+    context_length: false,
+    max_output_tokens: false,
+    support_image_input: false,
+    support_video_input: false,
+    reasoning_options: false,
   })
   const [rowSelection, setRowSelection] = useState({})
 

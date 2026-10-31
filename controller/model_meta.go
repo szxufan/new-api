@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -206,31 +205,32 @@ func enrichModels(models []*model.Model) {
 		return
 	}
 
-	// 4) 一次性读取定价缓存，内存匹配所有规则模型
+	// 4) 读取定价缓存与元数据生效匹配结果（与 updatePricing 的优先级解析一致：
+	// 精确 > 前缀 > 后缀 > 包含，同类先入库者优先，被占位的模型不再计入）
 	pricings := model.GetPricing()
+	pricingByName := make(map[string]model.Pricing, len(pricings))
+	for _, p := range pricings {
+		pricingByName[p.ModelName] = p
+	}
 
-	// 为全部规则模型收集匹配名集合、端点并集、分组并集、配额集合
+	// 为全部规则模型收集生效匹配名、端点并集、分组并集、配额集合
 	matchedNamesByIdx := make(map[int][]string)
 	endpointSetByIdx := make(map[int]map[constant.EndpointType]struct{})
 	groupSetByIdx := make(map[int]map[string]struct{})
 	quotaSetByIdx := make(map[int]map[int]struct{})
 
-	for _, p := range pricings {
-		for _, idx := range ruleIndices {
-			mm := models[idx]
-			var matched bool
-			switch mm.NameRule {
-			case model.NameRulePrefix:
-				matched = strings.HasPrefix(p.ModelName, mm.ModelName)
-			case model.NameRuleSuffix:
-				matched = strings.HasSuffix(p.ModelName, mm.ModelName)
-			case model.NameRuleContains:
-				matched = strings.Contains(p.ModelName, mm.ModelName)
-			}
-			if !matched {
+	for _, idx := range ruleIndices {
+		mm := models[idx]
+		names := model.GetModelMetaMatchedNames(mm.Id)
+		if len(names) == 0 {
+			continue
+		}
+		matchedNamesByIdx[idx] = names
+		for _, name := range names {
+			p, ok := pricingByName[name]
+			if !ok {
 				continue
 			}
-			matchedNamesByIdx[idx] = append(matchedNamesByIdx[idx], p.ModelName)
 
 			es := endpointSetByIdx[idx]
 			if es == nil {

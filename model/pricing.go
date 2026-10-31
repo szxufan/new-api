@@ -73,7 +73,9 @@ var (
 	modelFallbackPrefixList   []*Model
 	modelFallbackSuffixList   []*Model
 	modelFallbackContainsList []*Model
-	modelFallbackLock         = sync.RWMutex{}
+	// 元数据生效匹配缓存：元数据 ID -> 按优先级解析后实际归属该元数据的模型名列表
+	modelMetaMatchedNames = make(map[int][]string)
+	modelFallbackLock     = sync.RWMutex{}
 )
 
 func GetPricing() []Pricing {
@@ -142,6 +144,17 @@ func GetModelCapabilities(modelName string) ModelCapabilities {
 	return ModelCapabilities{}
 }
 
+// GetModelMetaMatchedNames 返回元数据按优先级（精确 > 前缀 > 后缀 > 包含，同类先入库者优先）
+// 解析后实际归属它的模型名列表。仅规则匹配的元数据有结果，精确匹配的返回 nil。
+func GetModelMetaMatchedNames(metaID int) []string {
+	if metaID == 0 {
+		return nil
+	}
+	modelFallbackLock.RLock()
+	defer modelFallbackLock.RUnlock()
+	return modelMetaMatchedNames[metaID]
+}
+
 func updatePricing() {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
@@ -172,12 +185,15 @@ func updatePricing() {
 		}
 	}
 
-	// 将非精确规则模型匹配到 metaMap
+	// 将非精确规则模型匹配到 metaMap，同时记录每条元数据实际生效的匹配结果
+	// （精确匹配已占位的模型名、以及被更早规则占位的模型名不再归属后续规则）
+	metaMatchedNames := make(map[int][]string)
 	for _, m := range prefixList {
 		for _, pricingModel := range enableAbilities {
 			if strings.HasPrefix(pricingModel.Model, m.ModelName) {
 				if _, exists := metaMap[pricingModel.Model]; !exists {
 					metaMap[pricingModel.Model] = m
+					metaMatchedNames[m.Id] = append(metaMatchedNames[m.Id], pricingModel.Model)
 				}
 			}
 		}
@@ -187,6 +203,7 @@ func updatePricing() {
 			if strings.HasSuffix(pricingModel.Model, m.ModelName) {
 				if _, exists := metaMap[pricingModel.Model]; !exists {
 					metaMap[pricingModel.Model] = m
+					metaMatchedNames[m.Id] = append(metaMatchedNames[m.Id], pricingModel.Model)
 				}
 			}
 		}
@@ -196,10 +213,16 @@ func updatePricing() {
 			if strings.Contains(pricingModel.Model, m.ModelName) {
 				if _, exists := metaMap[pricingModel.Model]; !exists {
 					metaMap[pricingModel.Model] = m
+					metaMatchedNames[m.Id] = append(metaMatchedNames[m.Id], pricingModel.Model)
 				}
 			}
 		}
 	}
+
+	// 缓存规则匹配结果，供管理端 enrichModels 展示与优先级一致的生效匹配
+	modelFallbackLock.Lock()
+	modelMetaMatchedNames = metaMatchedNames
+	modelFallbackLock.Unlock()
 
 	// 构建降级模型缓存
 	newFallback := make(map[string]string)

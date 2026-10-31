@@ -35,7 +35,11 @@ import {
   getNameRuleConfig,
   getQuotaTypeConfig,
 } from '../constants'
-import { parseModelTags, formatEndpointsDisplay } from '../lib'
+import {
+  parseModelTags,
+  formatEndpointsDisplay,
+  parseReasoningOptions,
+} from '../lib'
 import type { Model, Vendor } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { DescriptionCell } from './description-cell'
@@ -195,11 +199,7 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
             label={label}
             variant={
               (config.color === 'error' ? 'danger' : config.color) as
-                | 'neutral'
-                | 'success'
-                | 'warning'
-                | 'danger'
-                | 'info'
+                'neutral' | 'success' | 'warning' | 'danger' | 'info'
             }
             size='sm'
           />
@@ -504,11 +504,7 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
               label={config?.label || String(qt)}
               variant={
                 (config?.color === 'error' ? 'danger' : config?.color) as
-                  | 'neutral'
-                  | 'success'
-                  | 'warning'
-                  | 'danger'
-                  | 'info'
+                  'neutral' | 'success' | 'warning' | 'danger' | 'info'
               }
               size='sm'
             />
@@ -527,6 +523,123 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
                   className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
                 >
                   <div className='flex flex-wrap gap-1'>{quotaBadges}</div>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+      size: 150,
+      enableSorting: false,
+    },
+
+    // Context Length column
+    {
+      accessorKey: 'context_length',
+      meta: { label: t('Context Length'), mobileHidden: true },
+      header: t('Context Length'),
+      cell: ({ row }) => {
+        const value = row.getValue('context_length') as number
+        if (!value || value <= 0) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+        return <div className='font-mono text-sm'>{value.toLocaleString()}</div>
+      },
+      size: 120,
+      enableSorting: false,
+    },
+
+    // Max Output Tokens column
+    {
+      accessorKey: 'max_output_tokens',
+      meta: { label: t('Max Output Tokens'), mobileHidden: true },
+      header: t('Max Output Tokens'),
+      cell: ({ row }) => {
+        const value = row.getValue('max_output_tokens') as number
+        if (!value || value <= 0) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+        return <div className='font-mono text-sm'>{value.toLocaleString()}</div>
+      },
+      size: 140,
+      enableSorting: false,
+    },
+
+    // Image Input column
+    {
+      accessorKey: 'support_image_input',
+      meta: { label: t('Image Input'), mobileHidden: true },
+      header: t('Image Input'),
+      cell: ({ row }) => {
+        const supported = row.getValue('support_image_input') as boolean
+        if (!supported) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+        return (
+          <StatusBadge
+            label={t('Yes')}
+            variant='success'
+            size='sm'
+            copyable={false}
+          />
+        )
+      },
+      size: 100,
+      enableSorting: false,
+    },
+
+    // Video Input column
+    {
+      accessorKey: 'support_video_input',
+      meta: { label: t('Video Input'), mobileHidden: true },
+      header: t('Video Input'),
+      cell: ({ row }) => {
+        const supported = row.getValue('support_video_input') as boolean
+        if (!supported) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+        return (
+          <StatusBadge
+            label={t('Yes')}
+            variant='success'
+            size='sm'
+            copyable={false}
+          />
+        )
+      },
+      size: 100,
+      enableSorting: false,
+    },
+
+    // Reasoning Options column
+    {
+      accessorKey: 'reasoning_options',
+      meta: { label: t('Reasoning Options'), mobileHidden: true },
+      header: t('Reasoning Options'),
+      cell: ({ row }) => {
+        const raw = row.getValue('reasoning_options') as string
+        const options = parseReasoningOptions(raw)
+
+        if (options.length === 0) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+
+        const optionBadges = options.map((option, idx) => (
+          <StatusBadge key={idx} label={option} autoColor={option} size='sm' />
+        ))
+
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger render={<div />}>
+                {renderLimitedItems(optionBadges, 2)}
+              </TooltipTrigger>
+              {options.length > 2 && (
+                <TooltipContent
+                  side='top'
+                  className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
+                >
+                  <div className='flex flex-wrap gap-1'>{optionBadges}</div>
                 </TooltipContent>
               )}
             </Tooltip>
