@@ -166,6 +166,12 @@ func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.Open
 		oaiModel.OwnedBy = owner
 	}
 	oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)
+	caps := model.GetModelCapabilities(modelName)
+	oaiModel.ContextLength = caps.ContextLength
+	oaiModel.MaxOutputTokens = caps.MaxOutputTokens
+	oaiModel.SupportImageInput = caps.SupportImageInput
+	oaiModel.SupportVideoInput = caps.SupportVideoInput
+	oaiModel.ReasoningOptions = caps.ReasoningOptions
 	return oaiModel
 }
 
@@ -377,6 +383,12 @@ func EnabledListModels(c *gin.Context) {
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")
 	if aiModel, ok := openAIModelsMap[modelId]; ok {
+		caps := model.GetModelCapabilities(modelId)
+		aiModel.ContextLength = caps.ContextLength
+		aiModel.MaxOutputTokens = caps.MaxOutputTokens
+		aiModel.SupportImageInput = caps.SupportImageInput
+		aiModel.SupportVideoInput = caps.SupportVideoInput
+		aiModel.ReasoningOptions = caps.ReasoningOptions
 		switch modelType {
 		case constant.ChannelTypeAnthropic:
 			c.JSON(200, dto.AnthropicModel{

@@ -64,6 +64,10 @@ var (
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
 	modelSupportEndpointsLock = sync.RWMutex{}
 
+	// 模型能力信息缓存：模型名 -> 上下文/最大输出/图片视频输入/推理等级（来自 models 表，含规则匹配）
+	modelCapabilitiesMap = make(map[string]ModelCapabilities)
+	modelCapabilitiesLock = sync.RWMutex{}
+
 	modelFallbackModel = make(map[string]string)
 	// 规则匹配降级列表：前缀/后缀/包含匹配的模型元数据，用于 GetModelFallbackModel 回退查找
 	modelFallbackPrefixList   []*Model
@@ -114,6 +118,28 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 		return endpoints
 	}
 	return make([]constant.EndpointType, 0)
+}
+
+// ModelCapabilities 模型能力信息，来源为 models 表元数据（未配置时为零值）
+type ModelCapabilities struct {
+	ContextLength     int
+	MaxOutputTokens   int
+	SupportImageInput bool
+	SupportVideoInput bool
+	ReasoningOptions  []string
+}
+
+// GetModelCapabilities 返回模型能力信息，未配置的模型返回零值
+func GetModelCapabilities(modelName string) ModelCapabilities {
+	if modelName == "" {
+		return ModelCapabilities{}
+	}
+	modelCapabilitiesLock.RLock()
+	defer modelCapabilitiesLock.RUnlock()
+	if caps, ok := modelCapabilitiesMap[modelName]; ok {
+		return caps
+	}
+	return ModelCapabilities{}
 }
 
 func updatePricing() {
@@ -287,6 +313,27 @@ func updatePricing() {
 		}
 		modelSupportEndpointTypes[model] = supportedEndpoints
 	}
+
+	// 构建模型能力信息缓存
+	newCapabilities := make(map[string]ModelCapabilities, len(metaMap))
+	for modelName, meta := range metaMap {
+		caps := ModelCapabilities{
+			ContextLength:     meta.ContextLength,
+			MaxOutputTokens:   meta.MaxOutputTokens,
+			SupportImageInput: meta.SupportImageInput,
+			SupportVideoInput: meta.SupportVideoInput,
+		}
+		if strings.TrimSpace(meta.ReasoningOptions) != "" {
+			var options []string
+			if err := common.UnmarshalJsonStr(meta.ReasoningOptions, &options); err == nil && len(options) > 0 {
+				caps.ReasoningOptions = options
+			}
+		}
+		newCapabilities[modelName] = caps
+	}
+	modelCapabilitiesLock.Lock()
+	modelCapabilitiesMap = newCapabilities
+	modelCapabilitiesLock.Unlock()
 
 	// 构建全局 supportedEndpointMap（默认 + 自定义覆盖）
 	supportedEndpointMap = make(map[string]common.EndpointInfo)

@@ -40,6 +40,11 @@ export const modelFormSchema = z.object({
   sync_official: z.boolean().default(true),
   enable_groups: z.array(z.string()).default([]),
   quota_types: z.array(z.number()).default([]),
+  context_length: z.number().int().min(0).default(0),
+  max_output_tokens: z.number().int().min(0).default(0),
+  support_image_input: z.boolean().default(false),
+  support_video_input: z.boolean().default(false),
+  reasoning_options: z.array(z.string()).default([]),
 })
 
 export type ModelFormValues = z.infer<typeof modelFormSchema>
@@ -82,6 +87,11 @@ export function transformModelToFormDefaults(model: Model): ModelFormValues {
     sync_official: model.sync_official === 1,
     enable_groups: model.enable_groups || [],
     quota_types: model.quota_types || [],
+    context_length: model.context_length || 0,
+    max_output_tokens: model.max_output_tokens || 0,
+    support_image_input: model.support_image_input || false,
+    support_video_input: model.support_video_input || false,
+    reasoning_options: parseReasoningOptions(model.reasoning_options),
   }
 }
 
@@ -104,7 +114,34 @@ export function transformFormDataToModelPayload(
     sync_official: formData.sync_official ? 1 : 0,
     enable_groups: formData.enable_groups,
     quota_types: formData.quota_types,
+    context_length: formData.context_length || 0,
+    max_output_tokens: formData.max_output_tokens || 0,
+    support_image_input: formData.support_image_input,
+    support_video_input: formData.support_video_input,
+    reasoning_options: formatReasoningOptions(formData.reasoning_options),
   }
+}
+
+/**
+ * 后端 reasoning_options 存储为 JSON 数组字符串，表单中使用字符串数组
+ */
+export function parseReasoningOptions(value?: string): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Format reasoning options array to JSON string for backend
+ */
+export function formatReasoningOptions(options: string[]): string {
+  return options.length > 0 ? JSON.stringify(options) : ''
 }
 
 // ============================================================================

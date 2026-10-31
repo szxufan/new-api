@@ -66,6 +66,7 @@ import {
   vendorsQueryKeys,
   parseModelTags,
   mergeEndpointTemplate,
+  parseReasoningOptions,
 } from '../../lib'
 import type { Model } from '../../types'
 
@@ -89,6 +90,11 @@ export const modelFormSchema = z.object({
   sync_official: z.boolean(),
   prompt_optimize: z.boolean(),
   fallback_model: z.string(),
+  context_length: z.number().int().min(0),
+  max_output_tokens: z.number().int().min(0),
+  support_image_input: z.boolean(),
+  support_video_input: z.boolean(),
+  reasoning_options: z.array(z.string()),
 })
 
 type ModelFormValues = z.infer<typeof modelFormSchema>
@@ -139,6 +145,11 @@ export function ModelMutateDrawer({
       sync_official: true,
       prompt_optimize: false,
       fallback_model: '',
+      context_length: 0,
+      max_output_tokens: 0,
+      support_image_input: false,
+      support_video_input: false,
+      reasoning_options: [],
     },
   })
 
@@ -159,6 +170,11 @@ export function ModelMutateDrawer({
         sync_official: model.sync_official === 1,
         prompt_optimize: model.prompt_optimize === 1,
         fallback_model: model.fallback_model || '',
+        context_length: model.context_length || 0,
+        max_output_tokens: model.max_output_tokens || 0,
+        support_image_input: model.support_image_input || false,
+        support_video_input: model.support_video_input || false,
+        reasoning_options: parseReasoningOptions(model.reasoning_options),
       })
     } else if (open && !isEditing) {
       // Pre-fill model name if passed from missing models
@@ -174,6 +190,11 @@ export function ModelMutateDrawer({
         sync_official: true,
         prompt_optimize: false,
         fallback_model: '',
+        context_length: 0,
+        max_output_tokens: 0,
+        support_image_input: false,
+        support_video_input: false,
+        reasoning_options: [],
       })
     }
   }, [open, isEditing, modelData, currentRow, form])
@@ -189,6 +210,10 @@ export function ModelMutateDrawer({
           status: values.status ? 1 : 0,
           sync_official: values.sync_official ? 1 : 0,
           prompt_optimize: values.prompt_optimize ? 1 : 0,
+          reasoning_options:
+            values.reasoning_options && values.reasoning_options.length > 0
+              ? JSON.stringify(values.reasoning_options)
+              : '',
         }
 
         const response = isEditing
@@ -512,6 +537,144 @@ export function ModelMutateDrawer({
                     </FormControl>
                     <FormDescription>
                       {t('Define API endpoints for this model (JSON format)')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <Separator />
+
+            {/* Capabilities（能力信息，通过 /v1/models 返回给客户端） */}
+            <div className='space-y-4'>
+              <h3 className='text-sm font-semibold'>{t('Capabilities')}</h3>
+
+              <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
+                <FormField
+                  control={form.control}
+                  name='context_length'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Context Length')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          placeholder={t('e.g. 128000')}
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 0
+                                : Math.max(0, Math.floor(Number(e.target.value)))
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Maximum total context window in tokens (0 = unset)')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='max_output_tokens'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Max Output Tokens')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          min={0}
+                          placeholder={t('e.g. 16384')}
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 0
+                                : Math.max(0, Math.floor(Number(e.target.value)))
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Maximum number of output tokens per request (0 = unset)'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name='support_image_input'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base'>
+                        {t('Image Input')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t('Whether this model accepts image inputs')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='support_video_input'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base'>
+                        {t('Video Input')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t('Whether this model accepts video inputs')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='reasoning_options'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Reasoning Options')}</FormLabel>
+                    <FormControl>
+                      <TagInput
+                        value={field.value || []}
+                        onChange={field.onChange}
+                        placeholder={t('Add reasoning level...')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Selectable reasoning levels for this model, e.g. low, medium, high (returned via /v1/models)'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

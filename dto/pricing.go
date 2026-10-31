@@ -9,6 +9,12 @@ type OpenAIModels struct {
 	Created                int                     `json:"created"`
 	OwnedBy                string                  `json:"owned_by"`
 	SupportedEndpointTypes []constant.EndpointType `json:"supported_endpoint_types"`
+	// 模型能力信息，来源为模型元数据配置（未配置时省略）
+	ContextLength     int      `json:"context_length,omitempty"`
+	MaxOutputTokens   int      `json:"max_output_tokens,omitempty"`
+	SupportImageInput bool     `json:"support_image_input,omitempty"`
+	SupportVideoInput bool     `json:"support_video_input,omitempty"`
+	ReasoningOptions  []string `json:"reasoning_options,omitempty"`
 }
 
 type AnthropicModel struct {

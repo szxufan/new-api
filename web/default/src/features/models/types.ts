@@ -49,6 +49,16 @@ export interface Model {
   updated_time: number
   name_rule: number
   fallback_model?: string
+  /** 模型能力信息：上下文长度（0=未配置） */
+  context_length?: number
+  /** 最大输出长度（0=未配置） */
+  max_output_tokens?: number
+  /** 是否支持图片输入 */
+  support_image_input?: boolean
+  /** 是否支持视频输入 */
+  support_video_input?: boolean
+  /** 推理等级可选项，后端存储为 JSON 数组字符串，如 ["low","medium","high"] */
+  reasoning_options?: string
   // Runtime fields
   bound_channels?: BoundChannel[]
   enable_groups?: string[]
