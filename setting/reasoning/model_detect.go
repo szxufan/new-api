@@ -9,7 +9,7 @@ func IsDeepSeekThinkingModel(modelName string) bool {
 		return true
 	}
 	baseName := trimDeepSeekSuffix(modelName)
-	if baseName == "deepseek-reasoner" {
+	if baseName == "deepseek-reasoner" || baseName == "deepseek-flash" {
 		return true
 	}
 	return strings.HasPrefix(baseName, "deepseek-v4-")
@@ -42,7 +42,7 @@ func IsThinkingModel(modelName string) bool {
 }
 
 func trimDeepSeekSuffix(modelName string) string {
-	for _, s := range DeepSeekV4EffortSuffixes {
+	for _, s := range DeepSeekEffortSuffixes {
 		if strings.HasSuffix(modelName, s) {
 			return strings.TrimSuffix(modelName, s)
 		}

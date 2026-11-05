@@ -26,6 +26,21 @@ func TestIsDeepSeekThinkingModel(t *testing.T) {
 			want:      false,
 		},
 		{
+			name:      "deepseek-flash",
+			modelName: "deepseek-flash",
+			want:      true,
+		},
+		{
+			name:      "deepseek-flash-max",
+			modelName: "deepseek-flash-max",
+			want:      true,
+		},
+		{
+			name:      "deepseek-flash-none",
+			modelName: "deepseek-flash-none",
+			want:      true,
+		},
+		{
 			name:      "deepseek-v4-flash",
 			modelName: "deepseek-v4-flash",
 			want:      true,

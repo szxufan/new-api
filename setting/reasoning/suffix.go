@@ -10,7 +10,7 @@ var EffortSuffixes = []string{"-max", "-xhigh", "-high", "-medium", "-low", "-mi
 
 var OpenAIEffortSuffixes = []string{"-high", "-minimal", "-low", "-medium", "-none", "-xhigh"}
 
-var DeepSeekV4EffortSuffixes = []string{"-none", "-max"}
+var DeepSeekEffortSuffixes = []string{"-none", "-max"}
 
 // TrimEffortSuffix -> modelName level(low) exists
 func TrimEffortSuffix(modelName string) (string, string, bool) {
@@ -35,9 +35,11 @@ func ParseOpenAIReasoningEffortFromModelSuffix(modelName string) (string, string
 	return effort, baseModel
 }
 
-func ParseDeepSeekV4ThinkingSuffix(modelName string) (baseModel string, thinkingType string, effort string, ok bool) {
-	baseModel, suffix, ok := TrimEffortSuffixWithSuffixes(modelName, DeepSeekV4EffortSuffixes)
-	if !ok || !strings.HasPrefix(baseModel, "deepseek-v4-") {
+// ParseDeepSeekThinkingSuffix 解析 DeepSeek 思考模式后缀（-none 关闭 / -max 开启并拉满），
+// 覆盖 deepseek-v4-* 系列与新命名的 deepseek-flash 系列。
+func ParseDeepSeekThinkingSuffix(modelName string) (baseModel string, thinkingType string, effort string, ok bool) {
+	baseModel, suffix, ok := TrimEffortSuffixWithSuffixes(modelName, DeepSeekEffortSuffixes)
+	if !ok || !(strings.HasPrefix(baseModel, "deepseek-v4-") || baseModel == "deepseek-flash") {
 		return modelName, "", "", false
 	}
 	switch suffix {

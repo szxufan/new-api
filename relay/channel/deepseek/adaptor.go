@@ -37,7 +37,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if !ok {
 		return convertedRequest, nil
 	}
-	if err := applyDeepSeekV4ClaudeThinkingSuffix(info, claudeRequest); err != nil {
+	if err := applyDeepSeekClaudeThinkingSuffix(info, claudeRequest); err != nil {
 		return nil, err
 	}
 	return claudeRequest, nil
@@ -90,19 +90,19 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	if err := applyDeepSeekV4OpenAIThinkingSuffix(info, request); err != nil {
+	if err := applyDeepSeekOpenAIThinkingSuffix(info, request); err != nil {
 		return nil, err
 	}
 
 	return request, nil
 }
 
-func applyDeepSeekV4OpenAIThinkingSuffix(info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) error {
+func applyDeepSeekOpenAIThinkingSuffix(info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) error {
 	modelName := request.Model
 	if info != nil && info.ChannelMeta != nil && info.UpstreamModelName != "" {
 		modelName = info.UpstreamModelName
 	}
-	baseModel, thinkingType, effort, ok := reasoning.ParseDeepSeekV4ThinkingSuffix(modelName)
+	baseModel, thinkingType, effort, ok := reasoning.ParseDeepSeekThinkingSuffix(modelName)
 	if !ok {
 		return nil
 	}
@@ -124,12 +124,12 @@ func applyDeepSeekV4OpenAIThinkingSuffix(info *relaycommon.RelayInfo, request *d
 	return nil
 }
 
-func applyDeepSeekV4ClaudeThinkingSuffix(info *relaycommon.RelayInfo, request *dto.ClaudeRequest) error {
+func applyDeepSeekClaudeThinkingSuffix(info *relaycommon.RelayInfo, request *dto.ClaudeRequest) error {
 	modelName := request.Model
 	if info != nil && info.ChannelMeta != nil && info.UpstreamModelName != "" {
 		modelName = info.UpstreamModelName
 	}
-	baseModel, thinkingType, effort, ok := reasoning.ParseDeepSeekV4ThinkingSuffix(modelName)
+	baseModel, thinkingType, effort, ok := reasoning.ParseDeepSeekThinkingSuffix(modelName)
 	if !ok {
 		return nil
 	}
