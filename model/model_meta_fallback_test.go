@@ -15,6 +15,8 @@ func setupFallbackTestDB(t *testing.T) {
 	common.UsingSQLite = true
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	origDB := DB
+	t.Cleanup(func() { DB = origDB }) // 恢复 TestMain 的全局 DB，避免污染后续测试
 	DB = db
 	require.NoError(t, DB.AutoMigrate(&Channel{}, &Ability{}, &Model{}))
 }

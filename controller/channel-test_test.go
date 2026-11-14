@@ -2,12 +2,16 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"mime"
+	"mime/multipart"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
@@ -182,4 +186,62 @@ func TestNormalizeChannelTestEndpointWebTools(t *testing.T) {
 	// 非 DeepSeek 渠道不做后缀自动识别，避免误伤 gpt-4o-search-preview 之类模型
 	openaiChannel := &model.Channel{Type: constant.ChannelTypeOpenAI}
 	require.Equal(t, "", normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-search-preview", ""))
+}
+
+// TestNormalizeChannelTestEndpointAudio 测试 DeepSeek 渠道 *-tts/*-asr 虚拟模型的端点自动识别
+func TestNormalizeChannelTestEndpointAudio(t *testing.T) {
+	dsChannel := &model.Channel{Type: constant.ChannelTypeDeepSeek}
+	require.Equal(t, string(constant.EndpointTypeTTS), normalizeChannelTestEndpoint(dsChannel, "deepseek-tts", ""))
+	require.Equal(t, string(constant.EndpointTypeASR), normalizeChannelTestEndpoint(dsChannel, "deepseek-asr", ""))
+	// 显式指定端点时优先
+	require.Equal(t, string(constant.EndpointTypeOpenAI), normalizeChannelTestEndpoint(dsChannel, "deepseek-tts", string(constant.EndpointTypeOpenAI)))
+	// 非 DeepSeek 渠道不做后缀自动识别
+	openaiChannel := &model.Channel{Type: constant.ChannelTypeOpenAI}
+	require.Equal(t, "", normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-tts", ""))
+}
+
+// TestBuildTestRequestAudio 测试语音端点的测试请求构建
+func TestBuildTestRequestAudio(t *testing.T) {
+	ttsReq, ok := buildTestRequest("deepseek-tts", string(constant.EndpointTypeTTS), nil, false).(*dto.AudioRequest)
+	require.True(t, ok)
+	require.Equal(t, "deepseek-tts", ttsReq.Model)
+	require.Equal(t, "wav", ttsReq.ResponseFormat)
+	require.NotEmpty(t, ttsReq.Input)
+
+	asrReq, ok := buildTestRequest("deepseek-asr", string(constant.EndpointTypeASR), nil, false).(*dto.AudioRequest)
+	require.True(t, ok)
+	require.Equal(t, "deepseek-asr", asrReq.Model)
+	require.Equal(t, "json", asrReq.ResponseFormat)
+}
+
+// TestBuildTestAudioTranscriptionBody 测试语音识别渠道测试用的 multipart 请求体
+func TestBuildTestAudioTranscriptionBody(t *testing.T) {
+	body, contentType, err := buildTestAudioTranscriptionBody("deepseek-asr")
+	require.NoError(t, err)
+	require.Contains(t, contentType, "multipart/form-data")
+
+	_, params, err := mime.ParseMediaType(contentType)
+	require.NoError(t, err)
+
+	form, err := multipart.NewReader(bytes.NewReader(body), params["boundary"]).ReadForm(1 << 20)
+	require.NoError(t, err)
+	defer form.RemoveAll()
+
+	require.Equal(t, []string{"deepseek-asr"}, form.Value["model"])
+	require.Len(t, form.File["file"], 1)
+	require.Equal(t, "channel_test.wav", form.File["file"][0].Filename)
+
+	file, err := form.File["file"][0].Open()
+	require.NoError(t, err)
+	defer file.Close()
+	header := make([]byte, 12)
+	_, err = file.Read(header)
+	require.NoError(t, err)
+	require.Equal(t, "RIFF", string(header[0:4]))
+	require.Equal(t, "WAVE", string(header[8:12]))
+
+	// 生成的 WAV 应可被时长解析器识别为 1 秒，保证上游转写请求格式有效
+	duration, err := common.GetAudioDuration(context.Background(), bytes.NewReader(buildTestWAV()), ".wav")
+	require.NoError(t, err)
+	require.InDelta(t, 1.0, duration, 0.001)
 }

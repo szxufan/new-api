@@ -10,6 +10,9 @@ var ModelList = []string{
 	// 网页搜索/抓取工具端点（/v1/tools/search、/v1/tools/fetch）对应的虚拟模型，
 	// 供 MCP web_search / web_fetch 按分组路由与按次计费
 	"deepseek-search", "deepseek-fetch",
+	// 语音工具端点（/v1/tools/tts、/v1/tools/asr）对应的虚拟模型，上游接口无 model 参数，
+	// 仅用于网关路由、按次/按时长计费
+	"deepseek-tts", "deepseek-asr",
 }
 
 var ChannelName = "deepseek"

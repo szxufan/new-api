@@ -15,6 +15,8 @@ func setupTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
+	origDB := DB
+	t.Cleanup(func() { DB = origDB }) // 恢复 TestMain 的全局 DB，避免污染后续测试
 	DB = db
 	err = DB.AutoMigrate(&User{})
 	if err != nil {

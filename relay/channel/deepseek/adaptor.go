@@ -44,8 +44,14 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	switch info.RelayMode {
+	case constant.RelayModeAudioSpeech:
+		return convertTTSRequest(c, request)
+	case constant.RelayModeAudioTranscription:
+		return convertASRRequest(c, request)
+	default:
+		return nil, errors.New("audio translation is not supported by DeepSeek, use audio transcription instead")
+	}
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
@@ -67,6 +73,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			return fmt.Sprintf("%s/v1/tools/search", info.ChannelBaseUrl), nil
 		case constant.RelayModeWebFetch:
 			return fmt.Sprintf("%s/v1/tools/fetch", info.ChannelBaseUrl), nil
+		case constant.RelayModeAudioSpeech:
+			return fmt.Sprintf("%s/v1/tools/tts", info.ChannelBaseUrl), nil
+		case constant.RelayModeAudioTranscription:
+			return fmt.Sprintf("%s/v1/tools/asr", info.ChannelBaseUrl), nil
 		}
 		if !strings.HasSuffix(info.ChannelBaseUrl, "/beta") {
 			fimBaseUrl += "/beta"
@@ -82,6 +92,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		req.Set("Content-Type", "application/json")
+	}
 	req.Set("Authorization", "Bearer "+info.ApiKey)
 	return nil
 }
@@ -174,10 +187,19 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		return channel.DoFormRequest(a, c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	switch info.RelayMode {
+	case constant.RelayModeAudioSpeech:
+		return handleDeepSeekTTSResponse(c, resp, info)
+	case constant.RelayModeAudioTranscription:
+		return handleDeepSeekASRResponse(c, resp, info)
+	}
 	switch info.RelayFormat {
 	case types.RelayFormatClaude:
 		adaptor := claude.Adaptor{}

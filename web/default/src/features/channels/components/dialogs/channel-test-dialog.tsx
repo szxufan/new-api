@@ -116,6 +116,8 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
     label: 'Image Generation (/v1/images/generations)',
   },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
+  { value: 'tts', label: 'TTS (/v1/audio/speech)' },
+  { value: 'asr', label: 'ASR (/v1/audio/transcriptions)' },
   {
     value: 'systemone',
     label: 'SystemOne Decision (/v1/systemone)',
@@ -132,6 +134,8 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'systemone',
   'web-search',
   'web-fetch',
+  'tts',
+  'asr',
 ])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'

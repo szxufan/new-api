@@ -25,6 +25,8 @@ func setupWaffoPancakeTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
+	origDB, origLogDB := model.DB, model.LOG_DB
+	t.Cleanup(func() { model.DB, model.LOG_DB = origDB, origLogDB }) // 恢复 TestMain 的全局 DB，避免污染后续测试
 	model.DB = db
 	model.LOG_DB = db
 

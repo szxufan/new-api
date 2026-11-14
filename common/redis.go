@@ -14,7 +14,10 @@ import (
 )
 
 var RDB *redis.Client
-var RedisEnabled = true
+
+// RedisEnabled 仅在 InitRedisClient 成功初始化 RDB 后为 true，
+// 避免出现"标记启用但客户端为 nil"的状态（测试进程不会调用 InitRedisClient）
+var RedisEnabled = false
 
 func RedisKeyCacheSeconds() int {
 	return SyncFrequency
@@ -46,6 +49,7 @@ func InitRedisClient() (err error) {
 	if err != nil {
 		FatalLog("Redis ping test failed: " + err.Error())
 	}
+	RedisEnabled = true
 	if DebugEnabled {
 		SysLog(fmt.Sprintf("Redis connected to %s", opt.Addr))
 		SysLog(fmt.Sprintf("Redis database: %d", opt.DB))

@@ -69,6 +69,14 @@ func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	return c, w
 }
 
+// hasResponded 判断首个流式分块是否已触发 SetFirstResponseTime。
+// 不直接使用 HasSendResponse（要求严格 After）：Windows 时钟粒度较粗，
+// 处理极快时 FirstResponseTime 可能与 StartTime 落在同一刻度导致误报，
+// 因此校验初始哨兵值（StartTime-1s，见 newTestRelayInfo）是否已被更新
+func hasResponded(info *relaycommon.RelayInfo) bool {
+	return info.FirstResponseTime.After(info.StartTime.Add(-time.Second))
+}
+
 func buildOllamaStreamResp(chunks []string) *http.Response {
 	body := strings.Join(chunks, "\n")
 	return &http.Response{
@@ -93,7 +101,7 @@ func TestOllamaStreamHandler_SetsFirstResponseTime(t *testing.T) {
 
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
-	assert.True(t, info.HasSendResponse(), "FirstResponseTime should be set after first stream chunk")
+	assert.True(t, hasResponded(info), "FirstResponseTime should be set after first stream chunk")
 	assert.True(t, info.FirstResponseTime.After(info.StartTime) || info.FirstResponseTime.Equal(info.StartTime),
 		"FirstResponseTime (%v) should be >= StartTime (%v)", info.FirstResponseTime, info.StartTime)
 
@@ -116,7 +124,7 @@ func TestOllamaStreamHandler_FirstResponseTimeSetOnlyOnce(t *testing.T) {
 	_, _ = ollamaStreamHandler(c, info, resp)
 
 	firstFRT := info.FirstResponseTime
-	assert.True(t, info.HasSendResponse(), "FirstResponseTime should be set")
+	assert.True(t, hasResponded(info), "FirstResponseTime should be set")
 	assert.Equal(t, firstFRT, info.FirstResponseTime, "FirstResponseTime should not change after first set")
 }
 
@@ -135,7 +143,7 @@ func TestOllamaStreamHandler_GenerateMode_SetsFirstResponseTime(t *testing.T) {
 
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
-	assert.True(t, info.HasSendResponse(), "FirstResponseTime should be set for generate mode too")
+	assert.True(t, hasResponded(info), "FirstResponseTime should be set for generate mode too")
 }
 
 func TestOllamaStreamHandler_UsageExtracted(t *testing.T) {
@@ -259,7 +267,7 @@ func TestOllamaStreamHandler_ToolCalls(t *testing.T) {
 
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
-	assert.True(t, info.HasSendResponse())
+	assert.True(t, hasResponded(info))
 	assert.Equal(t, 15, usage.PromptTokens)
 	assert.Equal(t, 8, usage.CompletionTokens)
 }
@@ -280,7 +288,7 @@ func TestOllamaStreamHandler_ThinkingContent(t *testing.T) {
 
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)
-	assert.True(t, info.HasSendResponse())
+	assert.True(t, hasResponded(info))
 }
 
 func TestFrtInLogIsNoLongerNegative(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -61,13 +62,19 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if common.IsSystemOneModel(modelName) {
 		return string(constant.EndpointTypeSystemOne)
 	}
-	// DeepSeek 渠道的网页工具虚拟模型（*-search / *-fetch）：按端点测试
+	// DeepSeek 渠道的虚拟模型（*-search / *-fetch / *-tts / *-asr）：按对应端点测试
 	if channel != nil && channel.Type == constant.ChannelTypeDeepSeek {
 		if strings.HasSuffix(modelName, "-search") {
 			return string(constant.EndpointTypeWebSearch)
 		}
 		if strings.HasSuffix(modelName, "-fetch") {
 			return string(constant.EndpointTypeWebFetch)
+		}
+		if strings.HasSuffix(modelName, "-tts") {
+			return string(constant.EndpointTypeTTS)
+		}
+		if strings.HasSuffix(modelName, "-asr") {
+			return string(constant.EndpointTypeASR)
 		}
 	}
 	return normalized
@@ -227,6 +234,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeTTS, constant.EndpointTypeASR:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -259,6 +268,21 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
 	// 渠道测试防缓存：开启后在文本类提示词追加当前时间，绕过上游缓存
 	request = applyAntiCache(request, channel.GetSetting().AntiCacheTest)
+
+	// 语音识别渠道测试：适配器转换依赖 multipart 请求体（model + 音频文件），
+	// 需在 ConvertAudioRequest 之前准备
+	if relayFormat == types.RelayFormatOpenAIAudio && requestPath == "/v1/audio/transcriptions" {
+		body, contentType, bodyErr := buildTestAudioTranscriptionBody(testModel)
+		if bodyErr != nil {
+			return testResult{
+				context:     c,
+				localErr:    bodyErr,
+				newAPIError: types.NewError(bodyErr, types.ErrorCodeInvalidRequest),
+			}
+		}
+		c.Request.Header.Set("Content-Type", contentType)
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	}
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -331,6 +355,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 	adaptor.Init(info)
 
 	var convertedRequest any
+	// 音频请求体由适配器直接转换为上游格式（TTS: JSON / ASR: multipart），不做 JSON 序列化
+	var convertedAudioBody io.Reader
 	// 根据 RelayMode 选择正确的转换函数
 	switch info.RelayMode {
 	case relayconstant.RelayModeEmbeddings:
@@ -342,6 +368,17 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 				context:     c,
 				localErr:    errors.New("invalid embedding request type"),
 				newAPIError: types.NewError(errors.New("invalid embedding request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
+		// 音频请求 - request 已经是正确的类型
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			convertedAudioBody, err = adaptor.ConvertAudioRequest(c, info, *audioReq)
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid audio request type"),
+				newAPIError: types.NewError(errors.New("invalid audio request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeImagesGenerations:
@@ -439,44 +476,53 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 		}
 	}
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
-		}
-	}
 
-	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
-	//if err != nil {
-	//	return testResult{
-	//		context:     c,
-	//		localErr:    err,
-	//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-	//	}
-	//}
-
-	if len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+	var requestBody io.Reader
+	if convertedAudioBody != nil {
+		// 音频请求体已由适配器重建（Content-Type 亦已在转换过程中写入），
+		// 不做 JSON 序列化与参数覆盖；入口请求体已被适配器读取，这里兜底为非 nil
+		requestBody = convertedAudioBody
+		c.Request.Body = io.NopCloser(bytes.NewReader(nil))
+	} else {
+		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
-			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
-				return testResult{
-					context:     c,
-					localErr:    fixedErr,
-					newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
-				}
-			}
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
 			}
 		}
-	}
 
-	requestBody := bytes.NewBuffer(jsonData)
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
+		//if err != nil {
+		//	return testResult{
+		//		context:     c,
+		//		localErr:    err,
+		//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+		//	}
+		//}
+
+		if len(info.ParamOverride) > 0 {
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			if err != nil {
+				if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
+					return testResult{
+						context:     c,
+						localErr:    fixedErr,
+						newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
+					}
+				}
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				}
+			}
+		}
+
+		requestBody = bytes.NewBuffer(jsonData)
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -957,6 +1003,19 @@ func buildTestRequest(model string, endpointType string, _ *model.Channel, isStr
 				Model: model,
 				Input: []any{"hello world"},
 			}
+		case constant.EndpointTypeTTS:
+			// 语音合成测试请求（上游无 model 参数，声音/格式由适配器补默认值）
+			return &dto.AudioRequest{
+				Model:          model,
+				Input:          "DeepSeek",
+				ResponseFormat: "wav",
+			}
+		case constant.EndpointTypeASR:
+			// 语音识别测试请求，音频文件由 multipart 请求体提供
+			return &dto.AudioRequest{
+				Model:          model,
+				ResponseFormat: "json",
+			}
 		case constant.EndpointTypeImageGeneration:
 			// 返回 ImageRequest
 			return &dto.ImageRequest{
@@ -1102,6 +1161,54 @@ func buildTestRequest(model string, endpointType string, _ *model.Channel, isStr
 	}
 
 	return testRequest
+}
+
+// buildTestAudioTranscriptionBody 构造渠道测试用的语音识别 multipart 请求体：
+// 含 model 字段与一段 1 秒静音 WAV（16kHz/16bit/单声道），
+// 供适配器按真实转写请求路径完成文件解析与上游转发
+func buildTestAudioTranscriptionBody(modelName string) ([]byte, string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", modelName); err != nil {
+		return nil, "", err
+	}
+	part, err := writer.CreateFormFile("file", "channel_test.wav")
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := part.Write(buildTestWAV()); err != nil {
+		return nil, "", err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return body.Bytes(), writer.FormDataContentType(), nil
+}
+
+// buildTestWAV 生成 1 秒 16kHz/16bit/单声道静音 WAV，用于语音识别渠道测试
+func buildTestWAV() []byte {
+	const (
+		sampleRate    = 16000
+		numChannels   = 1
+		bitsPerSample = 16
+		durationSec   = 1
+	)
+	dataSize := sampleRate * numChannels * bitsPerSample / 8 * durationSec
+	buf := make([]byte, 44+dataSize)
+	copy(buf[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(36+dataSize))
+	copy(buf[8:12], "WAVE")
+	copy(buf[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(buf[16:20], 16)
+	binary.LittleEndian.PutUint16(buf[20:22], 1) // PCM
+	binary.LittleEndian.PutUint16(buf[22:24], numChannels)
+	binary.LittleEndian.PutUint32(buf[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(buf[28:32], sampleRate*numChannels*bitsPerSample/8)
+	binary.LittleEndian.PutUint16(buf[32:34], numChannels*bitsPerSample/8)
+	binary.LittleEndian.PutUint16(buf[34:36], bitsPerSample)
+	copy(buf[36:40], "data")
+	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataSize))
+	return buf
 }
 
 func TestChannel(c *gin.Context) {

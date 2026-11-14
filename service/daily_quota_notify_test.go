@@ -60,6 +60,8 @@ func setupDailyQuotaNotifyTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
+	origDB, origLogDB := model.DB, model.LOG_DB
+	t.Cleanup(func() { model.DB, model.LOG_DB = origDB, origLogDB }) // 恢复 TestMain 的全局 DB，避免污染后续测试
 	model.DB = db
 	model.LOG_DB = db
 	if err := model.DB.AutoMigrate(&model.User{}, &model.Log{}); err != nil {
