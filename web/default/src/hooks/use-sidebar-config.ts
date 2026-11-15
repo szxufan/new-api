@@ -40,6 +40,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     enabled: true,
     playground: true,
     imagedebug: true,
+    audiodebug: true,
     chat: true,
   },
   console: {
@@ -97,6 +98,7 @@ const mergeWithDefaultSidebarModules = (
 const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/playground': { section: 'chat', module: 'playground' },
   '/image-debug': { section: 'chat', module: 'imagedebug' },
+  '/audio-debug': { section: 'chat', module: 'audiodebug' },
   '/dashboard': { section: 'console', module: 'detail' },
   '/dashboard/overview': { section: 'console', module: 'detail' },
   '/dashboard/models': { section: 'console', module: 'detail' },

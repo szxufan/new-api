@@ -70,6 +70,11 @@ export function SidebarModulesCard() {
           description: t('Test image generation and editing'),
         },
         {
+          key: 'audiodebug',
+          title: t('Audio Debug'),
+          description: t('Test text-to-speech and speech recognition'),
+        },
+        {
           key: 'chat',
           title: t('Chat'),
           description: t('Chat session management'),

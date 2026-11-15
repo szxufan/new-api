@@ -117,20 +117,25 @@ func Distribute() func(c *gin.Context) {
 				}
 				var selectGroup string
 				usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-				// check path is /pg/chat/completions
-				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
-					playgroundRequest := &dto.PlayGroundRequest{}
-					err = common.UnmarshalBodyReusable(c, playgroundRequest)
-					if err != nil {
-						abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidPlayground, map[string]any{"Error": err.Error()}))
-						return
+				// check path is /pg/chat/completions or /pg/audio/* (playground group override)
+				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") || strings.HasPrefix(c.Request.URL.Path, "/pg/audio/") {
+					// getModelRequest 已解析过请求体中的 group：优先复用，避免 multipart 音频体被重复整包解析
+					playgroundGroup := modelRequest.Group
+					if playgroundGroup == "" {
+						playgroundRequest := &dto.PlayGroundRequest{}
+						err = common.UnmarshalBodyReusable(c, playgroundRequest)
+						if err != nil {
+							abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidPlayground, map[string]any{"Error": err.Error()}))
+							return
+						}
+						playgroundGroup = playgroundRequest.Group
 					}
-					if playgroundRequest.Group != "" {
-						if !service.GroupInUserUsableGroups(usingGroup, playgroundRequest.Group) && playgroundRequest.Group != usingGroup {
+					if playgroundGroup != "" {
+						if !service.GroupInUserUsableGroups(usingGroup, playgroundGroup) && playgroundGroup != usingGroup {
 							abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
 							return
 						}
-						usingGroup = playgroundRequest.Group
+						usingGroup = playgroundGroup
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
 					}
 				}
@@ -354,6 +359,15 @@ func resolveVideoRelayMode(method, path string) int {
 	return relayconstant.RelayModeUnknown
 }
 
+// normalizeAudioRelayPath 将 playground 的 /pg/audio/* 归一化为 /v1/audio/*，
+// 以便与标准音频端点共用同一套路径判定。
+func normalizeAudioRelayPath(path string) string {
+	if strings.HasPrefix(path, "/pg/audio/") {
+		return "/v1/audio/" + strings.TrimPrefix(path, "/pg/audio/")
+	}
+	return path
+}
+
 func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
@@ -436,6 +450,8 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
+		// group 仅 playground 端点（/pg/chat/completions、/pg/audio/*）使用，供分组覆盖
+		modelRequest.Group = req.Group
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -469,22 +485,25 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		// 网页抓取端点：body 中可选 model 字段缺省时按端点默认虚拟模型路由
 		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-fetch")
 	}
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
+	// audio endpoints (/v1/audio/* 与 playground /pg/audio/* 统一按 /v1 前缀处理)
+	if audioPath := normalizeAudioRelayPath(c.Request.URL.Path); strings.HasPrefix(audioPath, "/v1/audio") {
 		relayMode := relayconstant.RelayModeAudioSpeech
-		if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/speech") {
+		if strings.HasPrefix(audioPath, "/v1/audio/speech") {
 
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "tts-1")
-		} else if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/translations") {
-			// 先尝试从请求读取
-			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
-				modelRequest.Model = req.Model
+		} else if strings.HasPrefix(audioPath, "/v1/audio/translations") {
+			// 先尝试从请求读取（同时取得 playground 的分组覆盖字段）
+			if req, err := getModelFromRequest(c); err == nil {
+				modelRequest.Model = common.GetStringIfEmpty(req.Model, modelRequest.Model)
+				modelRequest.Group = req.Group
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranslation
-		} else if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/transcriptions") {
-			// 先尝试从请求读取
-			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
-				modelRequest.Model = req.Model
+		} else if strings.HasPrefix(audioPath, "/v1/audio/transcriptions") {
+			// 先尝试从请求读取（同时取得 playground 的分组覆盖字段）
+			if req, err := getModelFromRequest(c); err == nil {
+				modelRequest.Model = common.GetStringIfEmpty(req.Model, modelRequest.Model)
+				modelRequest.Group = req.Group
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranscription

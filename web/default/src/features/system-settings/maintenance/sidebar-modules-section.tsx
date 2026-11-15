@@ -86,6 +86,10 @@ export function SidebarModulesSection({
         title: t('Image Debug'),
         description: t('Test text-to-image and image-to-image endpoints.'),
       },
+      audiodebug: {
+        title: t('Audio Debug'),
+        description: t('Test text-to-speech and speech recognition endpoints.'),
+      },
       chat: {
         title: t('Chat'),
         description: t('Access previous conversations and start new ones.'),

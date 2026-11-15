@@ -390,6 +390,10 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 			if key == "model" {
 				continue
 			}
+			// group 仅用于 playground 代理选择分组，属于网关内部字段，不能透传给上游
+			if key == "group" {
+				continue
+			}
 			for _, value := range values {
 				writer.WriteField(key, value)
 				logger.LogDebug(c.Request.Context(), "--form '%s=\"%s\"'", key, value)

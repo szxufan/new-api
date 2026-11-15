@@ -60,6 +60,13 @@ func Playground(c *gin.Context) {
 		relayFormat = types.RelayFormatOpenAIImage
 	}
 
+	// 语音模式（TTS/ASR）需要按 OpenAIAudio 格式解析请求体（JSON 或 multipart）
+	if relayInfo.RelayMode == relayconstant.RelayModeAudioSpeech ||
+		relayInfo.RelayMode == relayconstant.RelayModeAudioTranscription ||
+		relayInfo.RelayMode == relayconstant.RelayModeAudioTranslation {
+		relayFormat = types.RelayFormatOpenAIAudio
+	}
+
 	// 视频任务模式（/pg/videos）：异步任务，走 RelayTask / RelayTaskFetch 流程
 	if relayInfo.RelayMode == relayconstant.RelayModeVideoSubmit {
 		RelayTask(c)

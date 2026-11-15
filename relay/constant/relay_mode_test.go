@@ -39,6 +39,28 @@ func TestPath2RelayModeImagesEdits(t *testing.T) {
 	}
 }
 
+func TestPath2RelayModeAudio(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "v1 audio speech", path: "/v1/audio/speech", want: RelayModeAudioSpeech},
+		{name: "v1 audio transcriptions", path: "/v1/audio/transcriptions", want: RelayModeAudioTranscription},
+		{name: "v1 audio translations", path: "/v1/audio/translations", want: RelayModeAudioTranslation},
+		{name: "playground audio speech", path: "/pg/audio/speech", want: RelayModeAudioSpeech},
+		{name: "playground audio transcriptions", path: "/pg/audio/transcriptions", want: RelayModeAudioTranscription},
+		{name: "playground audio translations", path: "/pg/audio/translations", want: RelayModeAudioTranslation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, Path2RelayMode(tt.path))
+		})
+	}
+	// 未知的 audio 子路径不应误命中
+	assert.Equal(t, RelayModeUnknown, Path2RelayMode("/pg/audio/other"))
+}
+
 func TestPath2RelayModeChatCompletionsRegression(t *testing.T) {
 	assert.Equal(t, RelayModeChatCompletions, Path2RelayMode("/v1/chat/completions"))
 	// 原有 /pg 聊天路径行为保持不变

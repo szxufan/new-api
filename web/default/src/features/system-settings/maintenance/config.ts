@@ -58,6 +58,7 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     enabled: true,
     playground: true,
     imagedebug: true,
+    audiodebug: true,
     chat: true,
   },
   console: {

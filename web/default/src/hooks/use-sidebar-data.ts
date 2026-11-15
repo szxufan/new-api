@@ -30,6 +30,7 @@ import {
   Radio,
   FlaskConical,
   ImageIcon,
+  AudioLines,
   MessageSquare,
   CreditCard,
   ListTodo,
@@ -66,6 +67,11 @@ export function useSidebarData(): SidebarData {
             title: t('Image Debug'),
             url: '/image-debug',
             icon: ImageIcon,
+          },
+          {
+            title: t('Audio Debug'),
+            url: '/audio-debug',
+            icon: AudioLines,
           },
           {
             title: t('Chat'),

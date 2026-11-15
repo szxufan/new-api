@@ -162,6 +162,7 @@
   "TTFT P99": "TTFT P99",
   "Type the confirmation text here": "Type the confirmation text here",
   "Used as SuccessURL on the new product. You'll be prompted to confirm if left blank.": "Used as SuccessURL on the new product. You'll be prompted to confirm if left blank.",
+  "Verbose JSON": "Verbose JSON",
   "Verifying credentials and pulling stores from your Pancake account...": "Verifying credentials and pulling stores from your Pancake account...",
   "Vertex AI": "Vertex AI",
   "VolcEngine": "VolcEngine",
