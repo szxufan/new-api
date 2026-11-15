@@ -137,6 +137,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			} else {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
 			}
+		case constant.RelayModeRealtime:
+			realtimeURL, urlErr := buildAliRealtimeURL(info.ChannelBaseUrl, info.UpstreamModelName)
+			if urlErr != nil {
+				return "", urlErr
+			}
+			fullRequestURL = realtimeURL
 		default:
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/chat/completions", info.ChannelBaseUrl)
 		}
@@ -148,6 +154,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
+	if info.RelayMode == constant.RelayModeRealtime {
+		// WebSocket 握手仅需 Bearer 鉴权，跳过 SSE/Plugin 等 HTTP 专用头
+		return nil
+	}
 	if info.RelayMode == constant.RelayModeAudioSpeech || info.RelayMode == constant.RelayModeAudioTranscription {
 		// 音频请求统一转换为 JSON 且按非流式调用
 		req.Set("Content-Type", "application/json")
@@ -269,6 +279,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		return channel.DoWssRequest(a, c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
@@ -297,6 +310,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		case constant.RelayModeAudioTranscription:
 			sttErr, sttUsage := aliSTTHandler(c, resp, info, c.GetString(contextKeyAliAudioResponseFormat))
 			return sttUsage, sttErr
+		case constant.RelayModeRealtime:
+			realtimeErr, realtimeUsage := AliRealtimeHandler(c, info)
+			return realtimeUsage, realtimeErr
 		default:
 			adaptor := openai.Adaptor{}
 			usage, err = adaptor.DoResponse(c, resp, info)

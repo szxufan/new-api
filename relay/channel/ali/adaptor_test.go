@@ -86,3 +86,86 @@ func TestAdaptor_ConvertRerankRequest_NilOptionalFields(t *testing.T) {
 	assert.Nil(t, convertedReq.TopN)
 	assert.Nil(t, convertedReq.ReturnDocuments)
 }
+
+func TestAdaptor_GetRequestURL_Realtime(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    "https://wsid123.cn-beijing.maas.aliyuncs.com",
+			UpstreamModelName: "qwen3.8-omni-flash-realtime",
+		},
+		RelayMode:   constant.RelayModeRealtime,
+		RelayFormat: types.RelayFormatOpenAIRealtime,
+	}
+
+	url, err := adaptor.GetRequestURL(info)
+	assert.NoError(t, err)
+	assert.Equal(t, "wss://wsid123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3.8-omni-flash-realtime", url)
+}
+
+func TestAdaptor_GetRequestURL_Realtime_CustomPath(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			// 运营者自带路径时保留（兼容历史 inference 端点）
+			ChannelBaseUrl:    "https://wsid123.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference",
+			UpstreamModelName: "qwen3.5-omni-flash-realtime",
+		},
+		RelayMode:   constant.RelayModeRealtime,
+		RelayFormat: types.RelayFormatOpenAIRealtime,
+	}
+
+	url, err := adaptor.GetRequestURL(info)
+	assert.NoError(t, err)
+	assert.Equal(t, "wss://wsid123.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference?model=qwen3.5-omni-flash-realtime", url)
+}
+
+func TestAdaptor_GetRequestURL_Realtime_WssScheme(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    "wss://wsid123.cn-beijing.maas.aliyuncs.com",
+			UpstreamModelName: "qwen3.8-omni-flash-realtime",
+		},
+		RelayMode:   constant.RelayModeRealtime,
+		RelayFormat: types.RelayFormatOpenAIRealtime,
+	}
+
+	url, err := adaptor.GetRequestURL(info)
+	assert.NoError(t, err)
+	assert.Equal(t, "wss://wsid123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3.8-omni-flash-realtime", url)
+}
+
+func TestAdaptor_GetRequestURL_Realtime_InvalidScheme(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl:    "ftp://wsid123.cn-beijing.maas.aliyuncs.com",
+			UpstreamModelName: "qwen3.8-omni-flash-realtime",
+		},
+		RelayMode:   constant.RelayModeRealtime,
+		RelayFormat: types.RelayFormatOpenAIRealtime,
+	}
+
+	_, err := adaptor.GetRequestURL(info)
+	assert.Error(t, err)
+}
+
+func TestAdaptor_GetRequestURL_Realtime_EmptyBaseUrl(t *testing.T) {
+	adaptor := &Adaptor{}
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "qwen3.8-omni-flash-realtime",
+		},
+		RelayMode:   constant.RelayModeRealtime,
+		RelayFormat: types.RelayFormatOpenAIRealtime,
+	}
+
+	_, err := adaptor.GetRequestURL(info)
+	assert.Error(t, err)
+}

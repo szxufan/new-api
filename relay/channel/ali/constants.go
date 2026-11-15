@@ -7,6 +7,14 @@ var ModelList = []string{
 	"qwen-max-longcontext",
 	"qwq-32b",
 	"qwen3-235b-a22b",
+	// 全模态（非实时，Chat Completions / Responses）
+	"qwen3.8-omni-flash",
+	"qwen3.5-omni-plus",
+	"qwen3.5-omni-flash",
+	// 全模态实时（WebSocket /v1/realtime）
+	"qwen3.8-omni-flash-realtime",
+	"qwen3.5-omni-plus-realtime",
+	"qwen3.5-omni-flash-realtime",
 	"text-embedding-v1",
 	"gte-rerank-v2",
 	"qwen3-tts-flash",

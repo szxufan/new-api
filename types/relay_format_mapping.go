@@ -32,8 +32,8 @@ func GetPreferredChannelTypesByRelayFormat(relayFormat RelayFormat) []int {
 		// System One 决策模型优先阿里云百炼 / Ollama
 		return []int{constant.ChannelTypeAli, constant.ChannelTypeOllama}
 	case RelayFormatOpenAIRealtime:
-		// 实时通信
-		return []int{constant.ChannelTypeOpenAI}
+		// 实时通信（OpenAI Realtime / 阿里百炼 Qwen-Omni-Realtime）
+		return []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAli}
 	case RelayFormatWebTools:
 		// MCP 网页搜索/抓取工具，首期支持 DeepSeek 渠道
 		return []int{constant.ChannelTypeDeepSeek}

@@ -71,8 +71,8 @@ func TestGetPreferredChannelTypesByRelayFormat_Rerank(t *testing.T) {
 
 func TestGetPreferredChannelTypesByRelayFormat_OpenAIRealtime(t *testing.T) {
 	result := GetPreferredChannelTypesByRelayFormat(RelayFormatOpenAIRealtime)
-	if len(result) != 1 || result[0] != constant.ChannelTypeOpenAI {
-		t.Errorf("RelayFormatOpenAIRealtime: expected [ChannelTypeOpenAI], got %v", result)
+	if len(result) != 2 || result[0] != constant.ChannelTypeOpenAI || result[1] != constant.ChannelTypeAli {
+		t.Errorf("RelayFormatOpenAIRealtime: expected [ChannelTypeOpenAI, ChannelTypeAli], got %v", result)
 	}
 }
 
