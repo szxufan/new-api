@@ -194,3 +194,37 @@ describe('端点模板填充为追加语义', () => {
     ).toBeNull()
   })
 })
+
+describe('realtime 端点模板', () => {
+  it('应提供 realtime 模板，WebSocket 握手方法为 GET', () => {
+    expect(ENDPOINT_TEMPLATES['realtime']).toEqual({
+      path: '/v1/realtime',
+      method: 'GET',
+    })
+  })
+
+  it('空配置加载 realtime 模板应只包含该端点', () => {
+    const merged = mergeEndpointTemplate(
+      '',
+      'realtime',
+      ENDPOINT_TEMPLATES['realtime']
+    )
+    expect(JSON.parse(merged!)).toEqual({
+      realtime: ENDPOINT_TEMPLATES['realtime'],
+    })
+  })
+
+  it('已有其他端点时加载 realtime 模板应追加而非替换', () => {
+    const current = JSON.stringify({
+      openai: ENDPOINT_TEMPLATES['openai'],
+    })
+    const merged = mergeEndpointTemplate(
+      current,
+      'realtime',
+      ENDPOINT_TEMPLATES['realtime']
+    )
+    const parsed = JSON.parse(merged!)
+    expect(parsed['openai']).toEqual(ENDPOINT_TEMPLATES['openai'])
+    expect(parsed['realtime']).toEqual(ENDPOINT_TEMPLATES['realtime'])
+  })
+})
