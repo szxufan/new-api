@@ -23,7 +23,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ModelSelector, GroupSelector } from '@/components/model-group-selector'
-import { ASR_ENDPOINTS, ASR_FORMATS } from '../constants'
+import {
+  getASRAcceptForModel,
+  getASRFormatOptions,
+  getASREndpointOptions,
+} from '../constants'
 import type { ASRFormState, GroupOption, ModelOption } from '../types'
 import { AsrAudioSource } from './asr-audio-source'
 
@@ -42,6 +46,9 @@ interface ASRDebugFormProps {
 
 export function ASRDebugForm(props: ASRDebugFormProps) {
   const { t } = useTranslation()
+
+  const endpointOptions = getASREndpointOptions(props.state.model)
+  const formatOptions = getASRFormatOptions(props.state.model)
 
   const canSubmit = props.state.model.trim().length > 0 && props.file !== null
 
@@ -70,6 +77,7 @@ export function ASRDebugForm(props: ASRDebugFormProps) {
           file={props.file}
           onFileChange={props.onFileChange}
           disabled={props.isSubmitting}
+          accept={getASRAcceptForModel(props.state.model)}
         />
       </div>
 
@@ -87,7 +95,7 @@ export function ASRDebugForm(props: ASRDebugFormProps) {
             }
             disabled={props.isSubmitting}
           >
-            {ASR_ENDPOINTS.map((endpoint) => (
+            {endpointOptions.map((endpoint) => (
               <NativeSelectOption key={endpoint.value} value={endpoint.value}>
                 {t(endpoint.label)}
               </NativeSelectOption>
@@ -116,7 +124,7 @@ export function ASRDebugForm(props: ASRDebugFormProps) {
             }
             disabled={props.isSubmitting}
           >
-            {ASR_FORMATS.map((format) => (
+            {formatOptions.map((format) => (
               <NativeSelectOption key={format.value} value={format.value}>
                 {t(format.label)}
               </NativeSelectOption>

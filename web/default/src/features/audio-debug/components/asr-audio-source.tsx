@@ -35,6 +35,8 @@ interface AsrAudioSourceProps {
   file: File | null
   onFileChange: (file: File | null) => void
   disabled?: boolean
+  /** 文件选择器的 accept 提示（按模型联动，DeepSeek 仅支持 wav/ogg/opus） */
+  accept?: string
 }
 
 function formatSize(bytes: number): string {
@@ -154,7 +156,7 @@ export function AsrAudioSource(props: AsrAudioSourceProps) {
           <input
             ref={fileInputRef}
             type='file'
-            accept={ASR_ACCEPT}
+            accept={props.accept ?? ASR_ACCEPT}
             className='hidden'
             onChange={(e) => handleFilesSelected(e.target.files)}
           />

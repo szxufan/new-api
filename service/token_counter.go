@@ -189,7 +189,7 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 	if info.RelayFormat == types.RelayFormatOpenAIRealtime {
 		return 0, nil
 	}
-	if info.RelayMode == constant2.RelayModeAudioTranscription || info.RelayMode == constant2.RelayModeAudioTranslation {
+	if info.RelayMode == constant2.RelayModeAudioTranscription || info.RelayMode == constant2.RelayModeAudioTranslation || info.RelayMode == constant2.RelayModeToolsASR {
 		multiForm, err := common.ParseMultipartFormReusable(c)
 		if err != nil {
 			return 0, fmt.Errorf("error parsing multipart form: %v", err)

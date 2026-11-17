@@ -79,6 +79,8 @@ func TestPath2RelayModeWebTools(t *testing.T) {
 		{name: "v1 tools search", path: "/v1/tools/search", want: RelayModeWebSearch},
 		{name: "v1 tools fetch", path: "/v1/tools/fetch", want: RelayModeWebFetch},
 		{name: "v1 tools search with query", path: "/v1/tools/search?count=3", want: RelayModeWebSearch},
+		{name: "v1 tools tts", path: "/v1/tools/tts", want: RelayModeToolsTTS},
+		{name: "v1 tools asr", path: "/v1/tools/asr", want: RelayModeToolsASR},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

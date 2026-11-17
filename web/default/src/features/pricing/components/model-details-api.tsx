@@ -53,6 +53,7 @@ import {
 } from '../lib/mock-stats'
 import { replaceModelInPath } from '../lib/model-helpers'
 import { inferApiInfo } from '../lib/model-metadata'
+import { isDeepSeekTTSModel } from '@/features/audio-debug/constants'
 import type { PricingModel } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -599,10 +600,14 @@ function buildImageEditSample(lang: Lang, ctx: SampleContext): string {
 function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const text = 'Today is a wonderful day to build something people love!'
+  // 音色按模型联动：DeepSeek TTS 仅支持官方音色 stella/tide，输出为 wav
+  const isDeepSeekTTS = isDeepSeekTTSModel(ctx.modelName)
+  const voice = isDeepSeekTTS ? 'stella' : 'alloy'
+  const outputExt = isDeepSeekTTS ? 'wav' : 'mp3'
 
   if (lang === 'curl') {
     const body = JSON.stringify(
-      { model: ctx.modelName, input: text, voice: 'alloy' },
+      { model: ctx.modelName, input: text, voice },
       null,
       2
     )
@@ -611,7 +616,7 @@ function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
       `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
       `  -H "Content-Type: application/json" \\`,
       `  -d '${body.replace(/\n/g, '\n     ')}' \\`,
-      `  --output speech.mp3`,
+      `  --output speech.${outputExt}`,
     ].join('\n')
   }
   if (lang === 'python') {
@@ -622,10 +627,10 @@ function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
       '',
       'with client.audio.speech.with_streaming_response.create(',
       `    model="${ctx.modelName}",`,
-      '    voice="alloy",',
+      `    voice="${voice}",`,
       `    input="${text}",`,
       ') as response:',
-      '    response.stream_to_file("speech.mp3")',
+      `    response.stream_to_file("speech.${outputExt}")`,
     ].join('\n')
   }
   if (lang === 'typescript') {
@@ -639,7 +644,7 @@ function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
       '',
       `const response = await client.audio.speech.create({`,
       `  model: '${ctx.modelName}',`,
-      `  voice: 'alloy',`,
+      `  voice: '${voice}',`,
       `  input: '${text}',`,
       `})`,
       '',
@@ -657,7 +662,7 @@ function buildSpeechSample(lang: Lang, ctx: SampleContext): string {
     `  body: JSON.stringify({`,
     `    model: '${ctx.modelName}',`,
     `    input: '${text}',`,
-    `    voice: 'alloy',`,
+    `    voice: '${voice}',`,
     `  }),`,
     `})`,
     '',

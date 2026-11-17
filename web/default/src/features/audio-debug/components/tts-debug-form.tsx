@@ -25,12 +25,14 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { ModelSelector, GroupSelector } from '@/components/model-group-selector'
 import {
-  TTS_FORMATS,
   TTS_INPUT_MAX_LENGTH,
   TTS_SPEED_MAX,
   TTS_SPEED_MIN,
   TTS_SPEED_STEP,
-  TTS_VOICES,
+  getDefaultTTSVoice,
+  getTTSFormatOptions,
+  getTTSVoiceOptions,
+  isDeepSeekTTSModel,
 } from '../constants'
 import type { GroupOption, ModelOption, TTSFormState } from '../types'
 
@@ -46,6 +48,10 @@ interface TTSDebugFormProps {
 
 export function TTSDebugForm(props: TTSDebugFormProps) {
   const { t } = useTranslation()
+
+  const isDeepSeekTTS = isDeepSeekTTSModel(props.state.model)
+  const voiceOptions = getTTSVoiceOptions(props.state.model)
+  const formatOptions = getTTSFormatOptions(props.state.model)
 
   const canSubmit =
     props.state.model.trim().length > 0 &&
@@ -89,19 +95,38 @@ export function TTSDebugForm(props: TTSDebugFormProps) {
       <div className='grid grid-cols-2 gap-3 sm:grid-cols-3'>
         <div className='space-y-2'>
           <Label htmlFor='tts-debug-voice'>{t('Voice')}</Label>
-          <Input
-            id='tts-debug-voice'
-            list='tts-debug-voices'
-            value={props.state.voice}
-            onChange={(e) => props.onStateChange({ voice: e.target.value })}
-            placeholder='alloy'
-            disabled={props.isSubmitting}
-          />
-          <datalist id='tts-debug-voices'>
-            {TTS_VOICES.map((voice) => (
-              <option key={voice} value={voice} />
-            ))}
-          </datalist>
+          {isDeepSeekTTS ? (
+            // DeepSeek 仅支持官方音色，用固定下拉避免选到无效音色
+            <NativeSelect
+              id='tts-debug-voice'
+              className='w-full'
+              value={props.state.voice}
+              onChange={(e) => props.onStateChange({ voice: e.target.value })}
+              disabled={props.isSubmitting}
+            >
+              {voiceOptions.map((voice) => (
+                <NativeSelectOption key={voice} value={voice}>
+                  {voice}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          ) : (
+            <>
+              <Input
+                id='tts-debug-voice'
+                list='tts-debug-voices'
+                value={props.state.voice}
+                onChange={(e) => props.onStateChange({ voice: e.target.value })}
+                placeholder={getDefaultTTSVoice(props.state.model)}
+                disabled={props.isSubmitting}
+              />
+              <datalist id='tts-debug-voices'>
+                {voiceOptions.map((voice) => (
+                  <option key={voice} value={voice} />
+                ))}
+              </datalist>
+            </>
+          )}
         </div>
 
         <div className='space-y-2'>
@@ -129,7 +154,7 @@ export function TTSDebugForm(props: TTSDebugFormProps) {
             }
             disabled={props.isSubmitting}
           >
-            {TTS_FORMATS.map((format) => (
+            {formatOptions.map((format) => (
               <NativeSelectOption key={format.value} value={format.value}>
                 {t(format.label)}
               </NativeSelectOption>

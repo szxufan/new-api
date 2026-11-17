@@ -484,6 +484,15 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/fetch") || strings.HasPrefix(c.Request.URL.Path, "/pg/tools/fetch") {
 		// 网页抓取端点：body 中可选 model 字段缺省时按端点默认虚拟模型路由
 		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-fetch")
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/tts") {
+		// 原生语音合成端点：body 中可选 model 字段缺省时按端点默认虚拟模型路由
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-tts")
+	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/asr") {
+		// 原生语音识别端点：multipart 请求体被通用解析跳过，先尝试读取可选 model 表单字段
+		if req, err := getModelFromRequest(c); err == nil {
+			modelRequest.Model = common.GetStringIfEmpty(req.Model, modelRequest.Model)
+		}
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "deepseek-asr")
 	}
 	// audio endpoints (/v1/audio/* 与 playground /pg/audio/* 统一按 /v1 前缀处理)
 	if audioPath := normalizeAudioRelayPath(c.Request.URL.Path); strings.HasPrefix(audioPath, "/v1/audio") {

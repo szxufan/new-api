@@ -50,6 +50,8 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 		err = relay.SystemOneHelper(c, info)
 	case relayconstant.RelayModeWebSearch, relayconstant.RelayModeWebFetch:
 		err = relay.WebToolsHelper(c, info)
+	case relayconstant.RelayModeToolsTTS, relayconstant.RelayModeToolsASR:
+		err = relay.ToolsAudioHelper(c, info)
 	case relayconstant.RelayModeEmbeddings:
 		err = relay.EmbeddingHelper(c, info)
 	case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:

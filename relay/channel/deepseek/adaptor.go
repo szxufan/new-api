@@ -47,7 +47,9 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	switch info.RelayMode {
 	case constant.RelayModeAudioSpeech:
 		return convertTTSRequest(c, request)
-	case constant.RelayModeAudioTranscription:
+	case constant.RelayModeAudioTranscription, constant.RelayModeToolsASR:
+		// ToolsASR（原生 /v1/tools/asr）同样复用 multipart 重建逻辑：
+		// 仅保留 file 字段（丢弃 model 等路由表单字段）并校验音频扩展名
 		return convertASRRequest(c, request)
 	default:
 		return nil, errors.New("audio translation is not supported by DeepSeek, use audio transcription instead")
@@ -73,9 +75,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			return fmt.Sprintf("%s/v1/tools/search", info.ChannelBaseUrl), nil
 		case constant.RelayModeWebFetch:
 			return fmt.Sprintf("%s/v1/tools/fetch", info.ChannelBaseUrl), nil
-		case constant.RelayModeAudioSpeech:
+		case constant.RelayModeAudioSpeech, constant.RelayModeToolsTTS:
 			return fmt.Sprintf("%s/v1/tools/tts", info.ChannelBaseUrl), nil
-		case constant.RelayModeAudioTranscription:
+		case constant.RelayModeAudioTranscription, constant.RelayModeToolsASR:
 			return fmt.Sprintf("%s/v1/tools/asr", info.ChannelBaseUrl), nil
 		}
 		if !strings.HasSuffix(info.ChannelBaseUrl, "/beta") {
@@ -92,7 +94,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	if info.RelayMode == constant.RelayModeAudioSpeech {
+	if info.RelayMode == constant.RelayModeAudioSpeech || info.RelayMode == constant.RelayModeToolsTTS {
 		req.Set("Content-Type", "application/json")
 	}
 	req.Set("Authorization", "Bearer "+info.ApiKey)
@@ -187,7 +189,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	if info.RelayMode == constant.RelayModeAudioTranscription {
+	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeToolsASR {
 		return channel.DoFormRequest(a, c, info, requestBody)
 	}
 	return channel.DoApiRequest(a, c, info, requestBody)
@@ -199,6 +201,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return handleDeepSeekTTSResponse(c, resp, info)
 	case constant.RelayModeAudioTranscription:
 		return handleDeepSeekASRResponse(c, resp, info)
+	case constant.RelayModeToolsTTS:
+		return handleDeepSeekNativeTTSResponse(c, resp, info)
+	case constant.RelayModeToolsASR:
+		return handleDeepSeekNativeASRResponse(c, resp, info)
 	}
 	switch info.RelayFormat {
 	case types.RelayFormatClaude:

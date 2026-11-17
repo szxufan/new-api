@@ -390,3 +390,139 @@ func TestHandleDeepSeekASRResponse_InvalidJSON(t *testing.T) {
 	_, apiErr := handleDeepSeekASRResponse(c, resp, &relaycommon.RelayInfo{})
 	require.NotNil(t, apiErr)
 }
+
+func TestAdaptor_GetRequestURL_ToolsTTS(t *testing.T) {
+	adaptor := &Adaptor{}
+	url, err := adaptor.GetRequestURL(newAudioRelayInfo("https://api.deepseek.com", relayconstant.RelayModeToolsTTS))
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.deepseek.com/v1/tools/tts", url)
+}
+
+func TestAdaptor_GetRequestURL_ToolsASR(t *testing.T) {
+	adaptor := &Adaptor{}
+	url, err := adaptor.GetRequestURL(newAudioRelayInfo("https://api.deepseek.com", relayconstant.RelayModeToolsASR))
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.deepseek.com/v1/tools/asr", url)
+}
+
+// TestHandleDeepSeekNativeASRResponse_Passthrough 原生 ASR 响应应原样透传
+// {request_id, text, duration_ms}（不做 OpenAI {"text"} 归一化），并按 duration_ms 计费
+func TestHandleDeepSeekNativeASRResponse_Passthrough(t *testing.T) {
+	c, w := newAudioResponseContext(t, "/v1/tools/asr")
+	raw := `{"request_id":"req-1","text":"你好","duration_ms":60000}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(raw)),
+	}
+
+	usageAny, apiErr := handleDeepSeekNativeASRResponse(c, resp, &relaycommon.RelayInfo{})
+	require.Nil(t, apiErr)
+	usage := usageAny.(*dto.Usage)
+
+	assert.JSONEq(t, raw, w.Body.String())
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Equal(t, 1000, usage.PromptTokens)
+	assert.Equal(t, 1000, usage.PromptTokensDetails.AudioTokens)
+	assert.Equal(t, 0, usage.CompletionTokens)
+	assert.Equal(t, 1000, usage.TotalTokens)
+}
+
+func TestHandleDeepSeekNativeASRResponse_DurationFallback(t *testing.T) {
+	c, w := newAudioResponseContext(t, "/v1/tools/asr")
+	raw := `{"request_id":"req-2","text":"hello"}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(raw)),
+	}
+	info := &relaycommon.RelayInfo{}
+	info.SetEstimatePromptTokens(500)
+
+	usageAny, apiErr := handleDeepSeekNativeASRResponse(c, resp, info)
+	require.Nil(t, apiErr)
+	usage := usageAny.(*dto.Usage)
+
+	assert.JSONEq(t, raw, w.Body.String())
+	assert.Equal(t, 500, usage.PromptTokens)
+	assert.Equal(t, 500, usage.PromptTokensDetails.AudioTokens)
+	assert.Equal(t, 500, usage.TotalTokens)
+}
+
+func TestHandleDeepSeekNativeASRResponse_InvalidJSON(t *testing.T) {
+	c, _ := newAudioResponseContext(t, "/v1/tools/asr")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader("not json")),
+	}
+
+	_, apiErr := handleDeepSeekNativeASRResponse(c, resp, &relaycommon.RelayInfo{})
+	require.NotNil(t, apiErr)
+}
+
+// TestHandleDeepSeekNativeTTSResponse_FormatFromRequest 原生 TTS 的音频格式
+// 取自原生请求 DTO（而非 OpenAI 兼容转换上下文），默认 wav
+func TestHandleDeepSeekNativeTTSResponse_FormatFromRequest(t *testing.T) {
+	c, w := newAudioResponseContext(t, "/v1/tools/tts")
+	info := &relaycommon.RelayInfo{Request: &dto.ToolsTTSRequest{Text: "hello", Format: "pcm"}}
+	info.SetEstimatePromptTokens(3)
+
+	pcmData := make([]byte, 48000) // 24kHz/16bit/单声道 1 秒
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(pcmData)),
+	}
+
+	usageAny, apiErr := handleDeepSeekNativeTTSResponse(c, resp, info)
+	require.Nil(t, apiErr)
+	usage := usageAny.(*dto.Usage)
+
+	assert.Equal(t, "audio/pcm", w.Header().Get("Content-Type"))
+	assert.Equal(t, pcmData, w.Body.Bytes())
+	assert.Equal(t, 17, usage.CompletionTokens)
+	assert.Equal(t, 17, usage.CompletionTokenDetails.AudioTokens)
+	assert.Equal(t, 20, usage.TotalTokens)
+}
+
+func TestHandleDeepSeekNativeTTSResponse_DefaultWav(t *testing.T) {
+	c, w := newAudioResponseContext(t, "/v1/tools/tts")
+	info := &relaycommon.RelayInfo{Request: &dto.ToolsTTSRequest{Text: "hello"}}
+	info.SetEstimatePromptTokens(7)
+
+	wavData := buildTestWAV(16000, 2) // 2 秒 → 33 tokens
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(wavData)),
+	}
+
+	usageAny, apiErr := handleDeepSeekNativeTTSResponse(c, resp, info)
+	require.Nil(t, apiErr)
+	usage := usageAny.(*dto.Usage)
+
+	assert.Equal(t, "audio/wav", w.Header().Get("Content-Type"))
+	assert.Equal(t, wavData, w.Body.Bytes())
+	assert.Equal(t, 33, usage.CompletionTokens)
+	assert.Equal(t, 40, usage.TotalTokens)
+}
+
+// TestConvertAudioRequest_ToolsASR 原生 /v1/tools/asr 路径同样走 multipart 重建：
+// 剥离路由用 model 表单字段，仅保留 file 字段
+func TestConvertAudioRequest_ToolsASR(t *testing.T) {
+	c := buildMultipartRequest(t, "audio.wav", []byte("RIFF....fake wav data"))
+	adaptor := &Adaptor{}
+
+	reader, err := adaptor.ConvertAudioRequest(c, newAudioRelayInfo("https://api.deepseek.com", relayconstant.RelayModeToolsASR), dto.AudioRequest{})
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), `filename="audio.wav"`)
+	assert.NotContains(t, string(body), `"model"`)
+	assert.NotContains(t, string(body), `"language"`)
+
+	contentType := c.Request.Header.Get("Content-Type")
+	assert.Contains(t, contentType, "multipart/form-data")
+}

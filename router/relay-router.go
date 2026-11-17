@@ -138,6 +138,15 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/tools/fetch", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatWebTools)
 		})
+		// native DeepSeek audio tools routes (tts / asr), body 中可选 model 字段缺省时
+		// 由 distributor 按端点默认虚拟模型（deepseek-tts / deepseek-asr）路由，
+		// 自动选用对应分组优先级最高的 DeepSeek 渠道
+		httpRouter.POST("/tools/tts", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatWebTools)
+		})
+		httpRouter.POST("/tools/asr", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatWebTools)
+		})
 
 		// audio related routes
 		httpRouter.POST("/audio/transcriptions", func(c *gin.Context) {

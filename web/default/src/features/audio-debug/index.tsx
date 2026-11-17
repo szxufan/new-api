@@ -41,6 +41,10 @@ import {
   DEFAULT_TTS_VOICE,
   TTS_MODEL_ENDPOINTS,
   getAsrRequestPath,
+  resolveASRFormatForModel,
+  resolveASREndpointForModel,
+  resolveTTSFormatForModel,
+  resolveTTSVoiceForModel,
 } from './constants'
 import { isAudioRequestCanceled, resolveAudioErrorMessage } from './lib/errors'
 import {
@@ -141,15 +145,29 @@ export function AudioDebugPage() {
   const activeGroup = pageTab === 'tts' ? ttsState.group : asrState.group
   const resolvedModel = resolveSelection(activeModel, models, activeModel)
   const resolvedGroup = resolveSelection(activeGroup, groups, activeGroup)
+  // 音色/格式/端点按模型联动：当前值对所选模型无效时回退到模型默认值
   const ttsFormState: TTSFormState = {
     ...ttsState,
     model: resolvedModel,
     group: resolvedGroup,
+    voice: resolveTTSVoiceForModel(resolvedModel, ttsState.voice),
+    responseFormat: resolveTTSFormatForModel(
+      resolvedModel,
+      ttsState.responseFormat
+    ),
   }
   const asrFormState: ASRFormState = {
     ...asrState,
     model: resolvedModel,
     group: resolvedGroup,
+    endpoint: resolveASREndpointForModel(
+      resolvedModel,
+      asrState.endpoint
+    ) as ASRFormState['endpoint'],
+    responseFormat: resolveASRFormatForModel(
+      resolvedModel,
+      asrState.responseFormat
+    ),
   }
 
   const handleTTSStateChange = useCallback((patch: Partial<TTSFormState>) => {
@@ -167,12 +185,9 @@ export function AudioDebugPage() {
     setTTSError(null)
     setTTSSubmitting(true)
     try {
+      // 使用渲染期派生的表单状态（含按模型联动的音色/格式），保证所见即所发
       const result = await synthesizeSpeech(
-        buildTTSPayload({
-          ...ttsState,
-          model: resolveSelection(ttsState.model, models, ttsState.model),
-          group: resolveSelection(ttsState.group, groups, ttsState.group),
-        }),
+        buildTTSPayload(ttsFormState),
         controller.signal
       )
       if (controller.signal.aborted) {
@@ -194,17 +209,10 @@ export function AudioDebugPage() {
         setTTSSubmitting(false)
       }
     }
-  }, [ttsState, models, groups, t, cancelInFlight, releaseAudioUrl])
+  }, [ttsFormState, t, cancelInFlight, releaseAudioUrl])
 
   const handleASRSubmit = useCallback(async () => {
-    const formData = buildASRFormData(
-      {
-        ...asrState,
-        model: resolveSelection(asrState.model, models, asrState.model),
-        group: resolveSelection(asrState.group, groups, asrState.group),
-      },
-      asrFile
-    )
+    const formData = buildASRFormData(asrFormState, asrFile)
     if (!formData) return
     cancelInFlight()
     const controller = new AbortController()
@@ -213,7 +221,7 @@ export function AudioDebugPage() {
     setASRSubmitting(true)
     try {
       const result = await transcribeAudio(
-        getAsrRequestPath(asrState.endpoint),
+        getAsrRequestPath(asrFormState.endpoint),
         formData,
         controller.signal
       )
@@ -229,7 +237,7 @@ export function AudioDebugPage() {
         setASRSubmitting(false)
       }
     }
-  }, [asrState, asrFile, models, groups, t, cancelInFlight])
+  }, [asrFormState, asrFile, t, cancelInFlight])
 
   const handleDownload = useCallback((result: TTSAudioResult) => {
     const link = document.createElement('a')

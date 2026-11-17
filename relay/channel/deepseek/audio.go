@@ -243,9 +243,48 @@ func handleDeepSeekASRResponse(c *gin.Context, resp *http.Response, info *relayc
 	c.Header("Content-Type", "application/json")
 	c.JSON(http.StatusOK, gin.H{"text": asrResponse.Text})
 
-	// DeepSeek ASR 按音频时长计费：优先使用上游返回的 duration_ms；
-	// 缺失时退化为本地音频时长估算（与预扣费口径一致），
-	// 避免把音频时长按文本倍率计费、并与识别文本 token 叠加计费
+	return buildASRUsage(&asrResponse, info), nil
+}
+
+// handleDeepSeekNativeASRResponse 处理原生 /v1/tools/asr 响应：
+// 与 OpenAI 兼容路径不同，上游 {request_id, text, duration_ms} 原样透传给客户端，
+// 计费同样按 duration_ms 换算音频 tokens
+func handleDeepSeekNativeASRResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+
+	var asrResponse deepSeekASRResponse
+	if err := common.Unmarshal(responseBody, &asrResponse); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	c.Data(http.StatusOK, "application/json", responseBody)
+
+	return buildASRUsage(&asrResponse, info), nil
+}
+
+// handleDeepSeekNativeTTSResponse 处理原生 /v1/tools/tts 响应：
+// 音频格式取自原生请求 DTO（而非 OpenAI 兼容转换写入的上下文），
+// 响应体同为原始音频字节流，复用兼容路径的透传与时长计费逻辑
+func handleDeepSeekNativeTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	format := "wav"
+	if ttsReq, ok := info.Request.(*dto.ToolsTTSRequest); ok {
+		if normalized, err := normalizeTTSFormat(ttsReq.Format); err == nil {
+			format = normalized
+		}
+	}
+	c.Set(contextKeyTTSFormat, format)
+	return handleDeepSeekTTSResponse(c, resp, info)
+}
+
+// buildASRUsage DeepSeek ASR 按音频时长计费：优先使用上游返回的 duration_ms；
+// 缺失时退化为本地音频时长估算（与预扣费口径一致），
+// 避免把音频时长按文本倍率计费、并与识别文本 token 叠加计费
+func buildASRUsage(asrResponse *deepSeekASRResponse, info *relaycommon.RelayInfo) *dto.Usage {
 	audioTokens := 0
 	if asrResponse.DurationMs > 0 {
 		audioTokens = audioTokensFromDuration(float64(asrResponse.DurationMs) / 1000.0)
@@ -259,6 +298,5 @@ func handleDeepSeekASRResponse(c *gin.Context, resp *http.Response, info *relayc
 		usage.PromptTokensDetails.AudioTokens = audioTokens
 		usage.TotalTokens = audioTokens
 	}
-
-	return usage, nil
+	return usage
 }

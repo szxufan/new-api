@@ -141,6 +141,25 @@ func GetAndValidateWebToolsRequest(c *gin.Context, relayMode int) (dto.Request, 
 			return nil, err
 		}
 		return request, nil
+	case relayconstant.RelayModeToolsTTS:
+		request := &dto.ToolsTTSRequest{}
+		if err := common.UnmarshalBodyReusable(c, request); err != nil {
+			return nil, err
+		}
+		if err := request.Validate(); err != nil {
+			return nil, err
+		}
+		return request, nil
+	case relayconstant.RelayModeToolsASR:
+		// 原生 ASR 为 multipart 请求，音频文件原样透传上游，仅校验 file 字段存在
+		formData, err := common.ParseMultipartFormReusable(c)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing multipart form: %w", err)
+		}
+		if len(formData.File["file"]) == 0 {
+			return nil, errors.New("file is required")
+		}
+		return &dto.ToolsASRRequest{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported web tools relay mode: %d", relayMode)
 	}

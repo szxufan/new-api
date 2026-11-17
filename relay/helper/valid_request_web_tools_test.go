@@ -1,6 +1,8 @@
 package helper
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -46,6 +48,60 @@ func TestGetAndValidateWebToolsRequest_Fetch(t *testing.T) {
 	fetchReq, ok := request.(*dto.WebFetchRequest)
 	require.True(t, ok)
 	require.Equal(t, "https://example.com/page", fetchReq.Url)
+}
+
+// TestGetAndValidateWebToolsRequest_ToolsTTS 测试原生语音合成端点请求校验
+func TestGetAndValidateWebToolsRequest_ToolsTTS(t *testing.T) {
+	request, err := GetAndValidateWebToolsRequest(
+		newWebToolsTestContext("/v1/tools/tts", `{"text":"你好","voice_id":"tide","format":"pcm","filter_markdown":false}`),
+		relayconstant.RelayModeToolsTTS)
+	require.NoError(t, err)
+	ttsReq, ok := request.(*dto.ToolsTTSRequest)
+	require.True(t, ok)
+	require.Equal(t, "你好", ttsReq.Text)
+	require.Equal(t, "tide", ttsReq.VoiceID)
+	require.Equal(t, "pcm", ttsReq.Format)
+	require.NotNil(t, ttsReq.FilterMarkdown)
+	require.False(t, *ttsReq.FilterMarkdown)
+
+	// 空 text 被拒绝
+	_, err = GetAndValidateWebToolsRequest(
+		newWebToolsTestContext("/v1/tools/tts", `{"text":"  "}`),
+		relayconstant.RelayModeToolsTTS)
+	require.Error(t, err)
+}
+
+// newToolsASRTestContext 构造原生 ASR 的 multipart 测试上下文
+func newToolsASRTestContext(t *testing.T, withFile bool) *gin.Context {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if withFile {
+		part, err := writer.CreateFormFile("file", "audio.wav")
+		require.NoError(t, err)
+		_, err = part.Write([]byte("RIFF fake wav"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/asr", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	c.Request = req
+	return c
+}
+
+// TestGetAndValidateWebToolsRequest_ToolsASR 测试原生语音识别端点请求校验
+func TestGetAndValidateWebToolsRequest_ToolsASR(t *testing.T) {
+	request, err := GetAndValidateWebToolsRequest(newToolsASRTestContext(t, true), relayconstant.RelayModeToolsASR)
+	require.NoError(t, err)
+	_, ok := request.(*dto.ToolsASRRequest)
+	require.True(t, ok)
+
+	// 缺 file 被拒绝
+	_, err = GetAndValidateWebToolsRequest(newToolsASRTestContext(t, false), relayconstant.RelayModeToolsASR)
+	require.Error(t, err)
 }
 
 // TestGetAndValidateWebToolsRequest_Invalid 测试非法请求被拒绝

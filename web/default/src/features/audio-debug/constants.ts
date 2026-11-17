@@ -115,6 +115,125 @@ export const ASR_ACCEPT =
 export const ASR_FILE_MAX_SIZE = 25 * 1024 * 1024
 
 // ============================================================================
+// 模型联动（DeepSeek 虚拟模型的能力限制，与 relay/channel/deepseek 适配器一致）
+// ============================================================================
+
+/** DeepSeek TTS 官方音色（上游仅支持这两个） */
+export const DEEPSEEK_TTS_VOICES = ['stella', 'tide'] as const
+
+export const DEFAULT_DEEPSEEK_TTS_VOICE = 'stella'
+export const DEFAULT_DEEPSEEK_TTS_FORMAT = 'wav'
+
+/** 是否为 DeepSeek TTS 虚拟模型（仅支持 stella/tide 音色与 wav/pcm 格式） */
+export function isDeepSeekTTSModel(model: string): boolean {
+  const name = model.trim().toLowerCase()
+  return name.startsWith('deepseek') && name.endsWith('-tts')
+}
+
+/** 是否为 DeepSeek ASR 虚拟模型（仅支持 transcriptions 端点、json 格式与 wav/ogg/opus 音频） */
+export function isDeepSeekASRModel(model: string): boolean {
+  const name = model.trim().toLowerCase()
+  return name.startsWith('deepseek') && name.endsWith('-asr')
+}
+
+/** 按模型返回音色建议列表 */
+export function getTTSVoiceOptions(model: string): string[] {
+  return isDeepSeekTTSModel(model) ? [...DEEPSEEK_TTS_VOICES] : [...TTS_VOICES]
+}
+
+/** 按模型返回默认音色 */
+export function getDefaultTTSVoice(model: string): string {
+  return isDeepSeekTTSModel(model)
+    ? DEFAULT_DEEPSEEK_TTS_VOICE
+    : DEFAULT_TTS_VOICE
+}
+
+/** 音色对模型是否有效（DeepSeek 限定官方音色；其它模型允许任意自定义音色） */
+export function isValidTTSVoice(model: string, voice: string): boolean {
+  if (!isDeepSeekTTSModel(model)) return voice.trim().length > 0
+  return (DEEPSEEK_TTS_VOICES as readonly string[]).includes(
+    voice.trim().toLowerCase()
+  )
+}
+
+/** 按模型返回可选音频格式 */
+export function getTTSFormatOptions(model: string): {
+  label: string
+  value: string
+}[] {
+  return isDeepSeekTTSModel(model)
+    ? TTS_FORMATS.filter((format) => format.value === 'wav' || format.value === 'pcm')
+    : [...TTS_FORMATS]
+}
+
+/** 按模型返回默认音频格式 */
+export function getDefaultTTSFormat(model: string): string {
+  return isDeepSeekTTSModel(model)
+    ? DEFAULT_DEEPSEEK_TTS_FORMAT
+    : DEFAULT_TTS_FORMAT
+}
+
+/** 音色/格式按模型归一：无效值回退到模型默认值（所见即所发，渲染与提交共用） */
+export function resolveTTSVoiceForModel(model: string, voice: string): string {
+  return isValidTTSVoice(model, voice) ? voice : getDefaultTTSVoice(model)
+}
+
+export function resolveTTSFormatForModel(
+  model: string,
+  format: string
+): string {
+  return getTTSFormatOptions(model).some((item) => item.value === format)
+    ? format
+    : getDefaultTTSFormat(model)
+}
+
+/** 按模型返回可选 ASR 端点（DeepSeek 无翻译语义，仅支持 transcriptions） */
+export function getASREndpointOptions(model: string): {
+  label: string
+  value: string
+}[] {
+  return isDeepSeekASRModel(model)
+    ? ASR_ENDPOINTS.filter((endpoint) => endpoint.value === 'transcriptions')
+    : [...ASR_ENDPOINTS]
+}
+
+/** 按模型返回可选响应格式（DeepSeek 仅支持 json） */
+export function getASRFormatOptions(model: string): {
+  label: string
+  value: string
+}[] {
+  return isDeepSeekASRModel(model)
+    ? ASR_FORMATS.filter((format) => format.value === 'json')
+    : [...ASR_FORMATS]
+}
+
+/** 端点/格式按模型归一：无效值回退到第一个有效选项 */
+export function resolveASREndpointForModel(
+  model: string,
+  endpoint: string
+): string {
+  const options = getASREndpointOptions(model)
+  return options.some((option) => option.value === endpoint)
+    ? endpoint
+    : (options[0]?.value ?? endpoint)
+}
+
+export function resolveASRFormatForModel(
+  model: string,
+  format: string
+): string {
+  const options = getASRFormatOptions(model)
+  return options.some((option) => option.value === format)
+    ? format
+    : (options[0]?.value ?? format)
+}
+
+/** 按模型返回音频文件选择器的 accept 提示（DeepSeek 仅支持 wav/ogg/opus） */
+export function getASRAcceptForModel(model: string): string {
+  return isDeepSeekASRModel(model) ? '.wav,.ogg,.opus' : ASR_ACCEPT
+}
+
+// ============================================================================
 // 默认值
 // ============================================================================
 

@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { describe, expect, it } from 'vitest'
+
 import { handleDropdownMenuItemSelect } from './dropdown-menu-events'
 
 function createMenuEvent() {
@@ -25,7 +25,7 @@ function createMenuEvent() {
 }
 
 describe('DropdownMenuItem onSelect compatibility', () => {
-  test('calls the Radix-style onSelect handler on item click', () => {
+  it('calls the Radix-style onSelect handler on item click', () => {
     const event = createMenuEvent()
     let selected = false
 
@@ -33,18 +33,18 @@ describe('DropdownMenuItem onSelect compatibility', () => {
       selected = true
     })
 
-    assert.equal(selected, true)
-    assert.equal(event.baseUIHandlerPrevented, false)
+    expect(selected).toBe(true)
+    expect(event.baseUIHandlerPrevented).toBe(false)
   })
 
-  test('keeps the Base UI menu open when onSelect prevents default', () => {
+  it('keeps the Base UI menu open when onSelect prevents default', () => {
     const event = createMenuEvent()
 
     handleDropdownMenuItemSelect(event, undefined, (selectEvent) => {
       selectEvent.preventDefault()
     })
 
-    assert.equal(event.defaultPrevented, true)
-    assert.equal(event.baseUIHandlerPrevented, true)
+    expect(event.defaultPrevented).toBe(true)
+    expect(event.baseUIHandlerPrevented).toBe(true)
   })
 })
