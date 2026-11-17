@@ -529,10 +529,13 @@ export function ChannelTestDialog({
                   value={endpointType}
                   onValueChange={(v) => v !== null && setEndpointType(v)}
                 >
-                  <SelectTrigger id='endpoint-type'>
+                  <SelectTrigger id='endpoint-type' className='w-full'>
                     <SelectValue placeholder={t('Auto detect (default)')} />
                   </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
+                  <SelectContent
+                    alignItemWithTrigger={false}
+                    className='w-auto max-w-(--available-width) min-w-(--anchor-width)'
+                  >
                     <SelectGroup>
                       {endpointTypeOptions.map((option) => {
                         const itemValue = option.value
@@ -760,10 +763,7 @@ function FingerprintCell({ fingerprint }: { fingerprint: string }) {
           }
         >
           <Fingerprint className='h-3 w-3 shrink-0' />
-          <code
-            className='truncate font-mono text-[10px]'
-            title={fingerprint}
-          >
+          <code className='truncate font-mono text-[10px]' title={fingerprint}>
             {fingerprint}
           </code>
           <Copy className='h-3 w-3 shrink-0 opacity-60' />
