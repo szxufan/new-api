@@ -53,6 +53,19 @@ func TestApplyRetryAntiCacheOpenAI(t *testing.T) {
 		require.Equal(t, "text", updated[2].(map[string]any)["type"])
 	})
 
+	t.Run("[]MediaContent 内容在末尾追加text块", func(t *testing.T) {
+		// MergeConsecutiveMessages 合并后内容可能是 []dto.MediaContent
+		messages := []dto.Message{{Role: "user", Content: []dto.MediaContent{
+			{Type: dto.ContentTypeText, Text: "hi"},
+			{Type: dto.ContentTypeImageURL, ImageUrl: map[string]any{"url": "data:image/png;base64,xxx"}},
+		}}}
+		require.True(t, applyRetryAntiCacheOpenAI(messages, "快做！", 3))
+		updated := messages[0].ParseContent()
+		require.Len(t, updated, 3)
+		require.Equal(t, "hi", updated[0].Text)
+		require.Equal(t, strings.Repeat("快做！", 2), updated[2].Text)
+	})
+
 	t.Run("最后一条非user消息时回退到上一条user", func(t *testing.T) {
 		messages := []dto.Message{
 			{Role: "user", Content: "first"},

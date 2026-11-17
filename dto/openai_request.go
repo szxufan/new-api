@@ -359,7 +359,8 @@ func (r *GeneralOpenAIRequest) DeduplicateToolCallIDs() {
 // This is needed when previous_response_id context merging causes duplicate
 // consecutive user or assistant messages.
 // Rules:
-//   - Consecutive "user" messages: merge content (string concatenation)
+//   - Consecutive "user" messages: merge content (string concatenation, or
+//     lossless concatenation of multimodal parts)
 //   - Consecutive "assistant" messages: merge content and tool_calls
 //   - "system" and "tool" messages are NOT merged (system handled by mergeSystemMessages, tool must stay separate)
 func (r *GeneralOpenAIRequest) MergeConsecutiveMessages() {
@@ -374,33 +375,19 @@ func (r *GeneralOpenAIRequest) MergeConsecutiveMessages() {
 		last := &merged[len(merged)-1]
 
 		if curr.Role == "user" && last.Role == "user" {
-			// Merge consecutive user messages: concatenate content
-			lastContent, _ := last.Content.(string)
-			currContent, _ := curr.Content.(string)
-			if lastContent != "" && currContent != "" {
-				last.Content = lastContent + "\n" + currContent
-			} else if currContent != "" {
-				last.Content = currContent
-			}
+			// Merge consecutive user messages: concatenate content (text or multimodal parts)
+			setMergedContent(last, mergeMessageContent(last.Content, curr.Content))
 			continue
 		}
 
 		if curr.Role == "assistant" && last.Role == "assistant" {
 			// Merge consecutive assistant messages: merge content and tool_calls
-			lastContent, _ := last.Content.(string)
-			currContent, _ := curr.Content.(string)
+			setMergedContent(last, mergeMessageContent(last.Content, curr.Content))
 
 			// Merge tool_calls
 			lastToolCalls := last.ParseToolCalls()
 			currToolCalls := curr.ParseToolCalls()
 			mergedToolCalls := append(lastToolCalls, currToolCalls...)
-
-			if lastContent != "" && currContent != "" {
-				last.Content = lastContent + "\n" + currContent
-			} else if currContent != "" {
-				last.Content = currContent
-			}
-
 			if len(mergedToolCalls) > 0 {
 				last.SetToolCalls(mergedToolCalls)
 			} else {
@@ -413,6 +400,89 @@ func (r *GeneralOpenAIRequest) MergeConsecutiveMessages() {
 	}
 
 	r.Messages = merged
+}
+
+// setMergedContent 将合并后的内容写回消息，并同步 parsedContent 缓存，
+// 避免后续 ParseContent 读到过期缓存。
+func setMergedContent(msg *Message, content any) {
+	switch c := content.(type) {
+	case string:
+		msg.SetStringContent(c)
+	case []MediaContent:
+		msg.SetMediaContent(c)
+	default:
+		msg.Content = content
+		msg.parsedContent = nil
+	}
+}
+
+// mergeMessageContent 合并两条连续同角色消息的内容。
+// 双方均为纯字符串时保持 "\n" 拼接行为；否则将双方归一化为 []MediaContent
+// 后按序拼接，保证多模态内容（图片、音频、文件等）不丢失、不被覆盖。
+// 若仅一方有内容（nil、空字符串或空数组），直接保留另一方原始形态，
+// 避免把纯字符串内容无谓地升级为数组（部分上游只接受字符串 content）。
+func mergeMessageContent(last, curr any) any {
+	lastStr, lastIsStr := last.(string)
+	currStr, currIsStr := curr.(string)
+	if lastIsStr && currIsStr {
+		if lastStr != "" && currStr != "" {
+			return lastStr + "\n" + currStr
+		}
+		if currStr != "" {
+			return currStr
+		}
+		return lastStr
+	}
+
+	lastParts := contentToMediaParts(last)
+	currParts := contentToMediaParts(curr)
+	if len(lastParts) == 0 {
+		return curr
+	}
+	if len(currParts) == 0 {
+		return last
+	}
+
+	merged := make([]MediaContent, 0, len(lastParts)+len(currParts))
+	merged = append(merged, lastParts...)
+	merged = append(merged, currParts...)
+	return merged
+}
+
+// contentToMediaParts 将消息内容无损归一化为 []MediaContent。
+// 刻意不复用 ParseContent：其对 map 元素的解析有损（注入 detail:"high"、
+// 丢弃 cache_control 等字段）。这里 map 元素经 JSON round-trip 转换，
+// 保留全部原始字段，序列化输出与客户端原始内容一致。
+func contentToMediaParts(content any) []MediaContent {
+	switch c := content.(type) {
+	case string:
+		if c == "" {
+			return nil
+		}
+		return []MediaContent{{Type: ContentTypeText, Text: c}}
+	case []MediaContent:
+		return c
+	case []any:
+		parts := make([]MediaContent, 0, len(c))
+		for _, item := range c {
+			switch v := item.(type) {
+			case MediaContent:
+				parts = append(parts, v)
+			case map[string]any:
+				data, err := common.Marshal(v)
+				if err != nil {
+					continue
+				}
+				var part MediaContent
+				if err := common.Unmarshal(data, &part); err != nil {
+					continue
+				}
+				parts = append(parts, part)
+			}
+		}
+		return parts
+	}
+	return nil
 }
 
 func (r *GeneralOpenAIRequest) ParseInput() []string {
@@ -459,17 +529,23 @@ type MediaContent struct {
 }
 
 func (m *MediaContent) GetImageMedia() *MessageImageUrl {
-	if m.ImageUrl != nil {
-		if _, ok := m.ImageUrl.(*MessageImageUrl); ok {
-			return m.ImageUrl.(*MessageImageUrl)
-		}
-		if itemMap, ok := m.ImageUrl.(map[string]any); ok {
-			out := &MessageImageUrl{
-				Url:      common.Interface2String(itemMap["url"]),
-				Detail:   common.Interface2String(itemMap["detail"]),
-				MimeType: common.Interface2String(itemMap["mime_type"]),
-			}
-			return out
+	if m.ImageUrl == nil {
+		return nil
+	}
+	switch v := m.ImageUrl.(type) {
+	case *MessageImageUrl:
+		return v
+	case MessageImageUrl:
+		// responses 转换等内部构造路径会放入值类型
+		return &v
+	case string:
+		// 兼容客户端把 image_url 直接写成字符串的形态
+		return &MessageImageUrl{Url: v}
+	case map[string]any:
+		return &MessageImageUrl{
+			Url:      common.Interface2String(v["url"]),
+			Detail:   common.Interface2String(v["detail"]),
+			MimeType: common.Interface2String(v["mime_type"]),
 		}
 	}
 	return nil
@@ -671,12 +747,12 @@ func (m *Message) SetToolCalls(toolCalls any) {
 }
 
 func (m *Message) StringContent() string {
-	switch m.Content.(type) {
+	switch c := m.Content.(type) {
 	case string:
-		return m.Content.(string)
+		return c
 	case []any:
 		var contentStr string
-		for _, contentItem := range m.Content.([]any) {
+		for _, contentItem := range c {
 			contentMap, ok := contentItem.(map[string]any)
 			if !ok {
 				continue
@@ -685,6 +761,16 @@ func (m *Message) StringContent() string {
 				if subStr, ok := contentMap["text"].(string); ok {
 					contentStr += subStr
 				}
+			}
+		}
+		return contentStr
+	case []MediaContent:
+		// 合并连续消息后，内容可能以 []MediaContent 形态存在；
+		// 仅文本渠道（百度、讯飞、Gemini 等）依赖 StringContent 提取纯文本，不能返回空。
+		var contentStr string
+		for _, media := range c {
+			if media.Type == ContentTypeText {
+				contentStr += media.Text
 			}
 		}
 		return contentStr
@@ -734,6 +820,13 @@ func (m *Message) ParseContent() []MediaContent {
 		}}
 		m.parsedContent = contentList
 		return contentList
+	}
+
+	// 内部构造路径（如 responses 转换）会直接放入 []MediaContent；
+	// DeepCopy 后私有缓存丢失，这里直接识别该形态，避免下方 []any 断言失败返回 nil
+	if mediaContent, ok := m.Content.([]MediaContent); ok {
+		m.parsedContent = mediaContent
+		return mediaContent
 	}
 
 	// 尝试解析为数组

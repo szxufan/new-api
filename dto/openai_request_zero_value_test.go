@@ -255,3 +255,263 @@ func TestMergeConsecutiveMessages_NoConsecutive(t *testing.T) {
 	req.MergeConsecutiveMessages()
 	require.Len(t, req.Messages, 2)
 }
+
+func TestMergeConsecutiveMessages_UserMultimodalArrays(t *testing.T) {
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "Look at this"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/a.png"}},
+			}},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/b.png", "detail": "low"}},
+				map[string]any{"type": "text", "text": "And this"},
+			}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts := req.Messages[0].ParseContent()
+	require.Len(t, parts, 4)
+	require.Equal(t, ContentTypeText, parts[0].Type)
+	require.Equal(t, "Look at this", parts[0].Text)
+	require.Equal(t, ContentTypeImageURL, parts[1].Type)
+	require.Equal(t, "https://example.com/a.png", parts[1].GetImageMedia().Url)
+	require.Equal(t, ContentTypeImageURL, parts[2].Type)
+	require.Equal(t, "https://example.com/b.png", parts[2].GetImageMedia().Url)
+	require.Equal(t, ContentTypeText, parts[3].Type)
+	require.Equal(t, "And this", parts[3].Text)
+
+	// 序列化后字段与客户端原始内容一致：不注入 detail/MimeType 等多余字段
+	data, err := common.Marshal(req.Messages[0].Content)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/a.png", gjson.GetBytes(data, "1.image_url.url").String())
+	require.False(t, gjson.GetBytes(data, "1.image_url.detail").Exists())
+	require.False(t, gjson.GetBytes(data, "1.image_url.MimeType").Exists())
+	require.Equal(t, "low", gjson.GetBytes(data, "2.image_url.detail").String())
+}
+
+func TestMergeConsecutiveMessages_UserStringAndArray(t *testing.T) {
+	// string + 数组：文本转为 text part 前置，图片不丢失
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: "Describe these"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/a.png"}},
+			}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts := req.Messages[0].ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, ContentTypeText, parts[0].Type)
+	require.Equal(t, "Describe these", parts[0].Text)
+	require.Equal(t, ContentTypeImageURL, parts[1].Type)
+
+	// 数组 + string：文本转为 text part 后置
+	req = &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []any{
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/a.png"}},
+			}},
+			{Role: "user", Content: "What is this?"},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts = req.Messages[0].ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, ContentTypeImageURL, parts[0].Type)
+	require.Equal(t, ContentTypeText, parts[1].Type)
+	require.Equal(t, "What is this?", parts[1].Text)
+
+	// 数组 + 空字符串：内容不丢失
+	req = &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "keep me"},
+			}},
+			{Role: "user", Content: ""},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts = req.Messages[0].ParseContent()
+	require.Len(t, parts, 1)
+	require.Equal(t, "keep me", parts[0].Text)
+}
+
+func TestMergeConsecutiveMessages_UserMediaContentSlices(t *testing.T) {
+	// []MediaContent + []MediaContent（无缓存，模拟 DeepCopy 后的形态）
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []MediaContent{{Type: ContentTypeText, Text: "first"}}},
+			{Role: "user", Content: []MediaContent{
+				{Type: ContentTypeImageURL, ImageUrl: map[string]any{"url": "https://example.com/c.png"}},
+			}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts := req.Messages[0].ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, "first", parts[0].Text)
+	require.Equal(t, "https://example.com/c.png", parts[1].GetImageMedia().Url)
+
+	// []any + []MediaContent 混合形态
+	req = &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []any{map[string]any{"type": "text", "text": "a"}}},
+			{Role: "user", Content: []MediaContent{{Type: ContentTypeText, Text: "b"}}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	parts = req.Messages[0].ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, "a", parts[0].Text)
+	require.Equal(t, "b", parts[1].Text)
+}
+
+func TestMergeConsecutiveMessages_UserCacheControlPreserved(t *testing.T) {
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "hello", "cache_control": map[string]any{"type": "ephemeral"}},
+			}},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "world"},
+			}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	data, err := common.Marshal(req.Messages[0].Content)
+	require.NoError(t, err)
+	require.Equal(t, "ephemeral", gjson.GetBytes(data, "0.cache_control.type").String())
+	require.Equal(t, "world", gjson.GetBytes(data, "1.text").String())
+}
+
+func TestMergeConsecutiveMessages_AssistantMultimodalWithToolCalls(t *testing.T) {
+	toolCalls1, _ := json.Marshal([]ToolCallRequest{
+		{ID: "call_1", Type: "function", Function: FunctionRequest{Name: "search", Arguments: `{}`}},
+	})
+	toolCalls2, _ := json.Marshal([]ToolCallRequest{
+		{ID: "call_2", Type: "function", Function: FunctionRequest{Name: "run", Arguments: `{}`}},
+	})
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: "Go"},
+			{Role: "assistant", Content: []any{
+				map[string]any{"type": "text", "text": "thinking"},
+			}, ToolCalls: toolCalls1},
+			{Role: "assistant", Content: "done", ToolCalls: toolCalls2},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 2)
+	parts := req.Messages[1].ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, "thinking", parts[0].Text)
+	require.Equal(t, "done", parts[1].Text)
+	mergedToolCalls := req.Messages[1].ParseToolCalls()
+	require.Len(t, mergedToolCalls, 2)
+	require.Equal(t, "call_1", mergedToolCalls[0].ID)
+	require.Equal(t, "call_2", mergedToolCalls[1].ID)
+}
+
+func TestParseContent_MediaContentSliceWithoutCache(t *testing.T) {
+	// 内部构造路径直接赋值 []MediaContent，不设缓存
+	msg := Message{Role: "user", Content: []MediaContent{
+		{Type: ContentTypeText, Text: "hello"},
+		{Type: ContentTypeImageURL, ImageUrl: map[string]any{"url": "https://example.com/x.png"}},
+	}}
+	parts := msg.ParseContent()
+	require.Len(t, parts, 2)
+	require.Equal(t, "hello", parts[0].Text)
+	require.Equal(t, "https://example.com/x.png", parts[1].GetImageMedia().Url)
+	// 缓存已同步，二次调用结果一致
+	require.Equal(t, parts, msg.ParseContent())
+
+	// DeepCopy 丢失私有缓存后，ParseContent 仍应识别 []MediaContent
+	src := &GeneralOpenAIRequest{Messages: []Message{{Role: "user"}}}
+	src.Messages[0].SetMediaContent([]MediaContent{{Type: ContentTypeText, Text: "cached"}})
+	copied, err := common.DeepCopy(src)
+	require.NoError(t, err)
+	copiedParts := copied.Messages[0].ParseContent()
+	require.Len(t, copiedParts, 1)
+	require.Equal(t, "cached", copiedParts[0].Text)
+}
+
+func TestMergeConsecutiveMessages_EmptyContentKeepsOriginalForm(t *testing.T) {
+	// 前一条 assistant 内容为 nil（仅工具调用），后一条为字符串：
+	// 合并结果应保持字符串形态，而不是升级为内容数组。
+	req := &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "assistant", Content: nil},
+			{Role: "assistant", Content: "done"},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	require.Equal(t, "done", req.Messages[0].Content)
+
+	// 空字符串 + 多模态数组：保留数组原始形态，且不丢图片
+	parts := []any{
+		map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/a.png"}},
+	}
+	req = &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: ""},
+			{Role: "user", Content: parts},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	require.Equal(t, parts, req.Messages[0].Content)
+
+	// 多模态数组 + 空数组：保留非空一侧
+	req = &GeneralOpenAIRequest{
+		Messages: []Message{
+			{Role: "user", Content: parts},
+			{Role: "user", Content: []any{}},
+		},
+	}
+	req.MergeConsecutiveMessages()
+	require.Len(t, req.Messages, 1)
+	require.Equal(t, parts, req.Messages[0].Content)
+}
+
+func TestMessageStringContent_MediaContentSlice(t *testing.T) {
+	// 合并后内容为 []MediaContent 时，纯文本渠道仍应能提取文本
+	msg := Message{Role: "user", Content: []MediaContent{
+		{Type: ContentTypeText, Text: "hello"},
+		{Type: ContentTypeImageURL, ImageUrl: map[string]any{"url": "https://example.com/x.png"}},
+		{Type: ContentTypeText, Text: " world"},
+	}}
+	require.Equal(t, "hello world", msg.StringContent())
+	require.False(t, msg.IsStringContent())
+}
+
+func TestMediaContentGetImageMediaForms(t *testing.T) {
+	// 值类型（responses 转换内部构造）与字符串形态都应能取出图片
+	valueForm := &MediaContent{Type: ContentTypeImageURL, ImageUrl: MessageImageUrl{Url: "https://example.com/v.png", Detail: "low"}}
+	img := valueForm.GetImageMedia()
+	require.NotNil(t, img)
+	require.Equal(t, "https://example.com/v.png", img.Url)
+	require.Equal(t, "low", img.Detail)
+
+	stringForm := &MediaContent{Type: ContentTypeImageURL, ImageUrl: "https://example.com/s.png"}
+	img = stringForm.GetImageMedia()
+	require.NotNil(t, img)
+	require.Equal(t, "https://example.com/s.png", img.Url)
+
+	// 指针与 map 形态保持原有行为
+	ptrForm := &MediaContent{Type: ContentTypeImageURL, ImageUrl: &MessageImageUrl{Url: "https://example.com/p.png"}}
+	require.Equal(t, "https://example.com/p.png", ptrForm.GetImageMedia().Url)
+	mapForm := &MediaContent{Type: ContentTypeImageURL, ImageUrl: map[string]any{"url": "https://example.com/m.png", "mime_type": "image/png"}}
+	require.Equal(t, "image/png", mapForm.GetImageMedia().MimeType)
+
+	require.Nil(t, (&MediaContent{Type: ContentTypeText, Text: "x"}).GetImageMedia())
+}

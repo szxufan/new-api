@@ -27,7 +27,7 @@
 ## 支持范围
 
 - **生效格式**：OpenAI 兼容 Chat Completions、Claude Messages、OpenAI Responses（/v1/responses）三种文本请求格式。
-- **内容形态**：最后一条 user 消息的 content 为字符串时直接追加；为数组（多模态）时在末尾追加一个 text 块，不破坏已有的 image/audio 等结构。
+- **内容形态**：最后一条 user 消息的 content 为字符串时直接追加；为数组（多模态，包含客户端原始 `[]any` 形态与合并连续消息后的内部 `[]MediaContent` 形态）时在末尾追加一个 text 块，不破坏已有的 image/audio 等结构。
 - **首次请求不追加**：仅重试（RetryIndex > 1）时生效，正常请求不受任何影响。
 
 ## 限制

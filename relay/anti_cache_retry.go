@@ -28,6 +28,9 @@ func applyRetryAntiCacheOpenAI(messages []dto.Message, content string, retryInde
 		case []any:
 			// 数组型（多模态）内容：末尾追加一个 text 块，不破坏已有结构
 			msg.Content = append(c, map[string]any{"type": dto.ContentTypeText, "text": repeated})
+		case []dto.MediaContent:
+			// MergeConsecutiveMessages 合并后内容可能是 []MediaContent，同样追加 text 块
+			msg.SetMediaContent(append(c, dto.MediaContent{Type: dto.ContentTypeText, Text: repeated}))
 		default:
 			return false
 		}
