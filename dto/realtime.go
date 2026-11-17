@@ -34,7 +34,15 @@ type RealtimeEvent struct {
 }
 
 type RealtimeResponse struct {
-	Usage *RealtimeUsage `json:"usage"`
+	Status        string                         `json:"status,omitempty"`
+	StatusDetails *RealtimeResponseStatusDetails `json:"status_details,omitempty"`
+	Usage         *RealtimeUsage                 `json:"usage"`
+}
+
+// RealtimeResponseStatusDetails 仅在上游以 response.done(status=failed) 结束本次响应时携带错误详情
+type RealtimeResponseStatusDetails struct {
+	Type  string             `json:"type,omitempty"`
+	Error *types.OpenAIError `json:"error,omitempty"`
 }
 
 type RealtimeUsage struct {

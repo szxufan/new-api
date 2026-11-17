@@ -62,6 +62,10 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if common.IsSystemOneModel(modelName) {
 		return string(constant.EndpointTypeSystemOne)
 	}
+	// 实时模型（gpt-4o-realtime-preview、qwen3.8-omni-flash-realtime 等）：走 WebSocket realtime 测试
+	if strings.Contains(strings.ToLower(modelName), "realtime") {
+		return string(constant.EndpointTypeRealtime)
+	}
 	// DeepSeek 渠道的虚拟模型（*-search / *-fetch / *-tts / *-asr）：按对应端点测试
 	if channel != nil && channel.Type == constant.ChannelTypeDeepSeek {
 		if strings.HasSuffix(modelName, "-search") {
@@ -236,6 +240,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			relayFormat = types.RelayFormatEmbedding
 		case constant.EndpointTypeTTS, constant.EndpointTypeASR:
 			relayFormat = types.RelayFormatOpenAIAudio
+		case constant.EndpointTypeRealtime:
+			relayFormat = types.RelayFormatOpenAIRealtime
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -263,6 +269,11 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") {
 			relayFormat = types.RelayFormatOpenAIResponsesCompaction
 		}
+	}
+
+	// Realtime 端点走独立的 WebSocket 测试分支（纯文本往返），不复用 HTTP 请求/响应流水线
+	if relayFormat == types.RelayFormatOpenAIRealtime {
+		return testRealtimeChannel(c, channel, testModel)
 	}
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)

@@ -200,6 +200,21 @@ func TestNormalizeChannelTestEndpointAudio(t *testing.T) {
 	require.Equal(t, "", normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-tts", ""))
 }
 
+// TestNormalizeChannelTestEndpointRealtime 测试 realtime 模型的端点自动识别（覆盖批量测试的空端点场景）
+func TestNormalizeChannelTestEndpointRealtime(t *testing.T) {
+	aliChannel := &model.Channel{Type: constant.ChannelTypeAli}
+	openaiChannel := &model.Channel{Type: constant.ChannelTypeOpenAI}
+	// 模型名含 realtime 即自动识别，不限渠道类型
+	require.Equal(t, string(constant.EndpointTypeRealtime), normalizeChannelTestEndpoint(aliChannel, "qwen3.8-omni-flash-realtime", ""))
+	require.Equal(t, string(constant.EndpointTypeRealtime), normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-realtime-preview", ""))
+	require.Equal(t, string(constant.EndpointTypeRealtime), normalizeChannelTestEndpoint(openaiChannel, "gpt-realtime", ""))
+	// 显式指定端点时优先
+	require.Equal(t, string(constant.EndpointTypeOpenAI), normalizeChannelTestEndpoint(aliChannel, "qwen3.8-omni-flash-realtime", string(constant.EndpointTypeOpenAI)))
+	// 非 realtime 模型不受影响
+	require.Equal(t, "", normalizeChannelTestEndpoint(aliChannel, "qwen3.8-omni-flash", ""))
+	require.Equal(t, "", normalizeChannelTestEndpoint(openaiChannel, "gpt-4o-mini", ""))
+}
+
 // TestBuildTestRequestAudio 测试语音端点的测试请求构建
 func TestBuildTestRequestAudio(t *testing.T) {
 	ttsReq, ok := buildTestRequest("deepseek-tts", string(constant.EndpointTypeTTS), nil, false).(*dto.AudioRequest)

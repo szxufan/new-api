@@ -86,7 +86,7 @@ wss://your-gateway/v1/realtime?model=qwen3.8-omni-flash-realtime
 - `response.create` 的 `response` 覆盖对象（instructions、modalities、tools、max_output_tokens 等）会被丢弃并记录告警，百炼仅接受 `type` / `event_id`，本次响应沿用 `session.update` 的会话级配置。
 - `session.update` 中 `max_response_output_tokens: "inf"`（不限制）会被丢弃，改用百炼默认上限；`voice` 需使用百炼音色（如 `Tina`/`Cherry`），OpenAI 音色名会由上游校验拒绝。
 - 适配仅覆盖字段级差异，不做事件语义转换；百炼扩展字段（`enable_search`、`video`、多通道音频等）由客户端直接下发。
-- 渠道"测试"功能不支持 realtime 模型（WebSocket 长连接无法走单次测试请求）。
+- 渠道测试：端点类型选 **Realtime (/v1/realtime)** 即走 WebSocket 纯文本往返探针（dial → `session.created` → 文本 "hi" → `response.done`），验证 URL/鉴权/模型生成；批量"测试全部渠道"会自动识别模型名含 `realtime` 的模型。realtime 探针**不扣配额、不写消费日志**（与 HTTP 测试的差异），成功时仍更新渠道响应时间。
 
 ## 验证方式
 

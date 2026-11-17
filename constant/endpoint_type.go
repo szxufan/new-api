@@ -17,6 +17,7 @@ const (
 	EndpointTypeSystemOne             EndpointType = "systemone"
 	EndpointTypeWebSearch             EndpointType = "web-search"
 	EndpointTypeWebFetch              EndpointType = "web-fetch"
+	EndpointTypeRealtime              EndpointType = "realtime"
 	//EndpointTypeMidjourney     EndpointType = "midjourney-proxy"
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"
