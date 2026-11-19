@@ -226,14 +226,18 @@ export function ApiKeysTable() {
       const hasFilter = globalFilter?.trim()
 
       if (hasFilter) {
-        const result = await searchApiKeys({ keyword: globalFilter })
+        const result = await searchApiKeys({
+          keyword: globalFilter,
+          p: pagination.pageIndex + 1,
+          size: pagination.pageSize,
+        })
         if (!result.success) {
           toast.error(result.message || t(ERROR_MESSAGES.SEARCH_FAILED))
           return { items: [], total: 0 }
         }
         return {
-          items: result.data || [],
-          total: result.data?.length || 0,
+          items: result.data?.items || [],
+          total: result.data?.total || 0,
         }
       }
 
@@ -290,9 +294,7 @@ export function ApiKeysTable() {
     onGlobalFilterChange,
     onColumnFiltersChange,
     manualPagination: !globalFilter,
-    pageCount: globalFilter
-      ? Math.ceil((data?.total || 0) / pagination.pageSize)
-      : Math.ceil((data?.total || 0) / pagination.pageSize),
+    pageCount: Math.ceil((data?.total || 0) / pagination.pageSize),
   })
 
   const pageCount = table.getPageCount()
