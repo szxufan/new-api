@@ -59,6 +59,8 @@ export interface Model {
   support_video_input?: boolean
   /** 推理等级可选项，后端存储为 JSON 数组字符串，如 ["low","medium","high"] */
   reasoning_options?: string
+  /** 模型用途，后端存储为 JSON 数组字符串，如 ["chat","programming"] */
+  purposes?: string
   // Runtime fields
   bound_channels?: BoundChannel[]
   enable_groups?: string[]

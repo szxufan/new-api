@@ -15,6 +15,7 @@ type OpenAIModels struct {
 	SupportImageInput bool     `json:"support_image_input,omitempty"`
 	SupportVideoInput bool     `json:"support_video_input,omitempty"`
 	ReasoningOptions  []string `json:"reasoning_options,omitempty"`
+	Purposes          []string `json:"purposes,omitempty"`
 }
 
 type AnthropicModel struct {

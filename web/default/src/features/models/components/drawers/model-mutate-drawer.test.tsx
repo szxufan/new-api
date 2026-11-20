@@ -17,9 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { describe, it, expect } from 'vitest'
-import { ENDPOINT_TEMPLATES } from '../../constants'
-import { modelsQueryKeys, mergeEndpointTemplate } from '../../lib'
+import {
+  ENDPOINT_TEMPLATES,
+  MODEL_PURPOSES,
+  getModelPurposeOptions,
+} from '../../constants'
+import {
+  modelsQueryKeys,
+  formatModelPurposes,
+  mergeEndpointTemplate,
+  parseModelPurposes,
+} from '../../lib'
 import {
   MODEL_PRICING_SETTINGS_URL,
   modelFormSchema,
@@ -94,6 +104,58 @@ describe('模型编辑侧栏价格配置移除', () => {
     ]) {
       expect(shapeKeys).toContain(field)
     }
+  })
+})
+
+describe('模型用途', () => {
+  it('表单 schema 应接受字符串数组并拒绝非字符串项', () => {
+    expect(
+      modelFormSchema.shape.purposes.safeParse(['chat', 'writing']).success
+    ).toBe(true)
+    expect(modelFormSchema.shape.purposes.safeParse(['chat', 1]).success).toBe(
+      false
+    )
+  })
+
+  it('应提供固定且本地化的用途选项', () => {
+    expect(MODEL_PURPOSES).toEqual(['chat', 'programming', 'writing'])
+    const translate = ((key: string) => key) as TFunction
+    expect(getModelPurposeOptions(translate)).toEqual([
+      { label: 'Chat', value: 'chat' },
+      { label: 'Programming', value: 'programming' },
+      { label: 'Writing', value: 'writing' },
+    ])
+  })
+
+  it('应解析合法 JSON 字符串并保留历史自定义用途', () => {
+    expect(
+      parseModelPurposes('["chat","programming","legacy-purpose"]')
+    ).toEqual(['chat', 'programming', 'legacy-purpose'])
+    expect(parseModelPurposes('["chat",1,true,null,"writing",{},[]]')).toEqual([
+      'chat',
+      'writing',
+    ])
+  })
+
+  it('非法 JSON、非数组与空值应容错为空数组', () => {
+    for (const value of [
+      undefined,
+      '',
+      'not-json',
+      '{"purpose":"chat"}',
+      '"chat"',
+      'null',
+      '42',
+    ]) {
+      expect(parseModelPurposes(value)).toEqual([])
+    }
+  })
+
+  it('应序列化为 JSON 数组字符串，空数组应序列化为空字符串', () => {
+    expect(formatModelPurposes(['chat', 'programming'])).toBe(
+      '["chat","programming"]'
+    )
+    expect(formatModelPurposes([])).toBe('')
   })
 })
 

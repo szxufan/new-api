@@ -90,6 +90,20 @@ export function getModelStatusConfig(
 }
 
 // ============================================================================
+// Model Purpose Options
+// ============================================================================
+
+export const MODEL_PURPOSES = ['chat', 'programming', 'writing'] as const
+
+export function getModelPurposeOptions(t: TFunction) {
+  return [
+    { label: t('Chat'), value: 'chat' },
+    { label: t('Programming'), value: 'programming' },
+    { label: t('Writing'), value: 'writing' },
+  ]
+}
+
+// ============================================================================
 // Sync Status Options
 // ============================================================================
 

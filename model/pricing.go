@@ -65,7 +65,7 @@ var (
 	modelSupportEndpointsLock = sync.RWMutex{}
 
 	// 模型能力信息缓存：模型名 -> 上下文/最大输出/图片视频输入/推理等级（来自 models 表，含规则匹配）
-	modelCapabilitiesMap = make(map[string]ModelCapabilities)
+	modelCapabilitiesMap  = make(map[string]ModelCapabilities)
 	modelCapabilitiesLock = sync.RWMutex{}
 
 	modelFallbackModel = make(map[string]string)
@@ -129,6 +129,7 @@ type ModelCapabilities struct {
 	SupportImageInput bool
 	SupportVideoInput bool
 	ReasoningOptions  []string
+	Purposes          []string
 }
 
 // GetModelCapabilities 返回模型能力信息，未配置的模型返回零值
@@ -351,6 +352,9 @@ func updatePricing() {
 			if err := common.UnmarshalJsonStr(meta.ReasoningOptions, &options); err == nil && len(options) > 0 {
 				caps.ReasoningOptions = options
 			}
+		}
+		if purposes, err := ParseModelPurposes(meta.Purposes); err == nil && len(purposes) > 0 {
+			caps.Purposes = purposes
 		}
 		newCapabilities[modelName] = caps
 	}

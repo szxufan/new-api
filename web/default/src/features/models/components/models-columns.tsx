@@ -31,6 +31,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import {
+  getModelPurposeOptions,
   getModelStatusConfig,
   getNameRuleConfig,
   getQuotaTypeConfig,
@@ -38,6 +39,7 @@ import {
 import {
   parseModelTags,
   formatEndpointsDisplay,
+  parseModelPurposes,
   parseReasoningOptions,
 } from '../lib'
 import type { Model, Vendor } from '../types'
@@ -82,6 +84,7 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
   // Get translated configs
   const NAME_RULE_CONFIG = getNameRuleConfig(t)
   const MODEL_STATUS_CONFIG = getModelStatusConfig(t)
+  const MODEL_PURPOSE_OPTIONS = getModelPurposeOptions(t)
   const QUOTA_TYPE_CONFIG = getQuotaTypeConfig(t)
 
   const vendorMap: Record<number, Vendor> = {}
@@ -347,6 +350,55 @@ export function useModelsColumns(vendors: Vendor[] = []): ColumnDef<Model>[] {
                   className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
                 >
                   <div className='flex flex-wrap gap-1'>{tagBadges}</div>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
+      size: 150,
+      enableSorting: false,
+    },
+
+    // Model Purposes column
+    {
+      accessorKey: 'purposes',
+      meta: { label: t('Model Purposes'), mobileHidden: true },
+      header: t('Model Purposes'),
+      cell: ({ row }) => {
+        const raw = row.getValue('purposes') as string
+        const purposes = parseModelPurposes(raw)
+
+        if (purposes.length === 0) {
+          return <span className='text-muted-foreground text-xs'>-</span>
+        }
+
+        const purposeBadges = purposes.map((purpose, idx) => {
+          const option = MODEL_PURPOSE_OPTIONS.find(
+            ({ value }) => value === purpose
+          )
+          return (
+            <StatusBadge
+              key={idx}
+              label={option?.label || purpose}
+              autoColor={purpose}
+              size='sm'
+            />
+          )
+        })
+
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger render={<div />}>
+                {renderLimitedItems(purposeBadges, 2)}
+              </TooltipTrigger>
+              {purposes.length > 2 && (
+                <TooltipContent
+                  side='top'
+                  className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
+                >
+                  <div className='flex flex-wrap gap-1'>{purposeBadges}</div>
                 </TooltipContent>
               )}
             </Tooltip>

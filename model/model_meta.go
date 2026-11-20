@@ -49,6 +49,7 @@ type Model struct {
 	SupportImageInput bool   `json:"support_image_input,omitempty"`
 	SupportVideoInput bool   `json:"support_video_input,omitempty"`
 	ReasoningOptions  string `json:"reasoning_options,omitempty" gorm:"type:text"` // JSON 数组字符串，如 ["low","medium","high"]
+	Purposes          string `json:"purposes,omitempty" gorm:"type:text"`          // JSON 数组字符串，如 ["chat","programming"]
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
@@ -88,7 +89,7 @@ func (mi *Model) Update() error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
 	return DB.Model(&Model{}).Where("id = ?", mi.Id).
-		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "prompt_optimize", "name_rule", "fallback_model", "context_length", "max_output_tokens", "support_image_input", "support_video_input", "reasoning_options", "updated_time").
+		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "status", "sync_official", "prompt_optimize", "name_rule", "fallback_model", "context_length", "max_output_tokens", "support_image_input", "support_video_input", "reasoning_options", "purposes", "updated_time").
 		Updates(mi).Error
 }
 

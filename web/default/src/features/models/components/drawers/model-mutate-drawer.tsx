@@ -58,13 +58,20 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { JsonEditor } from '@/components/json-editor'
+import { MultiSelect } from '@/components/multi-select'
 import { TagInput } from '@/components/tag-input'
 import { createModel, updateModel, getModel, getVendors } from '../../api'
-import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
+import {
+  getModelPurposeOptions,
+  getNameRuleOptions,
+  ENDPOINT_TEMPLATES,
+} from '../../constants'
 import {
   modelsQueryKeys,
   vendorsQueryKeys,
+  formatModelPurposes,
   parseModelTags,
+  parseModelPurposes,
   mergeEndpointTemplate,
   parseReasoningOptions,
 } from '../../lib'
@@ -95,6 +102,7 @@ export const modelFormSchema = z.object({
   support_image_input: z.boolean(),
   support_video_input: z.boolean(),
   reasoning_options: z.array(z.string()),
+  purposes: z.array(z.string()),
 })
 
 type ModelFormValues = z.infer<typeof modelFormSchema>
@@ -150,6 +158,7 @@ export function ModelMutateDrawer({
       support_image_input: false,
       support_video_input: false,
       reasoning_options: [],
+      purposes: [],
     },
   })
 
@@ -175,6 +184,7 @@ export function ModelMutateDrawer({
         support_image_input: model.support_image_input || false,
         support_video_input: model.support_video_input || false,
         reasoning_options: parseReasoningOptions(model.reasoning_options),
+        purposes: parseModelPurposes(model.purposes),
       })
     } else if (open && !isEditing) {
       // Pre-fill model name if passed from missing models
@@ -195,6 +205,7 @@ export function ModelMutateDrawer({
         support_image_input: false,
         support_video_input: false,
         reasoning_options: [],
+        purposes: [],
       })
     }
   }, [open, isEditing, modelData, currentRow, form])
@@ -210,6 +221,7 @@ export function ModelMutateDrawer({
           status: values.status ? 1 : 0,
           sync_official: values.sync_official ? 1 : 0,
           prompt_optimize: values.prompt_optimize ? 1 : 0,
+          purposes: formatModelPurposes(values.purposes),
           reasoning_options:
             values.reasoning_options && values.reasoning_options.length > 0
               ? JSON.stringify(values.reasoning_options)
@@ -406,6 +418,30 @@ export function ModelMutateDrawer({
                     </FormControl>
                     <FormDescription>
                       {t('Press Enter or comma to add tags')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='purposes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Model Purposes')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        selected={field.value || []}
+                        onChange={field.onChange}
+                        options={getModelPurposeOptions(t)}
+                        placeholder={t('Select purposes...')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Select the intended uses for this model (returned via /v1/models)'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

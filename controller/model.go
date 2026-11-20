@@ -172,6 +172,7 @@ func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.Open
 	oaiModel.SupportImageInput = caps.SupportImageInput
 	oaiModel.SupportVideoInput = caps.SupportVideoInput
 	oaiModel.ReasoningOptions = caps.ReasoningOptions
+	oaiModel.Purposes = caps.Purposes
 	return oaiModel
 }
 
@@ -389,6 +390,8 @@ func RetrieveModel(c *gin.Context, modelType int) {
 		aiModel.SupportImageInput = caps.SupportImageInput
 		aiModel.SupportVideoInput = caps.SupportVideoInput
 		aiModel.ReasoningOptions = caps.ReasoningOptions
+		aiModel.Purposes = caps.Purposes
+
 		switch modelType {
 		case constant.ChannelTypeAnthropic:
 			c.JSON(200, dto.AnthropicModel{

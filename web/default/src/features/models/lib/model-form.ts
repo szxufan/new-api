@@ -45,6 +45,7 @@ export const modelFormSchema = z.object({
   support_image_input: z.boolean().default(false),
   support_video_input: z.boolean().default(false),
   reasoning_options: z.array(z.string()).default([]),
+  purposes: z.array(z.string()).default([]),
 })
 
 export type ModelFormValues = z.infer<typeof modelFormSchema>
@@ -92,6 +93,7 @@ export function transformModelToFormDefaults(model: Model): ModelFormValues {
     support_image_input: model.support_image_input || false,
     support_video_input: model.support_video_input || false,
     reasoning_options: parseReasoningOptions(model.reasoning_options),
+    purposes: parseModelPurposes(model.purposes),
   }
 }
 
@@ -119,6 +121,7 @@ export function transformFormDataToModelPayload(
     support_image_input: formData.support_image_input,
     support_video_input: formData.support_video_input,
     reasoning_options: formatReasoningOptions(formData.reasoning_options),
+    purposes: formatModelPurposes(formData.purposes),
   }
 }
 
@@ -142,6 +145,27 @@ export function parseReasoningOptions(value?: string): string[] {
  */
 export function formatReasoningOptions(options: string[]): string {
   return options.length > 0 ? JSON.stringify(options) : ''
+}
+
+/**
+ * 后端 purposes 存储为 JSON 数组字符串，表单中使用字符串数组。
+ * 非法数据按空数组处理，历史自定义用途字符串保留用于回显。
+ */
+export function parseModelPurposes(value?: string): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/** Format model purposes as a JSON array string, or an empty string to clear. */
+export function formatModelPurposes(purposes: string[]): string {
+  return purposes.length > 0 ? JSON.stringify(purposes) : ''
 }
 
 // ============================================================================

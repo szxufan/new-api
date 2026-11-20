@@ -87,6 +87,12 @@ func CreateModelMeta(c *gin.Context) {
 		common.ApiErrorMsg(c, "模型名称不能为空")
 		return
 	}
+	normalizedPurposes, err := model.NormalizeModelPurposes(m.Purposes)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	m.Purposes = normalizedPurposes
 	// 名称冲突检查
 	if dup, err := model.IsModelNameDuplicated(0, m.ModelName); err != nil {
 		common.ApiError(c, err)
@@ -125,6 +131,12 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 	} else {
+		normalizedPurposes, err := model.NormalizeModelPurposes(m.Purposes)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		m.Purposes = normalizedPurposes
 		// 名称冲突检查
 		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
 			common.ApiError(c, err)
