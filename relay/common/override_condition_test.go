@@ -71,6 +71,21 @@ func TestConditionCompareOnObjectAndArray(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "missing path does not match when inverted",
+			cond: ConditionOperation{Path: "missing", Mode: "contains", Value: "x", Invert: true},
+			want: false,
+		},
+		{
+			name: "missing path passes when inverted with pass_missing_key",
+			cond: ConditionOperation{Path: "missing", Mode: "contains", Value: "x", PassMissingKey: true, Invert: true},
+			want: true,
+		},
+		{
+			name: "existing path rejected when contains is inverted",
+			cond: ConditionOperation{Path: "arr", Mode: "contains", Value: "0", Invert: true},
+			want: false,
+		},
+		{
 			name:    "numeric mode with non-number field fails request",
 			cond:    ConditionOperation{Path: "obj", Mode: "gt", Value: 1},
 			want:    false,

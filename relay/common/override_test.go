@@ -2285,6 +2285,282 @@ func TestShouldAuditParamPathUsesFieldBoundaryPrefixMatching(t *testing.T) {
 	require.False(t, shouldAuditParamPath("message"))
 }
 
+func TestApplyParamOverrideAppendMissingPathWithAsArray(t *testing.T) {
+	input := []byte(`{"model":"deepseek-flash"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"as":    "array",
+				"value": []interface{}{map[string]interface{}{"type": "deepseek_web_search"}},
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"deepseek-flash","tools":[{"type":"deepseek_web_search"}]}`, string(out))
+}
+
+func TestApplyParamOverrideAppendMissingPathWithAsArrayWrapsScalar(t *testing.T) {
+	input := []byte(`{"model":"gpt-4"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "stop",
+				"mode":  "append",
+				"as":    "array",
+				"value": "END",
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"gpt-4","stop":["END"]}`, string(out))
+}
+
+func TestApplyParamOverridePrependMissingPathWithAsString(t *testing.T) {
+	input := []byte(`{"model":"gpt-4"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "model_prefix",
+				"mode":  "prepend",
+				"as":    "string",
+				"value": "openai/",
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"gpt-4","model_prefix":"openai/"}`, string(out))
+}
+
+func TestApplyParamOverrideAppendMissingPathWithAsObject(t *testing.T) {
+	input := []byte(`{"model":"gpt-4"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "metadata",
+				"mode":  "append",
+				"as":    "object",
+				"value": map[string]interface{}{"source": "new-api"},
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"gpt-4","metadata":{"source":"new-api"}}`, string(out))
+}
+
+func TestApplyParamOverrideAppendNullPathWithAsArray(t *testing.T) {
+	input := []byte(`{"model":"deepseek-flash","tools":null}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"as":    "array",
+				"value": []interface{}{map[string]interface{}{"type": "deepseek_web_search"}},
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"deepseek-flash","tools":[{"type":"deepseek_web_search"}]}`, string(out))
+}
+
+func TestApplyParamOverrideAppendMissingPathWithoutAsFails(t *testing.T) {
+	input := []byte(`{"model":"deepseek-flash"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"value": []interface{}{map[string]interface{}{"type": "deepseek_web_search"}},
+			},
+		},
+	}
+
+	_, err := ApplyParamOverride(input, override, nil)
+	if err == nil {
+		t.Fatal("expected error when path is missing and as is not set")
+	}
+	require.Contains(t, err.Error(), `set "as" to "array", "string" or "object"`)
+}
+
+func TestApplyParamOverrideAsRejectsUnsupportedMode(t *testing.T) {
+	input := []byte(`{"model":"gpt-4"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "set",
+				"as":    "array",
+				"value": []interface{}{},
+			},
+		},
+	}
+
+	_, err := ApplyParamOverride(input, override, nil)
+	if err == nil {
+		t.Fatal("expected error when as is used with set")
+	}
+	require.Contains(t, err.Error(), `does not support "as"`)
+}
+
+func TestApplyParamOverrideAsRejectsUnknownKind(t *testing.T) {
+	input := []byte(`{"model":"gpt-4"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "count",
+				"mode":  "append",
+				"as":    "number",
+				"value": 1,
+			},
+		},
+	}
+
+	_, err := ApplyParamOverride(input, override, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown as kind")
+	}
+	require.Contains(t, err.Error(), `unsupported "as" value`)
+}
+
+func TestApplyParamOverrideAsRejectsUnknownKindEvenWhenPathExists(t *testing.T) {
+	input := []byte(`{"tools":[{"type":"function"}]}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"as":    "arrays",
+				"value": []interface{}{map[string]interface{}{"type": "deepseek_web_search"}},
+			},
+		},
+	}
+
+	_, err := ApplyParamOverride(input, override, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown as kind even when the path exists")
+	}
+	require.Contains(t, err.Error(), `unsupported "as" value`)
+}
+
+func TestApplyParamOverrideAsNormalizesValue(t *testing.T) {
+	input := []byte(`{"model":"deepseek-flash"}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"as":    " Array ",
+				"value": []interface{}{map[string]interface{}{"type": "deepseek_web_search"}},
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	assertJSONEqual(t, `{"model":"deepseek-flash","tools":[{"type":"deepseek_web_search"}]}`, string(out))
+}
+
+func TestApplyParamOverrideAsOnlyAppliesWhenPathMissing(t *testing.T) {
+	input := []byte(`{"tools":[{"type":"function","function":{"name":"foo"}}]}`)
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path":  "tools",
+				"mode":  "append",
+				"as":    "string",
+				"value": map[string]interface{}{"type": "deepseek_web_search"},
+			},
+		},
+	}
+
+	out, err := ApplyParamOverride(input, override, nil)
+	if err != nil {
+		t.Fatalf("ApplyParamOverride returned error: %v", err)
+	}
+	// 路径已存在时沿用原数组追加语义，as 不参与
+	assertJSONEqual(t, `{"tools":[{"type":"function","function":{"name":"foo"}},{"type":"deepseek_web_search"}]}`, string(out))
+}
+
+func TestApplyParamOverrideAppendWithAsAndConditionInjectsDeepSeekWebToolOnce(t *testing.T) {
+	override := map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"path": "tools",
+				"mode": "append",
+				"as":   "array",
+				"value": []interface{}{
+					map[string]interface{}{"type": "deepseek_web_search"},
+				},
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"path":             "tools",
+						"mode":             "contains",
+						"value":            "deepseek_web_search",
+						"invert":           true,
+						"pass_missing_key": true,
+					},
+				},
+			},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no tools",
+			input: `{"model":"deepseek-flash","messages":[]}`,
+			want:  `{"model":"deepseek-flash","messages":[],"tools":[{"type":"deepseek_web_search"}]}`,
+		},
+		{
+			name:  "existing function tool",
+			input: `{"model":"deepseek-flash","tools":[{"type":"function","function":{"name":"foo"}}]}`,
+			want:  `{"model":"deepseek-flash","tools":[{"type":"function","function":{"name":"foo"}},{"type":"deepseek_web_search"}]}`,
+		},
+		{
+			name:  "already declared",
+			input: `{"model":"deepseek-flash","tools":[{"type":"deepseek_web_search"}]}`,
+			want:  `{"model":"deepseek-flash","tools":[{"type":"deepseek_web_search"}]}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := ApplyParamOverride([]byte(tc.input), override, nil)
+			if err != nil {
+				t.Fatalf("ApplyParamOverride returned error: %v", err)
+			}
+			assertJSONEqual(t, tc.want, string(out))
+		})
+	}
+}
+
 func assertJSONEqual(t *testing.T, want, got string) {
 	t.Helper()
 

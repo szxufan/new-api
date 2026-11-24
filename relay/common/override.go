@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,10 +56,13 @@ type ConditionOperation struct {
 }
 
 type ParamOperation struct {
-	Path       string               `json:"path"`
-	Mode       string               `json:"mode"` // delete, set, move, copy, prepend, append, trim_prefix, trim_suffix, ensure_prefix, ensure_suffix, trim_space, to_lower, to_upper, replace, regex_replace, return_error, prune_objects, set_header, delete_header, copy_header, move_header, pass_headers, sync_fields
-	Value      interface{}          `json:"value"`
-	KeepOrigin bool                 `json:"keep_origin"`
+	Path       string      `json:"path"`
+	Mode       string      `json:"mode"` // delete, set, move, copy, prepend, append, trim_prefix, trim_suffix, ensure_prefix, ensure_suffix, trim_space, to_lower, to_upper, replace, regex_replace, return_error, prune_objects, set_header, delete_header, copy_header, move_header, pass_headers, sync_fields
+	Value      interface{} `json:"value"`
+	KeepOrigin bool        `json:"keep_origin"`
+	// As 用于 append/prepend 且目标路径不存在时显式声明要创建的容器类型，
+	// 取值为 array / string / object。为空时保持原有行为（报错）。
+	As         string               `json:"as,omitempty"`
 	From       string               `json:"from,omitempty"`
 	To         string               `json:"to,omitempty"`
 	Conditions []ConditionOperation `json:"conditions,omitempty"` // 条件列表
@@ -483,6 +487,9 @@ func tryParseOperations(paramOverride map[string]interface{}) ([]ParamOperation,
 		if keepOrigin, ok := opMap["keep_origin"].(bool); ok {
 			operation.KeepOrigin = keepOrigin
 		}
+		if asValue, ok := opMap["as"].(string); ok {
+			operation.As = asValue
+		}
 		if from, ok := opMap["from"].(string); ok {
 			operation.From = from
 		}
@@ -536,6 +543,10 @@ func checkSingleCondition(data []byte, contextJSON string, condition ConditionOp
 		value = gjson.Get(contextJSON, condition.Path)
 	}
 	if !value.Exists() {
+		// 字段缺失时只由 pass_missing_key 决定，invert 不参与：
+		// 「取反 + 缺失时通过」即表示「字段不存在或未匹配时执行」。
+		// 若让 invert 作用于缺失结果，已有配置（含 prune_objects）
+		// 在字段缺失时的行为会静默反转。
 		if condition.PassMissingKey {
 			return true, nil
 		}
@@ -740,6 +751,9 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 
 	result := jsonData
 	for _, op := range operations {
+		if err := validateOperationAs(op.Mode, op.As); err != nil {
+			return nil, err
+		}
 		// 检查条件是否满足
 		ok, err := checkConditions(result, contextJSON, op.Conditions, op.Logic)
 		if err != nil {
@@ -800,7 +814,7 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 			}
 		case "prepend":
 			for _, path := range opPaths {
-				result, err = modifyValue(result, path, op.Value, op.KeepOrigin, true)
+				result, err = modifyValue(result, path, op.Value, op.KeepOrigin, true, op.As)
 				if err != nil {
 					break
 				}
@@ -808,7 +822,7 @@ func applyOperations(jsonData []byte, operations []ParamOperation, conditionCont
 			}
 		case "append":
 			for _, path := range opPaths {
-				result, err = modifyValue(result, path, op.Value, op.KeepOrigin, false)
+				result, err = modifyValue(result, path, op.Value, op.KeepOrigin, false, op.As)
 				if err != nil {
 					break
 				}
@@ -1656,8 +1670,14 @@ func deleteValue(data []byte, path string) ([]byte, error) {
 	return sjson.DeleteBytes(data, path)
 }
 
-func modifyValue(data []byte, path string, value interface{}, keepOrigin, isPrepend bool) ([]byte, error) {
+// modifyValue 对 append/prepend 做值改写。
+// asType 仅用于目标路径不存在（或值为 null）时显式声明要创建的容器类型，
+// 避免 append/prepend 因可选字段缺失而让整个请求失败。
+func modifyValue(data []byte, path string, value interface{}, keepOrigin, isPrepend bool, asType string) ([]byte, error) {
 	current := gjson.GetBytes(data, path)
+	if !current.Exists() || current.Type == gjson.Null {
+		return createValueForMissingPath(data, path, value, asType)
+	}
 	switch {
 	case current.IsArray():
 		return modifyArray(data, path, value, isPrepend)
@@ -1667,6 +1687,64 @@ func modifyValue(data []byte, path string, value interface{}, keepOrigin, isPrep
 		return mergeObjects(data, path, value, keepOrigin)
 	}
 	return data, fmt.Errorf("operation not supported for type: %v", current.Type)
+}
+
+// validateOperationAs 在执行任何操作前校验 as，让配置错误在第一个请求就暴露，
+// 而不是等到目标路径恰好缺失时才报错。
+// as 只用于 append/prepend 在目标路径缺失时创建容器，
+// 其他模式携带 as 属于配置错误，直接拒绝以免静默忽略。
+func validateOperationAs(mode, asType string) error {
+	if asType == "" {
+		return nil
+	}
+	if mode != "append" && mode != "prepend" {
+		return fmt.Errorf("operation %s does not support \"as\"", mode)
+	}
+	switch strings.ToLower(strings.TrimSpace(asType)) {
+	case "array", "string", "object":
+		return nil
+	default:
+		return fmt.Errorf("unsupported \"as\" value %q (expected array, string or object)", asType)
+	}
+}
+
+// createValueForMissingPath 按 asType 在缺失路径上创建初始容器。
+// 未声明 asType 时保持原有报错行为，让配置问题尽早暴露。
+func createValueForMissingPath(data []byte, path string, value interface{}, asType string) ([]byte, error) {
+	normalized := strings.ToLower(strings.TrimSpace(asType))
+	if normalized == "" {
+		return data, fmt.Errorf("path %q does not exist; set \"as\" to \"array\", \"string\" or \"object\" to create it", path)
+	}
+	if value == nil {
+		return data, fmt.Errorf("operation on missing path %q requires a value", path)
+	}
+
+	raw, err := common.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	valueType := common.GetJsonType(json.RawMessage(raw))
+
+	switch normalized {
+	case "array":
+		if valueType == "array" {
+			return sjson.SetRawBytes(data, path, raw)
+		}
+		// 标量包成单元素数组，与 modifyArray 对标量的处理保持一致
+		return sjson.SetBytes(data, path, []interface{}{value})
+	case "string":
+		if valueType == "array" || valueType == "object" {
+			return data, fmt.Errorf("operation on missing path %q with as=string requires a scalar value", path)
+		}
+		return sjson.SetBytes(data, path, fmt.Sprintf("%v", value))
+	case "object":
+		if valueType != "object" {
+			return data, fmt.Errorf("operation on missing path %q with as=object requires an object value", path)
+		}
+		return sjson.SetRawBytes(data, path, raw)
+	default:
+		return data, fmt.Errorf("unsupported \"as\" value %q (expected array, string or object)", asType)
+	}
 }
 
 func modifyArray(data []byte, path string, value interface{}, isPrepend bool) ([]byte, error) {

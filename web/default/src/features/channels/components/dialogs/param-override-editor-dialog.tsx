@@ -93,6 +93,7 @@ type ParamOverrideOperation = {
   to: string
   value_text: string
   keep_origin: boolean
+  as_type: string
   logic: string
   conditions: ParamOverrideCondition[]
 }
@@ -188,12 +189,13 @@ const MODE_META: Record<
     to?: boolean
     keepOrigin?: boolean
     pathAlias?: boolean
+    as?: boolean
   }
 > = {
   delete: { path: true },
   set: { path: true, value: true, keepOrigin: true },
-  append: { path: true, value: true, keepOrigin: true },
-  prepend: { path: true, value: true, keepOrigin: true },
+  append: { path: true, value: true, keepOrigin: true, as: true },
+  prepend: { path: true, value: true, keepOrigin: true, as: true },
   copy: { from: true, to: true },
   move: { from: true, to: true },
   replace: { path: true, from: true, to: false },
@@ -214,6 +216,18 @@ const MODE_META: Record<
   copy_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
   move_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
 }
+
+// append/prepend 在目标字段不存在时默认报错，需要通过 as 显式声明要创建的容器类型。
+const CREATE_AS_NONE_VALUE = 'none'
+
+const CREATE_AS_OPTIONS = [
+  { label: 'Do not create (default)', value: CREATE_AS_NONE_VALUE },
+  { label: 'Array', value: 'array' },
+  { label: 'String', value: 'string' },
+  { label: 'Object', value: 'object' },
+]
+
+const CREATE_AS_VALUES = new Set(['array', 'string', 'object'])
 
 // 这些 mode 的 value 只用于请求头，不会写进请求体，
 // 因此不展示「将按 JSON/纯文本发送」的请求体类型提示。
@@ -322,6 +336,47 @@ const GEMINI_IMAGE_4K_TEMPLATE = {
         { path: 'original_model', mode: 'suffix', value: '4k' },
       ],
       logic: 'AND',
+    },
+  ],
+}
+
+// 两个 condition 都是 invert + pass_missing_key：客户端已声明该工具时跳过，
+// 请求未携带 tools（字段缺失）时照样注入。
+export const DEEPSEEK_WEB_TOOLS_TEMPLATE = {
+  operations: [
+    {
+      description:
+        'Append DeepSeek server-side web search tool when it is not declared. Requires the deepseek-flash model.',
+      path: 'tools',
+      mode: 'append',
+      as: 'array',
+      value: [{ type: 'deepseek_web_search' }],
+      conditions: [
+        {
+          path: 'tools',
+          mode: 'contains',
+          value: 'deepseek_web_search',
+          invert: true,
+          pass_missing_key: true,
+        },
+      ],
+    },
+    {
+      description:
+        'Append deepseek_read_url so the model can read links in the last user message.',
+      path: 'tools',
+      mode: 'append',
+      as: 'array',
+      value: [{ type: 'deepseek_read_url' }],
+      conditions: [
+        {
+          path: 'tools',
+          mode: 'contains',
+          value: 'deepseek_read_url',
+          invert: true,
+          pass_missing_key: true,
+        },
+      ],
     },
   ],
 }
@@ -438,6 +493,11 @@ const TEMPLATE_PRESET_CONFIG: Record<string, TemplatePresetConfig> = {
     kind: 'operations',
     payload: GEMINI_IMAGE_4K_TEMPLATE,
   },
+  deepseek_web_tools: {
+    label: 'DeepSeek Web Tools',
+    kind: 'operations',
+    payload: DEEPSEEK_WEB_TOOLS_TEMPLATE,
+  },
   claude_cli_headers_passthrough: {
     label: 'Claude CLI Header Passthrough',
     kind: 'operations',
@@ -538,6 +598,10 @@ const normalizeOperation = (
     : 'set',
   value_text: toValueText(operation.value),
   keep_origin: operation.keep_origin === true,
+  as_type:
+    typeof operation.as === 'string' && CREATE_AS_VALUES.has(operation.as)
+      ? operation.as
+      : '',
   from: typeof operation.from === 'string' ? operation.from : '',
   to: typeof operation.to === 'string' ? operation.to : '',
   logic: String(operation.logic || 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR',
@@ -1122,6 +1186,7 @@ const buildOperationsJson = (
     if (meta.pathOptional && pathValue) payload.path = pathValue
     if (meta.value) payload.value = parseLooseValue(operation.value_text)
     if (meta.keepOrigin && operation.keep_origin) payload.keep_origin = true
+    if (meta.as && operation.as_type) payload.as = operation.as_type
     if (meta.from) payload.from = fromValue
     if (!meta.to && operation.to.trim()) payload.to = toValue
     if (meta.to) payload.to = toValue
@@ -1306,6 +1371,7 @@ export function ParamOverrideEditorDialog(
         mode: source.mode,
         value: parseLooseValue(source.value_text),
         keep_origin: source.keep_origin,
+        as: source.as_type,
         from: source.from,
         to: source.to,
         logic: source.logic,
@@ -2377,6 +2443,46 @@ function RuleEditor(ruleEditorProps: RuleEditorProps) {
                 })
               }
             />
+          </div>
+        )}
+
+        {/* as：目标字段不存在时创建容器 */}
+        {meta.as && (
+          <div className='space-y-1.5'>
+            <label className='text-xs font-medium'>
+              {t('Create when the target field is missing (optional)')}
+            </label>
+            <Select
+              items={CREATE_AS_OPTIONS.map((o) => ({
+                value: o.value,
+                label: t(o.label),
+              }))}
+              value={operation.as_type || CREATE_AS_NONE_VALUE}
+              onValueChange={(next) =>
+                next !== null &&
+                ruleEditorProps.updateOperation(operation.id, {
+                  as_type: next === CREATE_AS_NONE_VALUE ? '' : next,
+                })
+              }
+            >
+              <SelectTrigger className='h-9'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  {CREATE_AS_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {t(o.label)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Only used when the target field does not exist. Without it, append/prepend fails on a missing field.'
+              )}
+            </p>
           </div>
         )}
 
