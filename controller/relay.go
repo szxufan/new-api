@@ -75,7 +75,7 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 // executeRelayHandler 根据 relayFormat 分发到对应的 relay handler。
 func executeRelayHandler(c *gin.Context, relayInfo *relaycommon.RelayInfo, relayFormat types.RelayFormat) *types.NewAPIError {
 	switch relayFormat {
-	case types.RelayFormatOpenAIRealtime:
+	case types.RelayFormatOpenAIRealtime, types.RelayFormatDashScopeInference:
 		return relay.WssHelper(c, relayInfo)
 	case types.RelayFormatClaude:
 		return relay.ClaudeHelper(c, relayInfo)
@@ -357,6 +357,45 @@ func tryFallbackChannels(
 	return lastError
 }
 
+// prepareDashScopeInferenceRelay 在原生客户端未提供 ?model= 时读取首个 run-task，
+// 用 payload.model 完成选渠，并保留首帧供协议泵在连接上游后补发。
+func prepareDashScopeInferenceRelay(c *gin.Context, ws *websocket.Conn) *types.NewAPIError {
+	_ = ws.SetReadDeadline(time.Now().Add(30 * time.Second))
+	messageType, message, err := ws.ReadMessage()
+	_ = ws.SetReadDeadline(time.Time{})
+	if err != nil {
+		return types.NewError(fmt.Errorf("read first dashscope inference frame failed: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if messageType != websocket.TextMessage {
+		return types.NewError(errors.New("first dashscope inference frame must be a run-task text frame"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	var frame struct {
+		Header struct {
+			Action string `json:"action"`
+		} `json:"header"`
+		Payload struct {
+			Model string `json:"model"`
+		} `json:"payload"`
+	}
+	if err := common.Unmarshal(message, &frame); err != nil {
+		return types.NewError(fmt.Errorf("invalid first dashscope inference frame: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	if frame.Header.Action != "run-task" || frame.Payload.Model == "" {
+		return types.NewError(errors.New("first dashscope inference frame must be run-task with payload.model"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	c.Set("first_wss_request", message)
+	c.Set("first_wss_request_type", messageType)
+	query := c.Request.URL.Query()
+	query.Set("model", frame.Payload.Model)
+	c.Request.URL.RawQuery = query.Encode()
+
+	// 首次 Distribute 在模型缺失时只跳过选渠；现在模型已知，重新执行完整分发。
+	middleware.Distribute()(c)
+	return nil
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -371,7 +410,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		ws          *websocket.Conn
 	)
 
-	if relayFormat == types.RelayFormatOpenAIRealtime {
+	if relayFormat == types.RelayFormatOpenAIRealtime || relayFormat == types.RelayFormatDashScopeInference {
 		var err error
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -379,6 +418,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		defer ws.Close()
+		if relayFormat == types.RelayFormatDashScopeInference {
+			c.Set("dashscope_inference_error_writer", func(apiErr *types.NewAPIError) {
+				helper.WssDashScopeError(c, ws, apiErr)
+			})
+		}
 	}
 
 	defer func() {
@@ -387,13 +431,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			// 流式响应已提交（HTTP 200 已随保活/部分数据发出）时，状态码无法再变更，
 			// 裸 JSON 也不是合法 SSE 帧会被客户端静默忽略，改为向流内写入 SSE 错误帧
-			if relayFormat != types.RelayFormatOpenAIRealtime && helper.IsStreamResponseCommitted(c) {
+			if relayFormat != types.RelayFormatOpenAIRealtime && relayFormat != types.RelayFormatDashScopeInference && helper.IsStreamResponseCommitted(c) {
 				helper.WriteStreamError(c, relayFormat, newAPIError)
 				return
 			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
+			case types.RelayFormatDashScopeInference:
+				helper.WssDashScopeError(c, ws, newAPIError)
 			case types.RelayFormatClaude:
 				c.JSON(newAPIError.StatusCode, gin.H{
 					"type":  "error",
@@ -406,6 +452,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 	}()
+
+	if relayFormat == types.RelayFormatDashScopeInference && c.Query("model") == "" {
+		newAPIError = prepareDashScopeInferenceRelay(c, ws)
+		if newAPIError != nil || c.IsAborted() {
+			return
+		}
+	}
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {

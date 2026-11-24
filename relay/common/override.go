@@ -591,6 +591,14 @@ func processNegativeIndex(data []byte, path string) string {
 }
 
 // compareGjsonValues 直接比较两个gjson.Result，支持所有比较模式
+//
+// 注意：除 gt/gte/lt/lte 外，其余模式都会先用 Result.String() 把字段值转成文本再比较：
+//   - 字符串：字符串本身；
+//   - 数字/布尔：其文本形式（如 "10"、"true"）；
+//   - 对象/数组：原始 JSON 原文，键名、值、括号都参与匹配，并保留请求体中的空格与键顺序；
+//   - null：空字符串，因此 contains "" 恒为 true。
+//
+// full 在两侧类型不同时返回 error（而非判为不匹配），该 error 会终止本次请求。
 func compareGjsonValues(jsonValue, targetValue gjson.Result, mode string) (bool, error) {
 	switch mode {
 	case "full":

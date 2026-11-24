@@ -186,7 +186,7 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 		return 0, errors.New("token count meta is nil")
 	}
 
-	if info.RelayFormat == types.RelayFormatOpenAIRealtime {
+	if info.RelayFormat == types.RelayFormatOpenAIRealtime || info.RelayFormat == types.RelayFormatDashScopeInference {
 		return 0, nil
 	}
 	if info.RelayMode == constant2.RelayModeAudioTranscription || info.RelayMode == constant2.RelayModeAudioTranslation || info.RelayMode == constant2.RelayModeToolsASR {

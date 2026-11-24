@@ -60,6 +60,8 @@ const (
 
 	RelayModeToolsTTS // DeepSeek 原生 /v1/tools/tts
 	RelayModeToolsASR // DeepSeek 原生 /v1/tools/asr
+
+	RelayModeDashScopeInference // DashScope 原生推理 WebSocket /api-ws/v1/inference
 )
 
 func Path2RelayMode(path string) int {
@@ -104,6 +106,8 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeToolsASR
 	} else if strings.HasPrefix(path, "/v1/realtime") {
 		relayMode = RelayModeRealtime
+	} else if strings.HasPrefix(path, "/api-ws/v1/inference") {
+		relayMode = RelayModeDashScopeInference
 	} else if strings.HasPrefix(path, "/v1beta/models") || strings.HasPrefix(path, "/v1/models") {
 		relayMode = RelayModeGemini
 	} else if strings.HasPrefix(path, "/mj") {

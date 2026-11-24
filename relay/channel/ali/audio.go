@@ -23,6 +23,9 @@ import (
 // 上下文键：保存客户端请求的原始 OpenAI response_format，供响应阶段使用
 const contextKeyAliAudioResponseFormat = "ali_audio_response_format"
 
+// 上下文键：保存向上游请求的 PCM 采样率，供计费阶段估算音频时长
+const contextKeyAliAudioSampleRate = "ali_audio_sample_rate"
+
 // ----- 模型路由（按模型家族选择上游端点与请求格式） -----
 
 // Qwen-TTS 系列走 multimodal-generation 接口
@@ -37,6 +40,11 @@ func isAliSpeechSynthesizerModel(modelName string) bool {
 	return strings.Contains(name, "cosyvoice") || strings.Contains(name, "qwen-audio-3.0-tts")
 }
 
+// Sambert 系列音色即模型（如 sambert-zhichu-v1），走旧版 SpeechSynthesizer HTTP 接口
+func isAliSambertModel(modelName string) bool {
+	return strings.HasPrefix(strings.ToLower(modelName), "sambert")
+}
+
 // Qwen3-ASR 支持 OpenAI 兼容模式
 func isAliASRCompatibleModel(modelName string) bool {
 	return strings.Contains(strings.ToLower(modelName), "qwen3-asr")
@@ -49,7 +57,7 @@ func isAliASRMultimodalModel(modelName string) bool {
 }
 
 func aliTTSSupportsModel(modelName string) bool {
-	return isAliQwenTTSModel(modelName) || isAliSpeechSynthesizerModel(modelName)
+	return isAliQwenTTSModel(modelName) || isAliSpeechSynthesizerModel(modelName) || isAliSambertModel(modelName)
 }
 
 func aliASRSupportsModel(modelName string) bool {
@@ -71,6 +79,25 @@ type aliTTSInput struct {
 type aliTTSRequest struct {
 	Model string      `json:"model"`
 	Input aliTTSInput `json:"input"`
+}
+
+// Sambert 请求：合成参数位于顶层 parameters（区别于 cosyvoice 内嵌在 input 中），
+// 音色由模型名决定（如 sambert-zhichu-v1），不接受 voice 字段
+type aliSambertInput struct {
+	Text string `json:"text"`
+}
+
+type aliSambertParameters struct {
+	TextType   string   `json:"text_type"`
+	Format     string   `json:"format,omitempty"`
+	SampleRate int      `json:"sample_rate,omitempty"`
+	Rate       *float64 `json:"rate,omitempty"`
+}
+
+type aliSambertRequest struct {
+	Model      string               `json:"model"`
+	Input      aliSambertInput      `json:"input"`
+	Parameters aliSambertParameters `json:"parameters"`
 }
 
 type aliASRInputAudio struct {
@@ -143,11 +170,18 @@ func convertAliSpeechRequest(c *gin.Context, info *relaycommon.RelayInfo, reques
 		return nil, errors.New("input is required")
 	}
 	if !aliTTSSupportsModel(info.UpstreamModelName) {
-		return nil, fmt.Errorf("model %s does not support TTS on ali, supported: cosyvoice*/qwen-audio-3.0-tts*/qwen3-tts*/qwen-tts*", info.UpstreamModelName)
+		return nil, fmt.Errorf("model %s does not support TTS on ali, supported: cosyvoice*/qwen-audio-3.0-tts*/qwen3-tts*/qwen-tts*/sambert*", info.UpstreamModelName)
 	}
 
 	audioFormat, _ := mapAliTTSFormat(request.ResponseFormat)
 	c.Set(contextKeyAliAudioResponseFormat, request.ResponseFormat)
+
+	if isAliSambertModel(info.UpstreamModelName) {
+		return convertAliSambertSpeechRequest(c, info, request, audioFormat)
+	}
+
+	// cosyvoice / qwen-tts 的 PCM 输出为 24kHz/16bit/mono
+	c.Set(contextKeyAliAudioSampleRate, 24000)
 
 	input := aliTTSInput{Text: request.Input}
 
@@ -181,6 +215,33 @@ func convertAliSpeechRequest(c *gin.Context, info *relaycommon.RelayInfo, reques
 	jsonData, err := common.Marshal(aliReq)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling ali tts request: %w", err)
+	}
+	return bytes.NewReader(jsonData), nil
+}
+
+// convertAliSambertSpeechRequest 构造 Sambert 旧版 HTTP 请求（SpeechSynthesizer 端点）。
+// Sambert 不支持流式输入，文本一次性提交；音色包含在模型名中，忽略客户端 voice。
+func convertAliSambertSpeechRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest, audioFormat string) (io.Reader, error) {
+	params := aliSambertParameters{
+		TextType:   "PlainText",
+		Format:     audioFormat,
+		SampleRate: 16000,
+	}
+	if request.Speed != nil {
+		// OpenAI speed 范围 0.25~4.0，Sambert rate 仅支持 0.5~2.0，越界时收敛到边界
+		rate := math.Min(math.Max(*request.Speed, 0.5), 2.0)
+		params.Rate = &rate
+	}
+	c.Set(contextKeyAliAudioSampleRate, params.SampleRate)
+
+	aliReq := aliSambertRequest{
+		Model:      info.UpstreamModelName,
+		Input:      aliSambertInput{Text: request.Input},
+		Parameters: params,
+	}
+	jsonData, err := common.Marshal(aliReq)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling ali sambert request: %w", err)
 	}
 	return bytes.NewReader(jsonData), nil
 }
@@ -372,8 +433,12 @@ func buildAliTTSUsage(c *gin.Context, info *relaycommon.RelayInfo, audioData []b
 
 	var duration float64
 	if contentType == "audio/pcm" {
-		// DashScope PCM 默认 24kHz/16bit/mono
-		duration = float64(len(audioData)) / 48000.0
+		// PCM 16bit/mono，时长按请求采样率计算（cosyvoice/qwen-tts 24kHz，sambert 16kHz）
+		sampleRate := c.GetInt(contextKeyAliAudioSampleRate)
+		if sampleRate <= 0 {
+			sampleRate = 24000
+		}
+		duration = float64(len(audioData)) / float64(sampleRate*2)
 	} else {
 		ext := ".wav"
 		if contentType == "audio/mpeg" {

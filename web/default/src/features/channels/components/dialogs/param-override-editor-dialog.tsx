@@ -63,6 +63,13 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  describeValueText,
+  isStructuredValueMode,
+  parseLooseValue,
+  toValueText,
+  type JsonValueType,
+} from '../../lib/param-override-value'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,6 +160,24 @@ const CONDITION_MODE_VALUES = new Set(
   CONDITION_MODE_OPTIONS.map((o) => o.value)
 )
 
+// 条件比较的实际语义：除 gt/gte/lt/lte 外，其余 mode 都先把字段值转成文本再比较，
+// 对象/数组的文本形式就是其原始 JSON 原文（键名、值、括号都在其中）。
+// 另外 full 在类型不同时不会判为「不匹配」，而是直接让请求失败。
+const getConditionModeHintKey = (mode: string): string => {
+  switch (mode) {
+    case 'full':
+      return 'Must match exactly. Objects/arrays compare by raw JSON text; a type mismatch rejects the request.'
+    case 'prefix':
+      return 'Field text must start with this value. Objects/arrays use their raw JSON text.'
+    case 'suffix':
+      return 'Field text must end with this value. Objects/arrays use their raw JSON text.'
+    case 'contains':
+      return 'Substring match on the field text. Objects/arrays use their raw JSON text, so key names and values both count.'
+    default:
+      return 'Both sides must be numbers, otherwise the request is rejected.'
+  }
+}
+
 const MODE_META: Record<
   string,
   {
@@ -189,6 +214,10 @@ const MODE_META: Record<
   copy_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
   move_header: { from: true, to: true, keepOrigin: true, pathAlias: true },
 }
+
+// 这些 mode 的 value 只用于请求头，不会写进请求体，
+// 因此不展示「将按 JSON/纯文本发送」的请求体类型提示。
+const NON_BODY_VALUE_MODES = new Set(['set_header', 'pass_headers'])
 
 const VALUE_REQUIRED_MODES = new Set([
   'trim_prefix',
@@ -433,26 +462,6 @@ const TEMPLATE_PRESET_CONFIG: Record<string, TemplatePresetConfig> = {
 let localIdSeed = 0
 const nextLocalId = () => `po_${Date.now()}_${localIdSeed++}`
 
-const toValueText = (value: unknown): string => {
-  if (value === undefined) return ''
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
-}
-
-const parseLooseValue = (valueText: string): unknown => {
-  const raw = String(valueText ?? '').trim()
-  if (raw === '') return ''
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return raw
-  }
-}
-
 const verifyJSON = (text: string): boolean => {
   try {
     JSON.parse(text)
@@ -460,6 +469,45 @@ const verifyJSON = (text: string): boolean => {
   } catch {
     return false
   }
+}
+
+const JSON_VALUE_TYPE_LABELS: Record<JsonValueType, string> = {
+  array: 'Will be sent as JSON array',
+  object: 'Will be sent as JSON object',
+  number: 'Will be sent as JSON number',
+  boolean: 'Will be sent as JSON boolean',
+  null: 'Will be sent as JSON null',
+  string: 'Will be sent as JSON string',
+}
+
+// ValueTypeHint 实时展示 Value 文本最终会以什么类型发往上游，
+// 避免「看起来是 JSON，实际被当作纯文本发送」的静默降级。
+const ValueTypeHint = (props: { valueText: string }) => {
+  const { t } = useTranslation()
+  const description = describeValueText(props.valueText)
+  if (description.kind === 'empty') return null
+
+  let label: string
+  if (description.kind === 'invalid-json') {
+    label = t('Invalid JSON, will be sent as plain text')
+  } else if (description.kind === 'json' && description.jsonType) {
+    label = t(JSON_VALUE_TYPE_LABELS[description.jsonType])
+  } else {
+    label = t('Will be sent as plain text')
+  }
+
+  return (
+    <p
+      className={cn(
+        'text-[11px] leading-4',
+        description.kind === 'invalid-json'
+          ? 'text-amber-600 dark:text-amber-500'
+          : 'text-muted-foreground'
+      )}
+    >
+      {label}
+    </p>
+  )
 }
 
 const normalizeCondition = (
@@ -921,6 +969,14 @@ const validateOperations = (
     }
     if (VALUE_REQUIRED_MODES.has(mode) && op.value_text.trim() === '')
       return t('Rule {{line}} is missing value', { line })
+
+    // set/append/prepend 的 value 会被 parseLooseValue 解析；以 { 或 [ 开头但
+    // JSON 非法时会被静默当成纯文本发送，这里直接阻止保存。
+    if (
+      isStructuredValueMode(mode) &&
+      describeValueText(op.value_text).kind === 'invalid-json'
+    )
+      return t('Rule {{line}} value looks like JSON but is invalid', { line })
 
     if (mode === 'return_error') {
       const raw = op.value_text.trim()
@@ -2301,6 +2357,9 @@ function RuleEditor(ruleEditorProps: RuleEditorProps) {
                 rows={3}
                 className='max-h-[200px] resize-y overflow-y-auto font-mono text-xs'
               />
+              {!NON_BODY_VALUE_MODES.has(mode) && (
+                <ValueTypeHint valueText={operation.value_text} />
+              )}
             </div>
           ))}
 
@@ -2602,8 +2661,12 @@ function ConditionEditor(conditionEditorProps: ConditionEditorProps) {
                   placeholder='gpt'
                   className='h-8 text-xs'
                 />
+                <ValueTypeHint valueText={condition.value_text} />
               </div>
             </div>
+            <p className='text-muted-foreground text-[11px] leading-4'>
+              {t(getConditionModeHintKey(condition.mode))}
+            </p>
             <div className='flex flex-wrap gap-4'>
               <label className='flex items-center gap-2 text-xs'>
                 <Switch

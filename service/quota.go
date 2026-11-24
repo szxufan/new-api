@@ -106,20 +106,14 @@ func calculateAudioQuota(info QuotaInfo) int {
 	return int(quota.Round(0).IntPart())
 }
 
-func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
-	if relayInfo.UsePrice {
-		return nil
-	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
-	if err != nil {
-		return err
-	}
+func useWssPrice(relayInfo *relaycommon.RelayInfo) bool {
+	// PriceData 是当前请求定价链路的权威来源；保留旧字段以兼容其他调用方。
+	return relayInfo.UsePrice || relayInfo.PriceData.UsePrice
+}
 
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
-	if err != nil {
-		return err
-	}
-
+// calculateWssQuota 按实时协议的 token 明细计算倍率计费额度。
+// 该函数只计算金额，不读取或扣减用户/令牌余额。
+func calculateWssQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) int {
 	modelName := relayInfo.OriginModelName
 	textInputTokens := usage.InputTokenDetails.TextTokens
 	textOutTokens := usage.OutputTokenDetails.TextTokens
@@ -155,13 +149,80 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 			AudioTokens: audioOutTokens,
 		},
 		ModelName:    modelName,
-		UsePrice:     relayInfo.UsePrice,
+		UsePrice:     useWssPrice(relayInfo),
 		ModelRatio:   modelRatio,
 		GroupRatio:   actualGroupRatio,
 		PriceFactors: &channelPriceFactors,
 	}
+	return calculateAudioQuota(quotaInfo)
+}
 
-	quota := calculateAudioQuota(quotaInfo)
+// ReserveWssQuota 按连接的累计用量追加预扣，供长连接在任务开始前锁定额度。
+// 与 PreWssConsumeQuota 的逐段直接扣费不同，本函数只增加 BillingSession 的预留，
+// 最终仍由 PostWssConsumeQuota/SettleBilling 按实际总用量一次性结算，避免重复扣费。
+func ReserveWssQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
+	if useWssPrice(relayInfo) {
+		return nil
+	}
+	quota := calculateWssQuota(ctx, relayInfo, usage)
+	if tieredOk, tieredQuota, _ := TryTieredSettle(relayInfo, billingexpr.TokenParams{
+		P:   float64(usage.InputTokens),
+		C:   float64(usage.OutputTokens),
+		Len: float64(usage.InputTokens),
+	}); tieredOk {
+		quota = tieredQuota
+	}
+
+	preConsumed := relayInfo.FinalPreConsumedQuota
+	if relayInfo.Billing != nil {
+		preConsumed = relayInfo.Billing.GetPreConsumedQuota()
+	}
+	delta := quota - preConsumed
+	if delta <= 0 {
+		return nil
+	}
+
+	if relayInfo.BillingSource != BillingSourceSubscription {
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
+		if userQuota < delta {
+			return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(delta))
+		}
+	}
+
+	if relayInfo.Billing != nil {
+		// Reserve 内部按 delta 检查并预扣令牌/订阅额度，最终结算会退还多预留部分。
+		return relayInfo.Billing.Reserve(quota)
+	}
+
+	// 无 BillingSession 的兼容路径无法追加预留，只按累计额度做余额检查。
+	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+	if err != nil {
+		return err
+	}
+	if !token.UnlimitedQuota && token.RemainQuota < delta {
+		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(delta))
+	}
+	return nil
+}
+
+func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
+	if useWssPrice(relayInfo) {
+		return nil
+	}
+	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return err
+	}
+
+	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+	if err != nil {
+		return err
+	}
+
+	quota := calculateWssQuota(ctx, relayInfo, usage)
 
 	if userQuota < quota {
 		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))

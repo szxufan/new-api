@@ -126,7 +126,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case constant.RelayModeCompletions:
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/completions", info.ChannelBaseUrl)
 		case constant.RelayModeAudioSpeech:
-			if isAliSpeechSynthesizerModel(info.UpstreamModelName) {
+			if isAliSpeechSynthesizerModel(info.UpstreamModelName) || isAliSambertModel(info.UpstreamModelName) {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/audio/tts/SpeechSynthesizer", info.ChannelBaseUrl)
 			} else {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
@@ -143,6 +143,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 				return "", urlErr
 			}
 			fullRequestURL = realtimeURL
+		case constant.RelayModeDashScopeInference:
+			inferenceURL, urlErr := buildAliInferenceURL(info.ChannelBaseUrl)
+			if urlErr != nil {
+				return "", urlErr
+			}
+			fullRequestURL = inferenceURL
 		default:
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/chat/completions", info.ChannelBaseUrl)
 		}
@@ -154,8 +160,17 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
-	if info.RelayMode == constant.RelayModeRealtime {
+	if info.RelayMode == constant.RelayModeRealtime || info.RelayMode == constant.RelayModeDashScopeInference {
 		// WebSocket 握手仅需 Bearer 鉴权，跳过 SSE/Plugin 等 HTTP 专用头
+		if info.RelayMode == constant.RelayModeDashScopeInference {
+			// 透传客户端可选的 DashScope 业务空间 / 数据合规检测头
+			if workspace := c.GetHeader("X-DashScope-WorkSpace"); workspace != "" {
+				req.Set("X-DashScope-WorkSpace", workspace)
+			}
+			if inspection := c.GetHeader("X-DashScope-DataInspection"); inspection != "" {
+				req.Set("X-DashScope-DataInspection", inspection)
+			}
+		}
 		return nil
 	}
 	if info.RelayMode == constant.RelayModeAudioSpeech || info.RelayMode == constant.RelayModeAudioTranscription {
@@ -279,7 +294,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	if info.RelayMode == constant.RelayModeRealtime {
+	if info.RelayMode == constant.RelayModeRealtime || info.RelayMode == constant.RelayModeDashScopeInference {
 		return channel.DoWssRequest(a, c, info, requestBody)
 	}
 	return channel.DoApiRequest(a, c, info, requestBody)
@@ -313,6 +328,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		case constant.RelayModeRealtime:
 			realtimeErr, realtimeUsage := AliRealtimeHandler(c, info)
 			return realtimeUsage, realtimeErr
+		case constant.RelayModeDashScopeInference:
+			inferenceErr, inferenceUsage := AliInferenceHandler(c, info)
+			return inferenceUsage, inferenceErr
 		default:
 			adaptor := openai.Adaptor{}
 			usage, err = adaptor.DoResponse(c, resp, info)

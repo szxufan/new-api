@@ -23,6 +23,10 @@ var ModelList = []string{
 	"qwen-audio-3.0-tts-flash",
 	"cosyvoice-v3-flash",
 	"cosyvoice-v2",
+	// Sambert（音色即模型，其余 sambert-* 音色可手动添加）
+	"sambert-zhichu-v1",
+	"sambert-zhiying-v1",
+	"sambert-zhimiao-emo-v1",
 	"qwen3-asr-flash",
 	"fun-asr-flash",
 	"qwen-audio-3.0-asr-flash",

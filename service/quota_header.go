@@ -125,7 +125,7 @@ func (w *bufferedResponseWriter) flushBufferToClient(c *gin.Context, force bool)
 // MaybeInstallQuotaHeaderBuffer 当 token 开启"响应返回消耗金额"且为非流式 HTTP 请求时，
 // 用缓冲 writer 包装 c.Writer，延迟到结算金额确定后再注入响应头并冲刷。
 func MaybeInstallQuotaHeaderBuffer(c *gin.Context, relayInfo *relaycommon.RelayInfo, relayFormat types.RelayFormat) {
-	if relayFormat == types.RelayFormatOpenAIRealtime {
+	if relayFormat == types.RelayFormatOpenAIRealtime || relayFormat == types.RelayFormatDashScopeInference {
 		return
 	}
 	if !common.GetContextKeyBool(c, constant.ContextKeyTokenReturnConsumedQuota) {

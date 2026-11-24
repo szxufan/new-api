@@ -41,6 +41,13 @@ func Distribute() func(c *gin.Context) {
 			return
 		}
 
+		// 原生 DashScope 客户端只在首个 run-task 帧中携带模型，握手 URL 不带 ?model=。
+		// 此处暂缓选渠，由 Relay 升级并读取首帧后重新执行本中间件完成分发。
+		if strings.HasPrefix(c.Request.URL.Path, "/api-ws/v1/inference") && modelRequest.Model == "" {
+			c.Next()
+			return
+		}
+
 		if modelRequest.Model != "" && shouldSelectChannel {
 			if fallbackModel := model.GetModelFallbackModel(modelRequest.Model); fallbackModel != "" {
 				applied, fallbackErr := applyMultimodalFallback(c, fallbackModel)
@@ -455,6 +462,11 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
+		modelRequest.Model = c.Query("model")
+	}
+	if strings.HasPrefix(c.Request.URL.Path, "/api-ws/v1/inference") {
+		// DashScope 原生推理 WebSocket：模型在 run-task 帧内，路由模型由查询参数提供
+		//wss://dashscope.aliyuncs.com/api-ws/v1/inference?model=sambert-zhichu-v1
 		modelRequest.Model = c.Query("model")
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/moderations") {

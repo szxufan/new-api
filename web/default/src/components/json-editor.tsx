@@ -16,13 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Code, Table, Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  buildEditorParseState,
+  getEditorParseError,
+  shouldOpenInJsonMode,
+  type EditorParseError,
+  type EditorRow,
+  type EditorValueType,
+} from './json-editor-utils'
 
 type JsonEditorProps = {
   value: string
@@ -34,13 +42,7 @@ type JsonEditorProps = {
   valueLabel?: string
   emptyMessage?: string
   template?: Record<string, unknown>
-  valueType?: 'string' | 'number' | 'any'
-}
-
-type EditorRow = {
-  id: string
-  key: string
-  value: string
+  valueType?: EditorValueType
 }
 
 export function JsonEditor({
@@ -62,38 +64,39 @@ export function JsonEditor({
   const resolvedValuePlaceholder = valuePlaceholder ?? t('Value')
   const resolvedKeyLabel = keyLabel ?? t('Key')
   const resolvedValueLabel = valueLabel ?? t('Value')
-  const [mode, setMode] = useState<'visual' | 'json'>('visual')
-  const [rows, setRows] = useState<EditorRow[]>([])
+  const [mode, setMode] = useState<'visual' | 'json'>(() =>
+    shouldOpenInJsonMode(value) ? 'json' : 'visual'
+  )
+  const [rows, setRows] = useState<EditorRow[]>(
+    () => buildEditorParseState(value, valueType).rows
+  )
+  const [parseError, setParseError] = useState<EditorParseError>(() =>
+    getEditorParseError(buildEditorParseState(value, valueType))
+  )
   const [jsonValue, setJsonValue] = useState(value)
+  const [lastValue, setLastValue] = useState(value)
 
-  const parseJsonToRows = (json: string) => {
-    try {
-      if (!json.trim()) {
-        setRows([])
-        return
+  // 外部 value 变化时在渲染期同步内部状态（React 官方「根据 prop 调整 state」写法），
+  // 避免在 effect 内 setState 造成级联渲染。
+  if (value !== lastValue) {
+    setLastValue(value)
+    if (value !== jsonValue) {
+      setJsonValue(value)
+      const next = buildEditorParseState(value, valueType)
+      setRows(next.rows)
+      setParseError(getEditorParseError(next))
+      // 外部写入嵌套结构（如参数覆盖 operations）时切换到 JSON 模式
+      if (shouldOpenInJsonMode(value)) {
+        setMode('json')
       }
-      const parsed = JSON.parse(json)
-      const newRows: EditorRow[] = Object.entries(parsed).map(
-        ([key, val], index) => ({
-          id: `${Date.now()}-${index}`,
-          key,
-          value: typeof val === 'object' ? JSON.stringify(val) : String(val),
-        })
-      )
-      setRows(newRows)
-    } catch (_error) {
-      // Invalid JSON, keep current rows
     }
   }
 
-  // Parse JSON to rows when value changes externally
-  useEffect(() => {
-    if (value !== jsonValue) {
-      setJsonValue(value)
-      parseJsonToRows(value)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
+  const parseJsonToRows = (json: string) => {
+    const next = buildEditorParseState(json, valueType)
+    setRows(next.rows)
+    setParseError(getEditorParseError(next))
+  }
 
   const convertRowsToJson = (updatedRows: EditorRow[]): string => {
     if (updatedRows.length === 0) {
@@ -265,6 +268,16 @@ export function JsonEditor({
                 </div>
               ))}
             </div>
+          ) : parseError === 'syntax' ? (
+            <div className='flex h-24 items-center justify-center rounded-md border border-dashed px-3 text-center text-sm text-amber-600 dark:text-amber-500'>
+              {t('Invalid JSON. Switch to JSON mode to fix it.')}
+            </div>
+          ) : parseError === 'unsupported-root' ? (
+            <div className='flex h-24 items-center justify-center rounded-md border border-dashed px-3 text-center text-sm text-amber-600 dark:text-amber-500'>
+              {t(
+                'Top-level value is not an object. Switch to JSON mode to edit it.'
+              )}
+            </div>
           ) : (
             <div className='text-muted-foreground flex h-24 items-center justify-center rounded-md border border-dashed text-sm'>
               {resolvedEmptyMessage}
@@ -275,7 +288,7 @@ export function JsonEditor({
             variant='outline'
             size='sm'
             onClick={handleAddRow}
-            disabled={disabled}
+            disabled={disabled || parseError !== 'none'}
             className='w-full'
           >
             <Plus className='mr-2 h-4 w-4' />

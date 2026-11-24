@@ -225,6 +225,24 @@ func WssError(c *gin.Context, ws *websocket.Conn, openaiError types.OpenAIError)
 	_ = WssObject(c, ws, errorObj)
 }
 
+// WssDashScopeError 以 DashScope 原生推理协议的 task-failed 事件返回网关错误。
+// 错误可能发生在 run-task 之前，此时 task_id 为空。
+func WssDashScopeError(c *gin.Context, ws *websocket.Conn, apiError *types.NewAPIError) {
+	if ws == nil || apiError == nil {
+		return
+	}
+	frame := map[string]any{
+		"header": map[string]any{
+			"task_id":       "",
+			"event":         "task-failed",
+			"error_code":    string(apiError.GetErrorCode()),
+			"error_message": apiError.Error(),
+		},
+		"payload": map[string]any{},
+	}
+	_ = WssObject(c, ws, frame)
+}
+
 func GetResponseID(c *gin.Context) string {
 	logID := c.GetString(common.RequestIdKey)
 	return fmt.Sprintf("chatcmpl-%s", logID)

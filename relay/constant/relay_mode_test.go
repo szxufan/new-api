@@ -67,6 +67,12 @@ func TestPath2RelayModeChatCompletionsRegression(t *testing.T) {
 	assert.Equal(t, RelayModeChatCompletions, Path2RelayMode("/pg/chat/completions"))
 }
 
+func TestPath2RelayModeDashScopeInference(t *testing.T) {
+	assert.Equal(t, RelayModeDashScopeInference, Path2RelayMode("/api-ws/v1/inference"))
+	// 实时路径不受影响
+	assert.Equal(t, RelayModeRealtime, Path2RelayMode("/v1/realtime"))
+}
+
 func TestPath2RelayModeUnknown(t *testing.T) {
 	assert.Equal(t, RelayModeUnknown, Path2RelayMode("/pg/unknown/path"))
 }

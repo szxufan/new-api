@@ -21,6 +21,7 @@ var (
 		"tts",
 		"fish-speech",
 		"cosyvoice",
+		"sambert",
 		"minimax-speech",
 		"speech-2.5",
 		"speech-02",

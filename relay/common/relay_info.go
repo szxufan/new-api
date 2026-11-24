@@ -113,19 +113,22 @@ type RelayInfo struct {
 	DisablePing            bool // 是否禁止向下游发送自定义 Ping
 	ClientWs               *websocket.Conn
 	TargetWs               *websocket.Conn
-	InputAudioFormat       string
-	OutputAudioFormat      string
-	RealtimeTools          []dto.RealTimeTool
-	IsFirstRequest         bool
-	AudioUsage             bool
-	ReasoningEffort        string
-	UserSetting            dto.UserSetting
-	UserEmail              string
-	UserQuota              int
-	RelayFormat            types.RelayFormat
-	SendResponseCount      int
-	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	// FirstWsMessage 保存在选渠前读取的首个 WebSocket 帧，供协议泵在建连后补发。
+	FirstWsMessageType    int
+	FirstWsMessage        []byte
+	InputAudioFormat      string
+	OutputAudioFormat     string
+	RealtimeTools         []dto.RealTimeTool
+	IsFirstRequest        bool
+	AudioUsage            bool
+	ReasoningEffort       string
+	UserSetting           dto.UserSetting
+	UserEmail             string
+	UserQuota             int
+	RelayFormat           types.RelayFormat
+	SendResponseCount     int
+	ReceivedResponseCount int
+	FinalPreConsumedQuota int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -364,6 +367,16 @@ func GenRelayInfoWs(c *gin.Context, ws *websocket.Conn) *RelayInfo {
 	return info
 }
 
+// GenRelayInfoDashScopeInference 构造 DashScope 原生推理 WebSocket 中继信息。
+// 模型由查询参数提供（用于渠道路由），任务参数在 run-task 帧内透传。
+func GenRelayInfoDashScopeInference(c *gin.Context, ws *websocket.Conn) *RelayInfo {
+	info := genBaseRelayInfo(c, nil)
+	info.RelayFormat = types.RelayFormatDashScopeInference
+	info.ClientWs = ws
+	info.IsFirstRequest = true
+	return info
+}
+
 func GenRelayInfoClaude(c *gin.Context, request dto.Request) *RelayInfo {
 	info := genBaseRelayInfo(c, request)
 	info.RelayFormat = types.RelayFormatClaude
@@ -569,6 +582,8 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 		info = GenRelayInfoImage(c, request)
 	case types.RelayFormatOpenAIRealtime:
 		info = GenRelayInfoWs(c, ws)
+	case types.RelayFormatDashScopeInference:
+		info = GenRelayInfoDashScopeInference(c, ws)
 	case types.RelayFormatClaude:
 		info = GenRelayInfoClaude(c, request)
 	case types.RelayFormatRerank:

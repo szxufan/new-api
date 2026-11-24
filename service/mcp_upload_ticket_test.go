@@ -53,8 +53,11 @@ func TestValidateTicket_TamperedSignature(t *testing.T) {
 		t.Fatalf("generate ticket failed: %v", err)
 	}
 
+	// 翻转最后一个字符；必须基于被移除的字符判断，否则当原末位为 '0'
+	// 且倒数第二位非 '0' 时会补回 '0'，还原出原票据导致测试偶发失败。
+	last := ticket[len(ticket)-1]
 	tampered := ticket[:len(ticket)-1]
-	if tampered[len(tampered)-1] == '0' {
+	if last == '0' {
 		tampered += "1"
 	} else {
 		tampered += "0"

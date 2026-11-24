@@ -75,6 +75,18 @@ func SetRelayRouter(router *gin.Engine) {
 		playgroundRouter.POST("/audio/transcriptions", controller.Playground)
 		playgroundRouter.POST("/audio/translations", controller.Playground)
 	}
+	// DashScope 原生推理 WebSocket（透传），路径与上游一致，SDK 仅需替换域名与密钥
+	// wss://<host>/api-ws/v1/inference?model=sambert-zhichu-v1
+	dashScopeWsRouter := router.Group("/api-ws/v1")
+	dashScopeWsRouter.Use(middleware.RouteTag("relay"))
+	dashScopeWsRouter.Use(middleware.SystemPerformanceCheck())
+	dashScopeWsRouter.Use(middleware.TokenAuth())
+	dashScopeWsRouter.Use(middleware.ModelRequestRateLimit())
+	dashScopeWsRouter.Use(middleware.Distribute())
+	dashScopeWsRouter.GET("/inference", func(c *gin.Context) {
+		controller.Relay(c, types.RelayFormatDashScopeInference)
+	})
+
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())

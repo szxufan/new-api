@@ -11,6 +11,7 @@ const (
 	RelayFormatOpenAIAudio                           = "openai_audio"
 	RelayFormatOpenAIImage                           = "openai_image"
 	RelayFormatOpenAIRealtime                        = "openai_realtime"
+	RelayFormatDashScopeInference                    = "dashscope_inference"
 	RelayFormatRerank                                = "rerank"
 	RelayFormatEmbedding                             = "embedding"
 	RelayFormatSystemOne                             = "system_one"

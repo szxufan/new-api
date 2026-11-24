@@ -34,6 +34,9 @@ func GetPreferredChannelTypesByRelayFormat(relayFormat RelayFormat) []int {
 	case RelayFormatOpenAIRealtime:
 		// 实时通信（OpenAI Realtime / 阿里百炼 Qwen-Omni-Realtime）
 		return []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAli}
+	case RelayFormatDashScopeInference:
+		// DashScope 原生推理 WebSocket（/api-ws/v1/inference，如 Sambert 语音合成）
+		return []int{constant.ChannelTypeAli}
 	case RelayFormatWebTools:
 		// MCP 网页搜索/抓取工具，首期支持 DeepSeek 渠道
 		return []int{constant.ChannelTypeDeepSeek}
