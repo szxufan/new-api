@@ -4301,6 +4301,7 @@
     "These dimensions are added to the affinity cache key to separate entries per group/model/rule.": "这些维度会并入亲和缓存键，用于按分组/模型/规则区分条目。",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "这些模型仍然在您的勾选列表中，但上游已不再返回该名称；仅作为 model_mapping 来源键而不会出现在 upstream 列表的别名已从本视图排除，请在保存前调整勾选。",
     "These toggles affect whether certain request fields are passed through to the upstream provider.": "这些开关控制某些请求字段是否透传到上游服务。",
+    "Thinking level": "思考级别",
     "Thinking Suffix Adapter": "思考后缀适配器",
     "Thinking to Content": "思维到内容",
     "Third-party account bindings (read-only, managed by user in profile settings)": "第三方账户绑定（只读，由用户在个人资料设置中管理）",

@@ -38,6 +38,13 @@ type Pricing struct {
 	FollowTarget           string                  `json:"follow_target,omitempty"`
 	FollowCoefficient      float64                 `json:"follow_coefficient,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+
+	// 模型能力信息：来源为 models 表元数据，未配置时省略（与 /v1/models 同源）
+	ContextLength     int      `json:"context_length,omitempty"`
+	MaxOutputTokens   int      `json:"max_output_tokens,omitempty"`
+	SupportImageInput bool     `json:"support_image_input,omitempty"`
+	SupportVideoInput bool     `json:"support_video_input,omitempty"`
+	ReasoningOptions  []string `json:"reasoning_options,omitempty"`
 }
 
 type PricingVendor struct {
@@ -419,6 +426,14 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+		}
+		// 补充模型能力信息（上下文、多模态输入、思考等级），供模型广场展示
+		if caps, ok := newCapabilities[model]; ok {
+			pricing.ContextLength = caps.ContextLength
+			pricing.MaxOutputTokens = caps.MaxOutputTokens
+			pricing.SupportImageInput = caps.SupportImageInput
+			pricing.SupportVideoInput = caps.SupportVideoInput
+			pricing.ReasoningOptions = caps.ReasoningOptions
 		}
 		// follow 模型：按跟随目标解析有效价格，系数计入基础倍率/单价，
 		// 使现有按 Token / 按次的前端价格展示直接生效

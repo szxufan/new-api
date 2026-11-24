@@ -32,6 +32,7 @@ import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
+import { ModelCapabilityStrip } from './model-capability-strip'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
 export interface ModelCardProps {
@@ -226,6 +227,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
         {props.model.description || t('No description available.')}
       </p>
+
+      {/* Capabilities: context size, multimodal inputs, thinking levels */}
+      <ModelCapabilityStrip model={props.model} className='mt-3' />
 
       {/* Footer: left metadata and right performance summary share row alignment */}
       <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>

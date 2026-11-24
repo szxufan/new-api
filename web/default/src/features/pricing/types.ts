@@ -60,13 +60,20 @@ export type PricingModel = {
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**
-   * Optional model metadata fields. These are not yet returned by the backend
-   * and are populated client-side from {@link inferModelMetadata}.
-   * When the backend ships these fields, the inference layer becomes a
-   * fallback rather than the source of truth.
+   * Model capabilities configured in the model metadata. The backend omits
+   * them when unset, so a missing field means "not configured".
    */
   context_length?: number
   max_output_tokens?: number
+  support_image_input?: boolean
+  support_video_input?: boolean
+  /** Selectable thinking levels, e.g. ["low", "medium", "high"] */
+  reasoning_options?: string[]
+  /**
+   * Optional model metadata fields. `knowledge_cutoff`, `release_date`,
+   * `parameter_count` and the modality / capability flags are not returned by
+   * the backend and are populated client-side from {@link inferModelMetadata}.
+   */
   knowledge_cutoff?: string
   release_date?: string
   parameter_count?: string

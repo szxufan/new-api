@@ -4301,6 +4301,7 @@
     "These dimensions are added to the affinity cache key to separate entries per group/model/rule.": "これらの次元はアフィニティキャッシュキーに追加され、グループ/モデル/ルールごとにエントリを分けます。",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "これらはまだ選択中ですが上流のリストにありません。model_mapping にのみソース別名として載る名前は除外されています。保存前に選択を調整してください。",
     "These toggles affect whether certain request fields are passed through to the upstream provider.": "これらの切り替えは、特定の要求フィールドがアップストリームプロバイダーに渡されるかどうかに影響します。",
+    "Thinking level": "思考レベル",
     "Thinking Suffix Adapter": "思考サフィックスアダプター",
     "Thinking to Content": "思考からコンテンツへ",
     "Third-party account bindings (read-only, managed by user in profile settings)": "サードパーティアカウントのバインディング（読み取り専用、プロファイル設定でユーザーが管理）",

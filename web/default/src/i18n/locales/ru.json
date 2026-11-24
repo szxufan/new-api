@@ -4301,6 +4301,7 @@
     "These dimensions are added to the affinity cache key to separate entries per group/model/rule.": "Эти измерения добавляются к ключу кэша привязки, чтобы разделять записи по группе/модели/правилу.",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "Эти имена всё ещё отмечены в выборе, но не возвращены в списке upstream; ключи только как источники model_mapping исключены. Скорректируйте выбор перед сохранением.",
     "These toggles affect whether certain request fields are passed through to the upstream provider.": "Эти переключатели влияют на то, передаются ли определенные поля запроса вышестоящему поставщику.",
+    "Thinking level": "Уровень рассуждения",
     "Thinking Suffix Adapter": "Адаптер суффикса thinking",
     "Thinking to Content": "Мышление в контент",
     "Third-party account bindings (read-only, managed by user in profile settings)": "Привязки сторонних учетных записей (только для чтения, управляется пользователем в настройках профиля)",

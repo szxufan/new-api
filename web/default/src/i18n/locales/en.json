@@ -4301,6 +4301,7 @@
     "These dimensions are added to the affinity cache key to separate entries per group/model/rule.": "These dimensions are added to the affinity cache key to separate entries per group/model/rule.",
     "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.": "These models are still in your selection but were not returned by the upstream listing. Entries that are only model_mapping source aliases are omitted. Toggle to adjust before saving.",
     "These toggles affect whether certain request fields are passed through to the upstream provider.": "These toggles affect whether certain request fields are passed through to the upstream provider.",
+    "Thinking level": "Thinking level",
     "Thinking Suffix Adapter": "Thinking Suffix Adapter",
     "Thinking to Content": "Thinking to Content",
     "Third-party account bindings (read-only, managed by user in profile settings)": "Third-party account bindings (read-only, managed by user in profile settings)",

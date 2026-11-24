@@ -23,15 +23,16 @@ import { hashStringToSeed, seededRandom } from './seed'
 // Model metadata inference
 // ----------------------------------------------------------------------------
 //
-// The backend does not currently return `context_length`, `max_output_tokens`,
-// `knowledge_cutoff`, `release_date`, `parameter_count`, or modality/capability
-// flags for a model. Until it does, we infer reasonable values client-side
-// from the data we already have (endpoint types, ratios, tags, model name)
-// and fall back to a deterministic mock seeded from the model name so that
-// every render of the same model shows the same numbers.
+// `/api/pricing` returns the capabilities configured in the model metadata
+// (`context_length`, `max_output_tokens`, `support_image_input`,
+// `support_video_input`, `reasoning_options`). Those are the source of truth
+// and are used as-is: a missing / zero value means "not configured".
 //
-// When the backend starts returning these fields, callers should prefer the
-// explicit values on `model.*` and only fall back to the inferred ones.
+// The backend does not return `knowledge_cutoff`, `release_date`,
+// `parameter_count`, or modality / capability flags, so those are inferred
+// client-side from the data we already have (endpoint types, ratios, tags,
+// model name) and fall back to a deterministic mock seeded from the model
+// name so that every render of the same model shows the same values.
 
 const TEXT_INPUT_ENDPOINTS = new Set([
   'openai',
@@ -105,11 +106,6 @@ const PARAM_BUCKETS = [
   '405B',
 ]
 
-const CONTEXT_BUCKETS = [
-  8_192, 16_384, 32_768, 65_536, 128_000, 200_000, 1_000_000,
-]
-const MAX_OUTPUT_BUCKETS = [2_048, 4_096, 8_192, 16_384, 32_768, 65_536]
-
 const TAG_TO_CAPABILITY: Record<string, ModelCapability> = {
   vision: 'vision',
   multimodal: 'vision',
@@ -167,7 +163,11 @@ function inferInputModalities(
     set.add('text')
   }
 
-  if (model.image_ratio != null || nameMatches(name, VISION_NAME_PATTERNS)) {
+  if (
+    model.support_image_input ||
+    model.image_ratio != null ||
+    nameMatches(name, VISION_NAME_PATTERNS)
+  ) {
     set.add('image')
   }
   if (
@@ -177,7 +177,7 @@ function inferInputModalities(
   ) {
     set.add('audio')
   }
-  if (nameMatches(name, VIDEO_NAME_PATTERNS)) {
+  if (model.support_video_input || nameMatches(name, VIDEO_NAME_PATTERNS)) {
     set.add('video')
   }
 
@@ -240,6 +240,7 @@ function inferCapabilities(
     set.add('structured_output')
   }
   if (inputs.includes('image')) set.add('vision')
+  if (model.support_video_input) set.add('vision')
   if (model.cache_ratio != null) set.add('caching')
   if (endpoints.some((e) => EMBEDDING_ENDPOINTS.has(e))) set.add('embeddings')
   if (nameMatches(name, REASONING_NAME_PATTERNS)) set.add('reasoning')
@@ -257,47 +258,6 @@ function inferCapabilities(
 function ordered(modalities: Set<Modality>): Modality[] {
   const order: Modality[] = ['text', 'image', 'audio', 'video', 'file']
   return order.filter((m) => modalities.has(m))
-}
-
-function inferContextAndOutputs(
-  name: string,
-  rand: () => number,
-  endpoints: string[]
-): { context: number; maxOutput: number } {
-  if (endpoints.includes('embeddings') || endpoints.includes('jina-rerank')) {
-    return { context: 8_192, maxOutput: 0 }
-  }
-  if (
-    endpoints.includes('image-generation') ||
-    endpoints.includes('openai-video')
-  ) {
-    return { context: 4_096, maxOutput: 0 }
-  }
-
-  const lower = name.toLowerCase()
-  if (lower.includes('1m') || lower.includes('-long')) {
-    return { context: 1_000_000, maxOutput: 65_536 }
-  }
-  if (
-    lower.includes('200k') ||
-    lower.includes('claude-3') ||
-    lower.includes('claude-4')
-  ) {
-    return { context: 200_000, maxOutput: 16_384 }
-  }
-  if (lower.includes('128k') || /gpt-4o|gpt-4\.1|gpt-5|o1|o3|o4/.test(lower)) {
-    return { context: 128_000, maxOutput: 16_384 }
-  }
-  if (/gemini.*-2|gemini.*pro|gemini.*flash/.test(lower)) {
-    return { context: 1_000_000, maxOutput: 8_192 }
-  }
-  if (/gpt-3\.5|claude-2/.test(lower)) {
-    return { context: 16_384, maxOutput: 4_096 }
-  }
-
-  const context = pickFromBuckets(CONTEXT_BUCKETS, rand)
-  const maxOutput = Math.min(context, pickFromBuckets(MAX_OUTPUT_BUCKETS, rand))
-  return { context, maxOutput }
 }
 
 function inferReleaseAndCutoff(rand: () => number): {
@@ -326,8 +286,9 @@ export type ModelMetadata = {
 }
 
 /**
- * Infer / mock model metadata. Prefers explicit fields on `model.*` and
- * falls back to inference + a deterministic seed otherwise.
+ * Build model metadata for the details view. Capabilities returned by the
+ * backend (`context_length`, `max_output_tokens`, image / video input) are
+ * taken as-is; the rest is inferred and falls back to a deterministic seed.
  */
 export function inferModelMetadata(model: PricingModel): ModelMetadata {
   const name = model.model_name || ''
@@ -343,12 +304,13 @@ export function inferModelMetadata(model: PricingModel): ModelMetadata {
     model.capabilities ??
     inferCapabilities(model, tags, endpoints, name, outputs, inputs)
 
-  const fallback = inferContextAndOutputs(name, rand, endpoints)
   const cutoffAndRelease = inferReleaseAndCutoff(rand)
 
   return {
-    context_length: model.context_length ?? fallback.context,
-    max_output_tokens: model.max_output_tokens ?? fallback.maxOutput,
+    // Context sizes are never guessed: 0 keeps the details view in line with
+    // the model cards, which show unconfigured capabilities as "—".
+    context_length: model.context_length ?? 0,
+    max_output_tokens: model.max_output_tokens ?? 0,
     knowledge_cutoff: model.knowledge_cutoff ?? cutoffAndRelease.cutoff,
     release_date: model.release_date ?? cutoffAndRelease.release,
     parameter_count:
@@ -363,18 +325,31 @@ const TOKEN_FORMAT = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 })
 
-/** Format a token count compactly: 128_000 → "128K", 1_000_000 → "1M". */
+/** Format a token count compactly: 128_000 → "128K", 131_072 → "128K", 1_500_000 → "1.5M". */
 export function formatTokenCount(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return '—'
-  if (tokens >= 1_000_000) {
-    const value = tokens / 1_000_000
-    return `${TOKEN_FORMAT.format(value)}M`
-  }
-  if (tokens >= 1_000) {
-    const value = tokens / 1_000
-    return `${TOKEN_FORMAT.format(value)}K`
-  }
+  if (tokens >= 1_000_000)
+    return formatWithUnit(tokens, 1_000_000, 1_048_576, 'M')
+  if (tokens >= 1_000) return formatWithUnit(tokens, 1_000, 1_024, 'K')
   return TOKEN_FORMAT.format(tokens)
+}
+
+/**
+ * Divide by the decimal unit (1K = 1000) unless only the binary unit
+ * (1K = 1024) yields a whole number, so 1024-based sizes such as 131_072 read
+ * as "128K" instead of "131.1K".
+ */
+function formatWithUnit(
+  tokens: number,
+  decimalUnit: number,
+  binaryUnit: number,
+  unit: string
+): string {
+  const decimal = tokens / decimalUnit
+  const binary = tokens / binaryUnit
+  const value =
+    !Number.isInteger(decimal) && Number.isInteger(binary) ? binary : decimal
+  return `${TOKEN_FORMAT.format(value)}${unit}`
 }
 
 /** Format a YYYY-MM (or YYYY-MM-DD) date as `Mon YYYY` for display. */
