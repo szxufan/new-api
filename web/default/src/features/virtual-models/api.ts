@@ -75,7 +75,7 @@ export async function testVirtualModel(
     params,
     // a running test can be long; skip the shared GET de-dup cache
     disableDuplicate: true,
-  })
+  } as Record<string, unknown>)
   return res.data
 }
 

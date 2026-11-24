@@ -204,6 +204,8 @@ export type ModelSettings = {
   'mcp_setting.group_video_i2v_models': string
   'mcp_setting.group_video_kf2v_models': string
   'mcp_setting.group_video_r2v_models': string
+  'mcp_setting.group_search_models': string
+  'mcp_setting.group_fetch_models': string
 }
 
 export type BillingSettings = {

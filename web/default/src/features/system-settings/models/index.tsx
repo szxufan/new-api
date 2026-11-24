@@ -80,6 +80,8 @@ const defaultModelSettings: ModelSettings = {
   'mcp_setting.group_video_i2v_models': '{}',
   'mcp_setting.group_video_kf2v_models': '{}',
   'mcp_setting.group_video_r2v_models': '{}',
+  'mcp_setting.group_search_models': '{"default":"deepseek-search"}',
+  'mcp_setting.group_fetch_models': '{"default":"deepseek-fetch"}',
 }
 
 export function ModelSettings() {
