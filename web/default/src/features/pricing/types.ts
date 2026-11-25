@@ -75,6 +75,13 @@ export type PricingModel = {
    * its own.
    */
   capability_source?: 'follow'
+  /** Purposes configured in the model metadata, e.g. ["chat", "programming"] */
+  purposes?: string[]
+  /**
+   * Set to "follow" when the purposes are inherited from the billing follow
+   * target because this model has none of its own.
+   */
+  purpose_source?: 'follow'
   /**
    * Optional model metadata fields. `knowledge_cutoff`, `release_date`,
    * `parameter_count` and the modality / capability flags are not returned by

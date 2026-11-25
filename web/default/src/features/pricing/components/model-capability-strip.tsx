@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   Layers,
   ScanEye,
+  Target,
   Video,
   type LucideIcon,
 } from 'lucide-react'
@@ -32,6 +33,9 @@ import {
   getConfiguredInputModalities,
   getContextMeterRatio,
   getInheritedCapabilityTarget,
+  getInheritedPurposeTarget,
+  getOrderedPurposes,
+  getPurposeLabels,
   getThinkingLevels,
 } from '../lib/model-capabilities'
 import { formatTokenCount } from '../lib/model-metadata'
@@ -49,6 +53,7 @@ const ACCENT_CLASS = {
   context: 'text-sky-600 dark:text-sky-400',
   multimodal: 'text-emerald-600 dark:text-emerald-400',
   thinking: 'text-violet-600 dark:text-violet-400',
+  purposes: 'text-amber-600 dark:text-amber-400',
 } as const
 
 const CONTEXT_METER_SEGMENTS = 8
@@ -81,7 +86,7 @@ function StatLabel(props: {
   )
 }
 
-/** Placeholder for a capability the operator has not configured. */
+/** Placeholder for a value the operator has not configured. */
 function UnsetValue(props: { title: string }) {
   return (
     <span
@@ -172,15 +177,84 @@ function LevelChip(props: { level: string }) {
   )
 }
 
+function PurposeChip(props: { label: string }) {
+  return (
+    <span className='bg-background text-foreground/80 inline-flex h-[18px] items-center rounded-md border px-1.5 text-[11px] leading-4 font-medium'>
+      {props.label}
+    </span>
+  )
+}
+
+type ChipRow = {
+  key: string
+  icon: LucideIcon
+  label: string
+  configured: boolean
+  accent: string
+  chips: React.ReactNode
+}
+
+// Width of the "思考级别" label (12px icon + 4px gap + four CJK characters), so
+// that a shorter label such as "用途" starts its chips at the same x. Longer,
+// translated labels simply grow instead of squeezing their chips.
+const CHIP_LABEL_MIN_WIDTH_CLASS = 'min-w-[58px] shrink-0'
+
 /**
- * Note shown wherever capabilities are inherited from the billing follow
- * target, so readers know the values are not this model's own configuration.
+ * Stacked rows of chips, each as "label: chips". Labels only share a minimum
+ * width: with one common column a long translated label (e.g. the English
+ * "Thinking level") would leave the chips of every row just a sliver of room
+ * on narrow cards.
  */
-export function CapabilityFollowNote(props: {
+function ChipRows(props: { rows: ChipRow[]; unsetTitle: string }) {
+  return (
+    <>
+      {props.rows.map((row) => (
+        <div
+          key={row.key}
+          className='flex items-center gap-2 px-2.5 py-1.5 sm:px-3'
+        >
+          <StatLabel
+            icon={row.icon}
+            label={row.label}
+            configured={row.configured}
+            accent={row.accent}
+            className={CHIP_LABEL_MIN_WIDTH_CLASS}
+          />
+          {row.configured ? (
+            <div className='flex min-w-0 flex-1 flex-wrap items-center gap-1'>
+              {row.chips}
+            </div>
+          ) : (
+            <UnsetValue title={props.unsetTitle} />
+          )}
+        </div>
+      ))}
+    </>
+  )
+}
+
+/**
+ * Note shown wherever parts of a model's info are inherited from its billing
+ * follow target, so readers know those values are not its own configuration.
+ */
+export function ModelFollowNote(props: {
   target: string
+  /** The capabilities (context, modalities, thinking levels) are inherited */
+  capabilities?: boolean
+  /** The purposes are inherited */
+  purposes?: boolean
   className?: string
 }) {
   const { t } = useTranslation()
+  let label: string
+  if (props.capabilities && props.purposes) {
+    label = t('Capabilities and purposes follow')
+  } else if (props.capabilities) {
+    label = t('Capabilities follow')
+  } else {
+    label = t('Purposes follow')
+  }
+
   return (
     // Wrapping (instead of truncating) keeps the follow target readable when
     // the translated label is long and the card is narrow.
@@ -194,7 +268,7 @@ export function CapabilityFollowNote(props: {
         aria-hidden='true'
         className='size-3 shrink-0 text-sky-600 dark:text-sky-400'
       />
-      <span className='shrink-0'>{t('Capabilities follow')}</span>
+      <span className='shrink-0'>{label}</span>
       <span className='min-w-0 font-mono break-all'>{props.target}</span>
     </div>
   )
@@ -205,10 +279,10 @@ const FOLLOW_NOTE_ROW_CLASS =
   'bg-sky-500/[0.06] dark:bg-sky-400/[0.08] px-2.5 py-1.5 sm:px-3'
 
 /**
- * Capability summary shown on a model card: context size, multimodal inputs
- * and selectable thinking levels. Every value comes from the model metadata
- * (or its billing follow target when the backend marks them as inherited);
- * unconfigured capabilities are shown as "—" instead of being guessed.
+ * Summary shown on a model card: context size, multimodal inputs, selectable
+ * thinking levels and purposes. Every value comes from the model metadata
+ * (or its billing follow target when the backend marks it as inherited);
+ * unconfigured values are shown as "—" instead of being guessed.
  */
 export function ModelCapabilityStrip(props: {
   model: PricingModel
@@ -218,8 +292,12 @@ export function ModelCapabilityStrip(props: {
   const contextLength = props.model.context_length ?? 0
   const inputModalities = getConfiguredInputModalities(props.model)
   const thinkingLevels = getThinkingLevels(props.model)
+  const purposes = getOrderedPurposes(props.model.purposes)
+  const purposeLabels = getPurposeLabels(t)
   const unsetTitle = t('Not Set')
-  const inheritedFrom = getInheritedCapabilityTarget(props.model)
+  const capabilityTarget = getInheritedCapabilityTarget(props.model)
+  const purposeTarget = getInheritedPurposeTarget(props.model)
+  const followTarget = capabilityTarget ?? purposeTarget
 
   return (
     <div
@@ -259,28 +337,40 @@ export function ModelCapabilityStrip(props: {
         </StatCell>
       </div>
 
-      <div className='flex items-center gap-2 px-2.5 py-1.5 sm:px-3'>
-        <StatLabel
-          icon={Brain}
-          label={t('Thinking level')}
-          configured={thinkingLevels.length > 0}
-          accent={ACCENT_CLASS.thinking}
-          className='shrink-0'
-        />
-        {thinkingLevels.length > 0 ? (
-          <div className='flex min-w-0 flex-1 flex-wrap items-center gap-1'>
-            {thinkingLevels.map((level) => (
+      <ChipRows
+        unsetTitle={unsetTitle}
+        rows={[
+          {
+            key: 'thinking',
+            icon: Brain,
+            label: t('Thinking level'),
+            configured: thinkingLevels.length > 0,
+            accent: ACCENT_CLASS.thinking,
+            chips: thinkingLevels.map((level) => (
               <LevelChip key={level} level={level} />
-            ))}
-          </div>
-        ) : (
-          <UnsetValue title={unsetTitle} />
-        )}
-      </div>
+            )),
+          },
+          {
+            key: 'purposes',
+            icon: Target,
+            label: t('Purposes'),
+            configured: purposes.length > 0,
+            accent: ACCENT_CLASS.purposes,
+            chips: purposes.map((purpose) => (
+              <PurposeChip
+                key={purpose}
+                label={purposeLabels[purpose] ?? purpose}
+              />
+            )),
+          },
+        ]}
+      />
 
-      {inheritedFrom && (
-        <CapabilityFollowNote
-          target={inheritedFrom}
+      {followTarget && (
+        <ModelFollowNote
+          target={followTarget}
+          capabilities={Boolean(capabilityTarget)}
+          purposes={Boolean(purposeTarget)}
           className={FOLLOW_NOTE_ROW_CLASS}
         />
       )}

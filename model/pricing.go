@@ -47,10 +47,17 @@ type Pricing struct {
 	ReasoningOptions  []string `json:"reasoning_options,omitempty"`
 	// 能力信息来源：follow 表示模型自身未配置，以上能力信息沿用自跟随目标
 	CapabilitySource string `json:"capability_source,omitempty"`
+	// 模型用途，来源为 models 表元数据，未配置时省略（与 /v1/models 同源）
+	Purposes []string `json:"purposes,omitempty"`
+	// 模型用途来源：follow 表示模型自身未配置用途，以上用途沿用自跟随目标
+	PurposeSource string `json:"purpose_source,omitempty"`
 }
 
 // CapabilitySourceFollow 能力信息沿用自计费跟随目标（跟随链终点）
 const CapabilitySourceFollow = "follow"
+
+// PurposeSourceFollow 模型用途沿用自计费跟随目标（跟随链终点）
+const PurposeSourceFollow = CapabilitySourceFollow
 
 type PricingVendor struct {
 	ID          int    `json:"id"`
@@ -463,6 +470,15 @@ func updatePricing() {
 		pricing.SupportImageInput = caps.SupportImageInput
 		pricing.SupportVideoInput = caps.SupportVideoInput
 		pricing.ReasoningOptions = caps.ReasoningOptions
+		// 补充模型用途；跟随模型自身未配置用途时，同样沿用跟随目标的用途
+		purposes := newCapabilities[model].Purposes
+		if isFollow && len(purposes) == 0 {
+			if targetPurposes := newCapabilities[billingModel].Purposes; len(targetPurposes) > 0 {
+				purposes = targetPurposes
+				pricing.PurposeSource = PurposeSourceFollow
+			}
+		}
+		pricing.Purposes = purposes
 		modelPrice, findPrice := ratio_setting.GetModelPrice(billingModel, false)
 		if findPrice {
 			pricing.ModelPrice = modelPrice * coefficient

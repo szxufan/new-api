@@ -16,12 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import { describe, expect, it } from 'vitest'
+import { MODEL_PURPOSES } from '@/features/models/constants'
 import type { PricingModel } from '../types'
 import {
   getConfiguredInputModalities,
   getContextMeterRatio,
   getInheritedCapabilityTarget,
+  getInheritedPurposeTarget,
+  getOrderedPurposes,
+  getPurposeLabels,
   getThinkingLevels,
 } from './model-capabilities'
 
@@ -74,6 +79,69 @@ describe('getInheritedCapabilityTarget', () => {
         makeModel({ follow_target: 'deepseek-v4-flash' })
       )
     ).toBeUndefined()
+  })
+})
+
+describe('getInheritedPurposeTarget', () => {
+  it('后端标记用途沿用自跟随目标时，返回该目标模型', () => {
+    expect(
+      getInheritedPurposeTarget(
+        makeModel({
+          purpose_source: 'follow',
+          follow_target: 'deepseek-v4-flash',
+        })
+      )
+    ).toBe('deepseek-v4-flash')
+  })
+
+  it('用途的继承来源与能力信息的继承来源相互独立', () => {
+    const model = makeModel({
+      follow_target: 'deepseek-v4-flash',
+      capability_source: 'follow',
+    })
+    expect(getInheritedPurposeTarget(model)).toBeUndefined()
+    expect(getInheritedCapabilityTarget(model)).toBe('deepseek-v4-flash')
+    expect(getInheritedPurposeTarget(makeModel())).toBeUndefined()
+  })
+})
+
+describe('getOrderedPurposes', () => {
+  it('未配置用途时返回空数组', () => {
+    expect(getOrderedPurposes(undefined)).toEqual([])
+    expect(getOrderedPurposes([])).toEqual([])
+  })
+
+  it('按预设顺序排列并去重，而不是照搬存储顺序', () => {
+    expect(getOrderedPurposes(['writing', 'chat', 'writing'])).toEqual([
+      'chat',
+      'writing',
+    ])
+    expect(getOrderedPurposes(['image_generation', 'asr', 'chat'])).toEqual([
+      'chat',
+      'asr',
+      'image_generation',
+    ])
+  })
+
+  it('未知用途保持原有相对顺序并排在预设之后', () => {
+    expect(getOrderedPurposes(['custom-b', 'writing', 'custom-a'])).toEqual([
+      'writing',
+      'custom-b',
+      'custom-a',
+    ])
+  })
+})
+
+describe('getPurposeLabels', () => {
+  it('每个预设用途都有对应翻译标签', () => {
+    const labels = getPurposeLabels(
+      ((key: string) => key) as unknown as TFunction
+    )
+    for (const purpose of MODEL_PURPOSES) {
+      expect(labels[purpose]).toBeTruthy()
+    }
+    expect(labels.chat).toBe('Chat')
+    expect(labels.image_generation).toBe('Image Generation')
   })
 })
 

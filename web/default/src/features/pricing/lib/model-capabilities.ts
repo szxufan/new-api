@@ -16,6 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
+import {
+  getModelPurposeOptions,
+  MODEL_PURPOSES,
+} from '@/features/models/constants'
 import type { Modality, PricingModel } from '../types'
 
 // ----------------------------------------------------------------------------
@@ -57,6 +62,42 @@ export function getInheritedCapabilityTarget(
   model: PricingModel
 ): string | undefined {
   return model.capability_source === 'follow' ? model.follow_target : undefined
+}
+
+/**
+ * The model whose purposes `model` inherits, i.e. its billing follow target
+ * when the backend resolved the purposes from there. Undefined when the
+ * purposes are the model's own (or not configured at all).
+ */
+export function getInheritedPurposeTarget(
+  model: PricingModel
+): string | undefined {
+  return model.purpose_source === 'follow' ? model.follow_target : undefined
+}
+
+/**
+ * Purposes of a model de-duplicated and in their preset display order; values
+ * without a preset keep their relative order after the preset ones.
+ */
+export function getOrderedPurposes(purposes: string[] | undefined): string[] {
+  const rank = new Map<string, number>(
+    MODEL_PURPOSES.map((purpose, index) => [purpose, index])
+  )
+  return [...new Set(purposes ?? [])]
+    .map((purpose, index) => ({
+      purpose,
+      index,
+      rank: rank.get(purpose) ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.purpose)
+}
+
+/** Translated label of every preset purpose, keyed by purpose value. */
+export function getPurposeLabels(t: TFunction): Record<string, string> {
+  return Object.fromEntries(
+    getModelPurposeOptions(t).map((option) => [option.value, option.label])
+  )
 }
 
 /** Rank of well-known thinking levels, lowest effort first. */

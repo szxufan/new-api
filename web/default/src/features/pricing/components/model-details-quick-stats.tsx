@@ -31,7 +31,7 @@ import {
   type ModelMetadata,
 } from '../lib/model-metadata'
 import type { Modality } from '../types'
-import { CapabilityFollowNote } from './model-capability-strip'
+import { ModelFollowNote } from './model-capability-strip'
 import { ModalityIcons } from './model-details-modalities'
 
 type QuickStatsProps = {
@@ -147,9 +147,12 @@ export function ModelDetailsQuickStats(props: QuickStatsProps) {
           )
         })}
       </div>
+      {/* Only the capabilities above are shown here, so the note names just them
+          even when the model's purposes are inherited as well. */}
       {props.inheritedFrom && (
-        <CapabilityFollowNote
+        <ModelFollowNote
           target={props.inheritedFrom}
+          capabilities
           className='mt-1.5 px-0.5'
         />
       )}
