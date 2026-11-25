@@ -118,12 +118,30 @@ describe('模型用途', () => {
   })
 
   it('应提供固定且本地化的用途选项', () => {
-    expect(MODEL_PURPOSES).toEqual(['chat', 'programming', 'writing'])
+    expect(MODEL_PURPOSES).toEqual([
+      'chat',
+      'programming',
+      'writing',
+      'asr',
+      'tts',
+      'image_generation',
+      'image_edit',
+      'video_generation',
+      'realtime',
+      'translation',
+    ])
     const translate = ((key: string) => key) as TFunction
     expect(getModelPurposeOptions(translate)).toEqual([
       { label: 'Chat', value: 'chat' },
       { label: 'Programming', value: 'programming' },
       { label: 'Writing', value: 'writing' },
+      { label: 'Speech Recognition', value: 'asr' },
+      { label: 'Text to Speech', value: 'tts' },
+      { label: 'Image Generation', value: 'image_generation' },
+      { label: 'Image Editing', value: 'image_edit' },
+      { label: 'Video Generation', value: 'video_generation' },
+      { label: 'Realtime Call', value: 'realtime' },
+      { label: 'Translation', value: 'translation' },
     ])
   })
 

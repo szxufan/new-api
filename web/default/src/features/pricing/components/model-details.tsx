@@ -59,6 +59,7 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
+import { getInheritedCapabilityTarget } from '../lib/model-capabilities'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { inferModelMetadata } from '../lib/model-metadata'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
@@ -972,7 +973,10 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             />
           </section>
 
-          <ModelDetailsQuickStats metadata={metadata} />
+          <ModelDetailsQuickStats
+            metadata={metadata}
+            inheritedFrom={getInheritedCapabilityTarget(props.model)}
+          />
 
           <ModelSignalsSection
             capabilities={metadata.capabilities}

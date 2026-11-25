@@ -70,6 +70,12 @@ export type PricingModel = {
   /** Selectable thinking levels, e.g. ["low", "medium", "high"] */
   reasoning_options?: string[]
   /**
+   * Set to "follow" when the capabilities above are inherited from the
+   * billing follow target (`follow_target`) because this model has none of
+   * its own.
+   */
+  capability_source?: 'follow'
+  /**
    * Optional model metadata fields. `knowledge_cutoff`, `release_date`,
    * `parameter_count` and the modality / capability flags are not returned by
    * the backend and are populated client-side from {@link inferModelMetadata}.

@@ -48,6 +48,17 @@ export function getConfiguredInputModalities(
   return CONFIGURABLE_INPUT_MODALITIES.filter((modality) => enabled[modality])
 }
 
+/**
+ * The model whose capabilities `model` inherits, i.e. its billing follow
+ * target when the backend resolved the capabilities from there. Undefined
+ * when the capabilities are the model's own (or not configured at all).
+ */
+export function getInheritedCapabilityTarget(
+  model: PricingModel
+): string | undefined {
+  return model.capability_source === 'follow' ? model.follow_target : undefined
+}
+
 /** Rank of well-known thinking levels, lowest effort first. */
 const THINKING_LEVEL_RANK: Record<string, number> = {
   none: 0,

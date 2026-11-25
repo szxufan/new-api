@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Brain,
+  CornerDownRight,
   Image as ImageIcon,
   Layers,
   ScanEye,
@@ -30,6 +31,7 @@ import {
   type ConfigurableInputModality,
   getConfiguredInputModalities,
   getContextMeterRatio,
+  getInheritedCapabilityTarget,
   getThinkingLevels,
 } from '../lib/model-capabilities'
 import { formatTokenCount } from '../lib/model-metadata'
@@ -171,8 +173,41 @@ function LevelChip(props: { level: string }) {
 }
 
 /**
+ * Note shown wherever capabilities are inherited from the billing follow
+ * target, so readers know the values are not this model's own configuration.
+ */
+export function CapabilityFollowNote(props: {
+  target: string
+  className?: string
+}) {
+  const { t } = useTranslation()
+  return (
+    // Wrapping (instead of truncating) keeps the follow target readable when
+    // the translated label is long and the card is narrow.
+    <div
+      className={cn(
+        'text-muted-foreground flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-4',
+        props.className
+      )}
+    >
+      <CornerDownRight
+        aria-hidden='true'
+        className='size-3 shrink-0 text-sky-600 dark:text-sky-400'
+      />
+      <span className='shrink-0'>{t('Capabilities follow')}</span>
+      <span className='min-w-0 font-mono break-all'>{props.target}</span>
+    </div>
+  )
+}
+
+// Tinted like the card's "follow" badge so the note reads apart from the data rows
+const FOLLOW_NOTE_ROW_CLASS =
+  'bg-sky-500/[0.06] dark:bg-sky-400/[0.08] px-2.5 py-1.5 sm:px-3'
+
+/**
  * Capability summary shown on a model card: context size, multimodal inputs
- * and selectable thinking levels. Every value comes from the model metadata;
+ * and selectable thinking levels. Every value comes from the model metadata
+ * (or its billing follow target when the backend marks them as inherited);
  * unconfigured capabilities are shown as "—" instead of being guessed.
  */
 export function ModelCapabilityStrip(props: {
@@ -184,6 +219,7 @@ export function ModelCapabilityStrip(props: {
   const inputModalities = getConfiguredInputModalities(props.model)
   const thinkingLevels = getThinkingLevels(props.model)
   const unsetTitle = t('Not Set')
+  const inheritedFrom = getInheritedCapabilityTarget(props.model)
 
   return (
     <div
@@ -241,6 +277,13 @@ export function ModelCapabilityStrip(props: {
           <UnsetValue title={unsetTitle} />
         )}
       </div>
+
+      {inheritedFrom && (
+        <CapabilityFollowNote
+          target={inheritedFrom}
+          className={FOLLOW_NOTE_ROW_CLASS}
+        />
+      )}
     </div>
   )
 }

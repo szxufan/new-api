@@ -45,7 +45,12 @@ type Pricing struct {
 	SupportImageInput bool     `json:"support_image_input,omitempty"`
 	SupportVideoInput bool     `json:"support_video_input,omitempty"`
 	ReasoningOptions  []string `json:"reasoning_options,omitempty"`
+	// 能力信息来源：follow 表示模型自身未配置，以上能力信息沿用自跟随目标
+	CapabilitySource string `json:"capability_source,omitempty"`
 }
+
+// CapabilitySourceFollow 能力信息沿用自计费跟随目标（跟随链终点）
+const CapabilitySourceFollow = "follow"
 
 type PricingVendor struct {
 	ID          int    `json:"id"`
@@ -137,6 +142,13 @@ type ModelCapabilities struct {
 	SupportVideoInput bool
 	ReasoningOptions  []string
 	Purposes          []string
+}
+
+// hasModelCapabilities 判断是否配置过任一项能力信息（上下文、最大输出、图片/视频输入、思考等级）
+func hasModelCapabilities(caps ModelCapabilities) bool {
+	return caps.ContextLength > 0 || caps.MaxOutputTokens > 0 ||
+		caps.SupportImageInput || caps.SupportVideoInput ||
+		len(caps.ReasoningOptions) > 0
 }
 
 // GetModelCapabilities 返回模型能力信息，未配置的模型返回零值
@@ -427,14 +439,6 @@ func updatePricing() {
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
 		}
-		// 补充模型能力信息（上下文、多模态输入、思考等级），供模型广场展示
-		if caps, ok := newCapabilities[model]; ok {
-			pricing.ContextLength = caps.ContextLength
-			pricing.MaxOutputTokens = caps.MaxOutputTokens
-			pricing.SupportImageInput = caps.SupportImageInput
-			pricing.SupportVideoInput = caps.SupportVideoInput
-			pricing.ReasoningOptions = caps.ReasoningOptions
-		}
 		// follow 模型：按跟随目标解析有效价格，系数计入基础倍率/单价，
 		// 使现有按 Token / 按次的前端价格展示直接生效
 		billingModel := model
@@ -445,6 +449,20 @@ func updatePricing() {
 			coefficient = coef
 			isFollow = true
 		}
+		// 补充模型能力信息（上下文、多模态输入、思考等级），供模型广场展示；
+		// 跟随模型自身未配置时沿用跟随目标的能力信息，与价格的解析保持一致
+		caps := newCapabilities[model]
+		if isFollow && !hasModelCapabilities(caps) {
+			if targetCaps := newCapabilities[billingModel]; hasModelCapabilities(targetCaps) {
+				caps = targetCaps
+				pricing.CapabilitySource = CapabilitySourceFollow
+			}
+		}
+		pricing.ContextLength = caps.ContextLength
+		pricing.MaxOutputTokens = caps.MaxOutputTokens
+		pricing.SupportImageInput = caps.SupportImageInput
+		pricing.SupportVideoInput = caps.SupportVideoInput
+		pricing.ReasoningOptions = caps.ReasoningOptions
 		modelPrice, findPrice := ratio_setting.GetModelPrice(billingModel, false)
 		if findPrice {
 			pricing.ModelPrice = modelPrice * coefficient

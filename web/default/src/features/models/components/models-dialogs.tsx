@@ -44,6 +44,15 @@ export function ModelsDialogs() {
         currentRow={currentRow}
       />
 
+      {/* Model Copy Drawer：独立挂载一份，关闭动画期间 open 已置空，
+          若与编辑共用实例会闪回编辑态的标题与按钮 */}
+      <ModelMutateDrawer
+        open={open === 'copy-model'}
+        onOpenChange={(v) => !v && setOpen(null)}
+        currentRow={currentRow}
+        duplicate
+      />
+
       {/* Vendor Create/Update Dialog */}
       <VendorMutateDialog
         open={open === 'create-vendor' || open === 'update-vendor'}

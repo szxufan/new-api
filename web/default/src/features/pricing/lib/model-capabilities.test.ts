@@ -21,6 +21,7 @@ import type { PricingModel } from '../types'
 import {
   getConfiguredInputModalities,
   getContextMeterRatio,
+  getInheritedCapabilityTarget,
   getThinkingLevels,
 } from './model-capabilities'
 
@@ -50,6 +51,29 @@ describe('getConfiguredInputModalities', () => {
     expect(
       getConfiguredInputModalities(makeModel({ support_video_input: true }))
     ).toEqual(['video'])
+  })
+})
+
+describe('getInheritedCapabilityTarget', () => {
+  it('后端标记能力信息沿用自跟随目标时，返回该目标模型', () => {
+    expect(
+      getInheritedCapabilityTarget(
+        makeModel({
+          capability_source: 'follow',
+          follow_target: 'deepseek-v4-flash',
+        })
+      )
+    ).toBe('deepseek-v4-flash')
+  })
+
+  it('自身配置或未配置能力信息时没有继承来源', () => {
+    expect(getInheritedCapabilityTarget(makeModel())).toBeUndefined()
+    // 仅为计费跟随、能力信息仍是自身配置的模型不提示
+    expect(
+      getInheritedCapabilityTarget(
+        makeModel({ follow_target: 'deepseek-v4-flash' })
+      )
+    ).toBeUndefined()
   })
 })
 

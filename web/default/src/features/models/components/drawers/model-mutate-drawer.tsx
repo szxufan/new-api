@@ -83,6 +83,9 @@ import type { Model } from '../../types'
 export const MODEL_PRICING_SETTINGS_URL =
   '/system-settings/billing/model-pricing'
 
+// 模型名称全局唯一，复制新增时为预填的名称追加该后缀，避免与源模型重名
+export const MODEL_COPY_NAME_SUFFIX = '_copy'
+
 // Model metadata form schema (pricing fields are managed in system settings)
 export const modelFormSchema = z.object({
   id: z.number().optional(),
@@ -111,16 +114,31 @@ type ModelMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: Model | null
+  /** 复制新增：回显 currentRow 的全部配置但不携带 id，保存时走创建接口 */
+  duplicate?: boolean
+}
+
+/** 当前持有焦点的模型名称输入框（仅查询，不移动焦点） */
+function getFocusedModelNameInput(): HTMLInputElement | null {
+  const activeElement = document.activeElement
+  return activeElement instanceof HTMLInputElement &&
+    activeElement.name === 'model_name'
+    ? activeElement
+    : null
 }
 
 export function ModelMutateDrawer({
   open,
   onOpenChange,
   currentRow,
+  duplicate = false,
 }: ModelMutateDrawerProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const isEditing = Boolean(currentRow?.id)
+  const hasExistingModel = Boolean(currentRow?.id)
+  // 复制新增以源模型详情为模板回显，但保存时按新建处理
+  const isDuplicating = duplicate && hasExistingModel
+  const isEditing = hasExistingModel && !isDuplicating
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Fetch vendors for dropdown
@@ -132,11 +150,11 @@ export function ModelMutateDrawer({
 
   const vendors = vendorsData?.data?.items || []
 
-  // Fetch model detail if editing
+  // Fetch model detail if editing or duplicating
   const { data: modelData } = useQuery({
     queryKey: modelsQueryKeys.detail(currentRow?.id || 0),
     queryFn: () => getModel(currentRow!.id),
-    enabled: open && isEditing,
+    enabled: open && hasExistingModel,
   })
 
   const form = useForm<ModelFormValues>({
@@ -162,13 +180,15 @@ export function ModelMutateDrawer({
     },
   })
 
-  // Load model data for editing
+  // Load model data for editing or duplicating
   useEffect(() => {
-    if (open && isEditing && modelData?.data) {
+    if (open && hasExistingModel && modelData?.data) {
       const model = modelData.data
       form.reset({
-        id: model.id,
-        model_name: model.model_name,
+        id: isEditing ? model.id : undefined,
+        model_name: isDuplicating
+          ? `${model.model_name}${MODEL_COPY_NAME_SUFFIX}`
+          : model.model_name,
         description: model.description || '',
         icon: model.icon || '',
         tags: parseModelTags(model.tags),
@@ -186,7 +206,14 @@ export function ModelMutateDrawer({
         reasoning_options: parseReasoningOptions(model.reasoning_options),
         purposes: parseModelPurposes(model.purposes),
       })
-    } else if (open && !isEditing) {
+
+      // 复制新增必须改名：回显后若焦点已在模型名称输入框，则全选预填名称，便于直接输入新名称。
+      // reset 的值要到下一次渲染才写入输入框，所以延后一拍再全选（与 react-hook-form 的 setFocus 一致）；
+      // 只在已聚焦时选中、不主动移动焦点，避免在触屏设备上弹出键盘
+      if (isDuplicating && getFocusedModelNameInput()) {
+        setTimeout(() => getFocusedModelNameInput()?.select())
+      }
+    } else if (open && !hasExistingModel) {
       // Pre-fill model name if passed from missing models
       form.reset({
         model_name: currentRow?.model_name || '',
@@ -208,7 +235,15 @@ export function ModelMutateDrawer({
         purposes: [],
       })
     }
-  }, [open, isEditing, modelData, currentRow, form])
+  }, [
+    open,
+    hasExistingModel,
+    isEditing,
+    isDuplicating,
+    modelData,
+    currentRow,
+    form,
+  ])
 
   const onSubmit = useCallback(
     async (values: ModelFormValues): Promise<void> => {
@@ -274,20 +309,30 @@ export function ModelMutateDrawer({
     form.setValue('endpoints', merged)
   }
 
+  // Title and description depend on the drawer mode
+  let title = t('Create Model')
+  let description = t(
+    'Add a new model to the system by providing the necessary information.'
+  )
+  if (isEditing) {
+    title = t('Edit Model')
+    description = t(
+      "Update model configuration and click save when you're done."
+    )
+  } else if (isDuplicating) {
+    title = t('Copy Model')
+    description = t(
+      'Create a new model from the configuration of {{name}}. Model names must be unique.',
+      { name: currentRow?.model_name }
+    )
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className='flex h-dvh w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl'>
         <SheetHeader className='border-b px-4 py-3 text-start sm:px-6 sm:py-4'>
-          <SheetTitle>
-            {isEditing ? t('Edit Model') : t('Create Model')}
-          </SheetTitle>
-          <SheetDescription>
-            {isEditing
-              ? t("Update model configuration and click save when you're done.")
-              : t(
-                  'Add a new model to the system by providing the necessary information.'
-                )}
-          </SheetDescription>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
 
         <Form {...form}>
@@ -314,6 +359,10 @@ export function ModelMutateDrawer({
                       <Input
                         placeholder={t('gpt-4, claude-3-opus, etc.')}
                         {...field}
+                        onFocus={(event) => {
+                          // 复制新增时名称必须修改：获得焦点即全选预填名称，便于直接输入新名称
+                          if (isDuplicating) event.currentTarget.select()
+                        }}
                       />
                     </FormControl>
                     <FormDescription>

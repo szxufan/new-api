@@ -93,13 +93,31 @@ export function getModelStatusConfig(
 // Model Purpose Options
 // ============================================================================
 
-export const MODEL_PURPOSES = ['chat', 'programming', 'writing'] as const
+export const MODEL_PURPOSES = [
+  'chat',
+  'programming',
+  'writing',
+  'asr',
+  'tts',
+  'image_generation',
+  'image_edit',
+  'video_generation',
+  'realtime',
+  'translation',
+] as const
 
 export function getModelPurposeOptions(t: TFunction) {
   return [
     { label: t('Chat'), value: 'chat' },
     { label: t('Programming'), value: 'programming' },
     { label: t('Writing'), value: 'writing' },
+    { label: t('Speech Recognition'), value: 'asr' },
+    { label: t('Text to Speech'), value: 'tts' },
+    { label: t('Image Generation'), value: 'image_generation' },
+    { label: t('Image Editing'), value: 'image_edit' },
+    { label: t('Video Generation'), value: 'video_generation' },
+    { label: t('Realtime Call'), value: 'realtime' },
+    { label: t('Translation'), value: 'translation' },
   ]
 }
 

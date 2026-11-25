@@ -19,7 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type Row } from '@tanstack/react-table'
-import { MoreHorizontal, Pencil, Power, PowerOff, Trash2 } from 'lucide-react'
+import {
+  Copy,
+  MoreHorizontal,
+  Pencil,
+  Power,
+  PowerOff,
+  Trash2,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -57,6 +64,11 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('update-model')
   }
 
+  const handleCopy = () => {
+    setCurrentRow(model)
+    setOpen('copy-model')
+  }
+
   const handleToggleStatus = () => {
     handleToggleModelStatus(model.id, model.status, queryClient)
   }
@@ -80,6 +92,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           {t('Edit')}
           <DropdownMenuShortcut>
             <Pencil size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        {/* Copy as New */}
+        <DropdownMenuItem onClick={handleCopy}>
+          {t('Copy as New')}
+          <DropdownMenuShortcut>
+            <Copy size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
