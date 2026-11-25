@@ -381,6 +381,49 @@ export const DEEPSEEK_WEB_TOOLS_TEMPLATE = {
   ],
 }
 
+// Kimi K3.1 系列为常开思考模型，temperature/top_p/n/penalties 由服务端固定
+// （1 / 0.95 / 1 / 0），显式传入其他值会返回 400（如 "invalid temperature:
+// only 1 is allowed for this model"）。官方建议不显式传入，故按模型条件删除，
+// 避免误伤同渠道温度可调的模型（如 kimi-k2.6 非思考模式固定 0.6）。
+export const KIMI_K31_FIXED_PARAMS_TEMPLATE = {
+  operations: [
+    {
+      description:
+        'Remove temperature for Kimi K3.1 models (fixed to 1 upstream).',
+      path: 'temperature',
+      mode: 'delete',
+      conditions: [{ path: 'model', mode: 'contains', value: 'k3.1' }],
+    },
+    {
+      description:
+        'Remove top_p for Kimi K3.1 models (fixed to 0.95 upstream).',
+      path: 'top_p',
+      mode: 'delete',
+      conditions: [{ path: 'model', mode: 'contains', value: 'k3.1' }],
+    },
+    {
+      description: 'Remove n for Kimi K3.1 models (fixed to 1 upstream).',
+      path: 'n',
+      mode: 'delete',
+      conditions: [{ path: 'model', mode: 'contains', value: 'k3.1' }],
+    },
+    {
+      description:
+        'Remove presence_penalty for Kimi K3.1 models (fixed to 0 upstream).',
+      path: 'presence_penalty',
+      mode: 'delete',
+      conditions: [{ path: 'model', mode: 'contains', value: 'k3.1' }],
+    },
+    {
+      description:
+        'Remove frequency_penalty for Kimi K3.1 models (fixed to 0 upstream).',
+      path: 'frequency_penalty',
+      mode: 'delete',
+      conditions: [{ path: 'model', mode: 'contains', value: 'k3.1' }],
+    },
+  ],
+}
+
 const CODEX_CLI_HEADER_PASSTHROUGH_HEADERS = [
   'Originator',
   'Session_id',
@@ -497,6 +540,11 @@ const TEMPLATE_PRESET_CONFIG: Record<string, TemplatePresetConfig> = {
     label: 'DeepSeek Web Tools',
     kind: 'operations',
     payload: DEEPSEEK_WEB_TOOLS_TEMPLATE,
+  },
+  kimi_k31_fixed_params: {
+    label: 'Kimi K3.1 Fixed Params',
+    kind: 'operations',
+    payload: KIMI_K31_FIXED_PARAMS_TEMPLATE,
   },
   claude_cli_headers_passthrough: {
     label: 'Claude CLI Header Passthrough',

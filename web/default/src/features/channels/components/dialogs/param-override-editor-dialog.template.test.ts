@@ -17,7 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, it } from 'vitest'
-import { DEEPSEEK_WEB_TOOLS_TEMPLATE } from './param-override-editor-dialog'
+import {
+  DEEPSEEK_WEB_TOOLS_TEMPLATE,
+  KIMI_K31_FIXED_PARAMS_TEMPLATE,
+} from './param-override-editor-dialog'
 
 // 模板必须同时满足四点才能直接可用：
 // 1) append + as=array：tools 缺失时自动建数组，而不是让请求 400；
@@ -55,6 +58,35 @@ describe('DeepSeek web tools template', () => {
       expect(condition.value).toBe(
         (operation.value as { type: string }[])[0].type
       )
+    }
+  })
+})
+
+// Kimi K3.1 系列采样参数由服务端固定，显式传入非默认值会 400。模板必须：
+// 1) 覆盖全部五个固定参数；2) 用 delete 而非 set（官方建议不显式传入，
+// 字段缺失时 delete 也是空操作）；3) 条件限定 k3.1 模型，避免误伤
+// 同渠道温度可调的模型（如 kimi-k2.6 非思考模式固定 0.6）。
+describe('Kimi K3.1 fixed params template', () => {
+  const operations = KIMI_K31_FIXED_PARAMS_TEMPLATE.operations
+
+  it('deletes all five server-fixed sampling params', () => {
+    expect(operations.map((operation) => operation.path)).toEqual([
+      'temperature',
+      'top_p',
+      'n',
+      'presence_penalty',
+      'frequency_penalty',
+    ])
+    for (const operation of operations) {
+      expect(operation.mode).toBe('delete')
+    }
+  })
+
+  it('only applies to k3.1 models', () => {
+    for (const operation of operations) {
+      expect(operation.conditions).toEqual([
+        { path: 'model', mode: 'contains', value: 'k3.1' },
+      ])
     }
   })
 })
