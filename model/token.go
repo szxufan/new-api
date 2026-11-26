@@ -92,7 +92,7 @@ func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 //  2. 连续的 % 合并为单个 %
 //  3. 最多允许 2 个 %
 //  4. 含 % 时（模糊搜索），去掉 % 后关键词长度必须 >= 2
-//  5. 不含 % 时按精确匹配
+//  5. 不含 % 时原样返回，由调用方决定是否包裹 % 实现部分匹配
 func sanitizeLikePattern(input string) (string, error) {
 	// 1. 先转义 ESCAPE 字符 ! 自身，再转义 _
 	//    使用 ! 而非 \ 作为 ESCAPE 字符，避免 MySQL 中反斜杠的字符串转义问题
@@ -119,8 +119,32 @@ func sanitizeLikePattern(input string) (string, error) {
 		return input, nil
 	}
 
-	// 5. 无 % 时，精确全匹配
+	// 5. 无 % 时，交由调用方按精确匹配或包裹 % 实现部分匹配
 	return input, nil
+}
+
+// buildLikePattern 将用户输入转换为 LIKE 搜索模式：
+// 显式包含 % 时保留用户指定的通配符语义（前缀/后缀/包含匹配），
+// 否则默认在两侧包裹 % 实现部分匹配。转义与长度校验统一由 sanitizeLikePattern 完成。
+func buildLikePattern(input string) (string, error) {
+	pattern, err := sanitizeLikePattern(input)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(pattern, "%") {
+		pattern = "%" + pattern + "%"
+	}
+	return pattern, nil
+}
+
+// stripTokenKeyPrefix 去掉用户从界面复制的 sk- 前缀。
+// 数据库中的令牌密钥不保存该前缀，直接用于检索会匹配不到。
+func stripTokenKeyPrefix(input string) string {
+	trimmed := strings.TrimPrefix(input, "sk-")
+	if trimmed == "" {
+		return input
+	}
+	return trimmed
 }
 
 const searchHardLimit = 100
@@ -140,15 +164,20 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 
 	// 超量用户（令牌数超过上限）只允许精确搜索，禁止模糊搜索
 	maxTokens := operation_setting.GetMaxUserTokens()
-	hasFuzzy := strings.Contains(keyword, "%") || strings.Contains(token, "%")
-	if hasFuzzy {
+	hasExplicitFuzzy := strings.Contains(keyword, "%") || strings.Contains(token, "%")
+	buildPattern := buildLikePattern
+	if keyword != "" || token != "" {
 		count, err := CountUserTokens(userId)
 		if err != nil {
 			common.SysLog("failed to count user tokens: " + err.Error())
 			return nil, 0, errors.New("获取令牌数量失败")
 		}
 		if int(count) > maxTokens {
-			return nil, 0, errors.New("令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符")
+			if hasExplicitFuzzy {
+				return nil, 0, errors.New("令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符")
+			}
+			// 未显式使用 % 的关键词同样按部分匹配处理，超量用户退化为精确匹配
+			buildPattern = sanitizeLikePattern
 		}
 	}
 
@@ -156,14 +185,25 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
-		keywordPattern, err := sanitizeLikePattern(keyword)
+		keywordPattern, err := buildPattern(keyword)
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where("LOWER(name) LIKE LOWER(?) ESCAPE '!'", keywordPattern)
+		if token == "" {
+			// 页面只有一个搜索框，关键词同时匹配令牌名称和密钥
+			keyPattern, err := buildPattern(stripTokenKeyPrefix(keyword))
+			if err != nil {
+				return nil, 0, err
+			}
+			baseQuery = baseQuery.Where(
+				"(LOWER(name) LIKE LOWER(?) ESCAPE '!' OR LOWER("+commonKeyCol+") LIKE LOWER(?) ESCAPE '!')",
+				keywordPattern, keyPattern)
+		} else {
+			baseQuery = baseQuery.Where("LOWER(name) LIKE LOWER(?) ESCAPE '!'", keywordPattern)
+		}
 	}
 	if token != "" {
-		tokenPattern, err := sanitizeLikePattern(token)
+		tokenPattern, err := buildPattern(token)
 		if err != nil {
 			return nil, 0, err
 		}

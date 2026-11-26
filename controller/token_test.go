@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
@@ -48,21 +49,21 @@ type sqliteColumnInfo struct {
 }
 
 type legacyToken struct {
-	Id                 int            `gorm:"primaryKey"`
-	UserId             int            `gorm:"index"`
-	Key                string         `gorm:"column:key;type:char(48);uniqueIndex"`
-	Status             int            `gorm:"default:1"`
-	Name               string         `gorm:"index"`
-	CreatedTime        int64          `gorm:"bigint"`
-	AccessedTime       int64          `gorm:"bigint"`
-	ExpiredTime        int64          `gorm:"bigint;default:-1"`
-	RemainQuota        int            `gorm:"default:0"`
+	Id                 int    `gorm:"primaryKey"`
+	UserId             int    `gorm:"index"`
+	Key                string `gorm:"column:key;type:char(48);uniqueIndex"`
+	Status             int    `gorm:"default:1"`
+	Name               string `gorm:"index"`
+	CreatedTime        int64  `gorm:"bigint"`
+	AccessedTime       int64  `gorm:"bigint"`
+	ExpiredTime        int64  `gorm:"bigint;default:-1"`
+	RemainQuota        int    `gorm:"default:0"`
 	UnlimitedQuota     bool
 	ModelLimitsEnabled bool
-	ModelLimits        string         `gorm:"type:text"`
-	AllowIps           *string        `gorm:"default:''"`
-	UsedQuota          int            `gorm:"default:0"`
-	Group              string         `gorm:"column:group;default:''"`
+	ModelLimits        string  `gorm:"type:text"`
+	AllowIps           *string `gorm:"default:''"`
+	UsedQuota          int     `gorm:"default:0"`
+	Group              string  `gorm:"column:group;default:''"`
 	CrossGroupRetry    bool
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
@@ -79,6 +80,7 @@ func openTokenControllerTestDB(t *testing.T) *gorm.DB {
 	common.UsingMySQL = false
 	common.UsingPostgreSQL = false
 	common.RedisEnabled = false
+	model.InitCommonColumnNames()
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -122,6 +124,7 @@ func openTokenControllerExternalDB(t *testing.T, dialect string, dsn string) (*g
 	common.UsingSQLite = false
 	common.UsingMySQL = dialect == "mysql"
 	common.UsingPostgreSQL = dialect == "postgres"
+	model.InitCommonColumnNames()
 
 	var (
 		db  *gorm.DB
@@ -442,6 +445,130 @@ func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("search response leaked raw token key: %s", recorder.Body.String())
+	}
+}
+
+func TestSearchTokensPartialMatch(t *testing.T) {
+	setupTokenControllerTestDB(t)
+	seedToken(t, model.DB, 1, "production-openai", "abcd1234efgh5678")
+	seedToken(t, model.DB, 1, "staging-claude", "wxyz9876mnop4321")
+	seedToken(t, model.DB, 2, "other-user-production", "other00000000000")
+
+	cases := []struct {
+		name     string
+		target   string
+		wantName string
+	}{
+		{
+			name:     "partial name",
+			target:   "/api/token/search?keyword=production&p=1&size=10",
+			wantName: "production-openai",
+		},
+		{
+			name:     "case insensitive partial name",
+			target:   "/api/token/search?keyword=OPENAI&p=1&size=10",
+			wantName: "production-openai",
+		},
+		{
+			name:     "partial key",
+			target:   "/api/token/search?keyword=efgh&p=1&size=10",
+			wantName: "production-openai",
+		},
+		{
+			name:     "full key with sk- prefix",
+			target:   "/api/token/search?keyword=sk-abcd1234efgh5678&p=1&size=10",
+			wantName: "production-openai",
+		},
+		{
+			name:     "partial key ignores other users",
+			target:   "/api/token/search?keyword=other000&p=1&size=10",
+			wantName: "",
+		},
+		{
+			name:     "explicit prefix wildcard",
+			target:   "/api/token/search?keyword=stag%25&p=1&size=10",
+			wantName: "staging-claude",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, recorder := newAuthenticatedContext(t, http.MethodGet, tc.target, nil, 1)
+			SearchTokens(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			if !response.Success {
+				t.Fatalf("expected success response, got message: %s", response.Message)
+			}
+
+			var page tokenPageResponse
+			if err := common.Unmarshal(response.Data, &page); err != nil {
+				t.Fatalf("failed to decode search response: %v", err)
+			}
+			if tc.wantName == "" {
+				if len(page.Items) != 0 {
+					t.Fatalf("expected no search results, got %+v", page.Items)
+				}
+				return
+			}
+			if len(page.Items) != 1 {
+				t.Fatalf("expected exactly one search result, got %d: %+v", len(page.Items), page.Items)
+			}
+			if page.Items[0].Name != tc.wantName {
+				t.Fatalf("expected token %q, got %q", tc.wantName, page.Items[0].Name)
+			}
+		})
+	}
+}
+
+func TestSearchTokensOverLimitFallsBackToExactMatch(t *testing.T) {
+	setupTokenControllerTestDB(t)
+	seedToken(t, model.DB, 1, "production-openai", "abcd1234efgh5678")
+	seedToken(t, model.DB, 1, "staging-claude", "wxyz9876mnop4321")
+
+	tokenSetting := operation_setting.GetTokenSetting()
+	previousMaxTokens := tokenSetting.MaxUserTokens
+	tokenSetting.MaxUserTokens = 1
+	t.Cleanup(func() {
+		tokenSetting.MaxUserTokens = previousMaxTokens
+	})
+
+	search := func(target string) tokenAPIResponse {
+		t.Helper()
+		ctx, recorder := newAuthenticatedContext(t, http.MethodGet, target, nil, 1)
+		SearchTokens(ctx)
+		return decodeAPIResponse(t, recorder)
+	}
+
+	// 未显式使用 % 时默认部分匹配，超量用户应退化为精确匹配
+	response := search("/api/token/search?keyword=produc&p=1&size=10")
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+	var page tokenPageResponse
+	if err := common.Unmarshal(response.Data, &page); err != nil {
+		t.Fatalf("failed to decode search response: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("expected no partial matches for over-limit user, got %+v", page.Items)
+	}
+
+	// 完整名称仍可精确搜索
+	response = search("/api/token/search?keyword=production-openai&p=1&size=10")
+	if !response.Success {
+		t.Fatalf("expected success response, got message: %s", response.Message)
+	}
+	if err := common.Unmarshal(response.Data, &page); err != nil {
+		t.Fatalf("failed to decode search response: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Name != "production-openai" {
+		t.Fatalf("expected exact match, got %+v", page.Items)
+	}
+
+	// 显式通配符仍被拒绝
+	response = search("/api/token/search?keyword=produc%25&p=1&size=10")
+	if response.Success {
+		t.Fatalf("expected wildcard search to be rejected for over-limit user")
 	}
 }
 
