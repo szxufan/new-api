@@ -155,3 +155,55 @@ func TestModelPriceHelperTieredAppliesChannelFactors(t *testing.T) {
 	require.Equal(t, 2000, priceData.QuotaToPreConsume)
 	require.NotNil(t, info.TieredBillingSnapshot)
 }
+
+// 渠道价格系数为 0 时最终费用恒为 0，未配置价格的模型也应允许调用。
+func TestModelPriceHelperAllowsUnpricedModelWhenChannelPriceZero(t *testing.T) {
+	withFollowTestEnv(t, map[string]string{})
+
+	ctx := newFollowTestContext(t)
+	setChannelPriceSetting(t, ctx, &dto.ChannelPriceSettings{Total: pf(0)})
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "unpriced-zero-price-channel-model",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+	}
+
+	priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{MaxTokens: 500})
+	require.NoError(t, err)
+	require.Equal(t, 0, priceData.QuotaToPreConsume)
+}
+
+// 分组倍率为 0 时最终费用恒为 0，未配置价格的模型也应允许调用。
+func TestModelPriceHelperAllowsUnpricedModelWhenGroupRatioZero(t *testing.T) {
+	withFollowTestEnv(t, map[string]string{
+		"group_ratio_setting.group_ratio": `{"free":0}`,
+	})
+
+	ctx := newFollowTestContext(t)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "unpriced-zero-group-ratio-model",
+		UserGroup:       "free",
+		UsingGroup:      "free",
+	}
+
+	priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{MaxTokens: 500})
+	require.NoError(t, err)
+	require.Equal(t, 0, priceData.QuotaToPreConsume)
+}
+
+// 按次计费同样适用：渠道价格系数为 0 时放行未配置价格的模型。
+func TestModelPriceHelperPerCallAllowsUnpricedModelWhenChannelPriceZero(t *testing.T) {
+	withFollowTestEnv(t, map[string]string{})
+
+	ctx := newFollowTestContext(t)
+	setChannelPriceSetting(t, ctx, &dto.ChannelPriceSettings{Total: pf(0)})
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "unpriced-zero-price-channel-percall",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+	}
+
+	priceData, err := ModelPriceHelperPerCall(ctx, info)
+	require.NoError(t, err)
+	require.Equal(t, 0, priceData.Quota)
+}

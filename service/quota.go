@@ -98,8 +98,9 @@ func calculateAudioQuota(info QuotaInfo) int {
 
 	quota = quota.Mul(ratio).Mul(dOverall)
 
-	// If ratio is not zero and quota is less than or equal to zero, set quota to 1
-	if !ratio.IsZero() && quota.LessThanOrEqual(decimal.Zero) {
+	// If ratio is not zero and quota is less than or equal to zero, set quota to 1.
+	// 分组倍率或渠道总系数为 0 时价格恒为 0，不做最低 1 额度兜底。
+	if !ratio.IsZero() && !dOverall.IsZero() && quota.LessThanOrEqual(decimal.Zero) {
 		quota = decimal.NewFromInt(1)
 	}
 

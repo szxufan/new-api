@@ -174,6 +174,22 @@ func TestCalculateAudioQuotaAppliesChannelPriceFactors(t *testing.T) {
 	require.InDelta(t, float64(base)*0.5, float64(discounted), 1.5)
 }
 
+// 渠道总系数为 0 时价格恒为 0，不应触发最低 1 额度兜底。
+func TestCalculateAudioQuotaZeroChannelPriceChargesZero(t *testing.T) {
+	info := QuotaInfo{
+		InputDetails:  TokenDetails{TextTokens: 1000},
+		OutputDetails: TokenDetails{TextTokens: 300},
+		ModelName:     "channel-price-audio-zero-model",
+		ModelRatio:    1,
+		GroupRatio:    1,
+	}
+	zero := dto.IdentityPriceFactors()
+	zero.Total = 0
+	info.PriceFactors = &zero
+
+	require.Equal(t, 0, calculateAudioQuota(info))
+}
+
 func TestTryTieredSettleAppliesChannelPriceFactors(t *testing.T) {
 	expr := `tier("base", p * 2)`
 	relayInfo := &relaycommon.RelayInfo{

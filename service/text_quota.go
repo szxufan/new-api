@@ -241,6 +241,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	dImageInputFactor := decimal.NewFromFloat(factors.ImageInput)
 	dAudioInputFactor := decimal.NewFromFloat(factors.AudioInput)
 	dOverall := decimal.NewFromFloat(factors.Overall())
+	// 分组倍率或渠道总系数为 0 时整单价格为 0，不应触发最低 1 额度兜底
+	zeroPriceCoefficient := ratio.IsZero() || dOverall.IsZero()
 	summary.ToolCallSurchargeQuota = calculateTextToolCallSurcharge(ctx, relayInfo, &summary)
 
 	var audioInputQuota decimal.Decimal
@@ -304,7 +306,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			}
 		}
 
-		if !ratio.IsZero() && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
+		// 分组倍率或渠道总系数为 0 时整单价格为 0，不应触发最低 1 额度兜底
+		if !zeroPriceCoefficient && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
 			quotaCalculateDecimal = decimal.NewFromInt(1)
 		}
 		summary.Quota = int(quotaCalculateDecimal.Round(0).IntPart())
@@ -323,7 +326,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 	if summary.TotalTokens == 0 {
 		summary.Quota = 0
-	} else if !ratio.IsZero() && summary.Quota == 0 {
+	} else if !zeroPriceCoefficient && summary.Quota == 0 {
 		summary.Quota = 1
 	}
 

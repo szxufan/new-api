@@ -34,6 +34,12 @@ func modelPriceNotConfiguredError(modelName string, userId int) error {
 	)
 }
 
+// priceCoefficientIsZero 判断外层价格系数（分组倍率或渠道总系数 × 时段系数）是否为 0。
+// 系数为 0 时无论模型是否配置价格，最终费用恒为 0，因此未配置价格的模型也应允许调用。
+func priceCoefficientIsZero(groupRatioInfo types.GroupRatioInfo, channelFactors dto.PriceFactors) bool {
+	return groupRatioInfo.GroupRatio == 0 || channelFactors.Overall() == 0
+}
+
 // https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
 const claudeCacheCreation1hMultiplier = 6 / 3.75
 
@@ -105,10 +111,8 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		var matchName string
 		modelRatio, success, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
 		if !success {
-			acceptUnsetRatio := false
-			if info.UserSetting.AcceptUnsetRatioModel {
-				acceptUnsetRatio = true
-			}
+			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
+				priceCoefficientIsZero(groupRatioInfo, channelFactors)
 			if !acceptUnsetRatio {
 				return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
@@ -135,7 +139,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	// check if free model pre-consume is disabled
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
 		// if model price or ratio is 0, do not pre-consume quota
-		if groupRatioInfo.GroupRatio == 0 {
+		if priceCoefficientIsZero(groupRatioInfo, channelFactors) {
 			preConsumedQuota = 0
 			freeModel = true
 		} else if usePrice {
@@ -193,10 +197,8 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 			var ratioSuccess bool
 			var matchName string
 			modelRatio, ratioSuccess, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
-			acceptUnsetRatio := false
-			if info.UserSetting.AcceptUnsetRatioModel {
-				acceptUnsetRatio = true
-			}
+			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
+				priceCoefficientIsZero(groupRatioInfo, channelFactors)
 			if !ratioSuccess && !acceptUnsetRatio {
 				return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
@@ -209,7 +211,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 	if usePrice {
 		quota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelPrice == 0 {
+			if priceCoefficientIsZero(groupRatioInfo, channelFactors) || modelPrice == 0 {
 				quota = 0
 				freeModel = true
 			}
@@ -219,7 +221,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 		quota = int(modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		modelPrice = -1
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || modelRatio == 0 {
+			if priceCoefficientIsZero(groupRatioInfo, channelFactors) || modelRatio == 0 {
 				quota = 0
 				freeModel = true
 			}
@@ -295,7 +297,7 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 		preConsumedQuota := int(targetPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio * channelFactors.Overall())
 		freeModel := false
 		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-			if groupRatioInfo.GroupRatio == 0 || targetPrice == 0 {
+			if priceCoefficientIsZero(groupRatioInfo, channelFactors) || targetPrice == 0 {
 				preConsumedQuota = 0
 				freeModel = true
 			}
@@ -314,10 +316,8 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	targetRatio, success, matchName := ratio_setting.GetModelRatio(targetModel)
 	if !success {
-		acceptUnsetRatio := false
-		if info.UserSetting.AcceptUnsetRatioModel {
-			acceptUnsetRatio = true
-		}
+		acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
+			priceCoefficientIsZero(groupRatioInfo, channelFactors)
 		if !acceptUnsetRatio {
 			return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 		}
@@ -344,7 +344,7 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-		if groupRatioInfo.GroupRatio == 0 || targetRatio == 0 {
+		if priceCoefficientIsZero(groupRatioInfo, channelFactors) || targetRatio == 0 {
 			preConsumedQuota = 0
 			freeModel = true
 		}
@@ -401,7 +401,7 @@ func modelPriceHelperTieredWithExpr(c *gin.Context, info *relaycommon.RelayInfo,
 
 	freeModel := false
 	if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume {
-		if groupRatioInfo.GroupRatio == 0 {
+		if priceCoefficientIsZero(groupRatioInfo, channelFactors) {
 			preConsumedQuota = 0
 			freeModel = true
 		}
