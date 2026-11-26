@@ -369,6 +369,15 @@ function PriceSection(props: {
     groupRatioMultiplier: 1,
   })
 
+  if (props.model.unpriced) {
+    return (
+      <section>
+        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <p className='text-muted-foreground text-sm'>{t('Unpriced')}</p>
+      </section>
+    )
+  }
+
   const primaryPriceTypes: { label: string; type: PriceType }[] = [
     { label: t('Input'), type: 'input' },
     { label: t('Output'), type: 'output' },
@@ -636,6 +645,16 @@ function GroupPricingSection(props: {
       types.push({ label: t('Audio Out'), type: 'audio_output' })
     return types
   }, [props.model, t])
+
+  if (props.model.unpriced) {
+    return (
+      <section>
+        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <p className='text-muted-foreground text-sm'>{t('Unpriced')}</p>
+      </section>
+    )
+  }
 
   if (availableGroups.length === 0) {
     return (

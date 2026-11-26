@@ -111,9 +111,10 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		var matchName string
 		modelRatio, success, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
 		if !success {
-			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
-				priceCoefficientIsZero(groupRatioInfo, channelFactors)
-			if !acceptUnsetRatio {
+			if priceCoefficientIsZero(groupRatioInfo, channelFactors) {
+				// 价格系数为 0 时最终费用恒为 0，日志按 0 倍率展示
+				modelRatio = 0
+			} else if !info.UserSetting.AcceptUnsetRatioModel {
 				return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 			}
 		}
@@ -197,10 +198,13 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 			var ratioSuccess bool
 			var matchName string
 			modelRatio, ratioSuccess, matchName = ratio_setting.GetModelRatio(info.OriginModelName)
-			acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
-				priceCoefficientIsZero(groupRatioInfo, channelFactors)
-			if !ratioSuccess && !acceptUnsetRatio {
-				return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+			if !ratioSuccess {
+				if priceCoefficientIsZero(groupRatioInfo, channelFactors) {
+					// 价格系数为 0 时最终费用恒为 0，日志按 0 倍率展示
+					modelRatio = 0
+				} else if !info.UserSetting.AcceptUnsetRatioModel {
+					return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
+				}
 			}
 		}
 	}
@@ -316,9 +320,10 @@ func modelPriceHelperFollow(c *gin.Context, info *relaycommon.RelayInfo, promptT
 
 	targetRatio, success, matchName := ratio_setting.GetModelRatio(targetModel)
 	if !success {
-		acceptUnsetRatio := info.UserSetting.AcceptUnsetRatioModel ||
-			priceCoefficientIsZero(groupRatioInfo, channelFactors)
-		if !acceptUnsetRatio {
+		if priceCoefficientIsZero(groupRatioInfo, channelFactors) {
+			// 价格系数为 0 时最终费用恒为 0，日志按 0 倍率展示
+			targetRatio = 0
+		} else if !info.UserSetting.AcceptUnsetRatioModel {
 			return types.PriceData{}, modelPriceNotConfiguredError(matchName, info.UserId)
 		}
 	}

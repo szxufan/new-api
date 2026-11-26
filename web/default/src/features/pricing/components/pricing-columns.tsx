@@ -168,6 +168,13 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        if (model.unpriced) {
+          return (
+            <span className='text-muted-foreground text-xs'>
+              {t('Unpriced')}
+            </span>
+          )
+        }
         const dynamicSummary = getDynamicPricingSummary(model, {
           tokenUnit,
           showRechargePrice,
@@ -330,7 +337,7 @@ export function usePricingColumns(
 
         const isTokenBased = isTokenBasedModel(model)
 
-        if (!isTokenBased || model.cache_ratio == null) {
+        if (model.unpriced || !isTokenBased || model.cache_ratio == null) {
           return <span className='text-muted-foreground/30 text-xs'>—</span>
         }
 

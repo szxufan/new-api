@@ -38,6 +38,9 @@ type Pricing struct {
 	FollowTarget           string                  `json:"follow_target,omitempty"`
 	FollowCoefficient      float64                 `json:"follow_coefficient,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	// Unpriced 表示模型未配置价格/倍率（且非表达式计费），前端应显示「未定价」
+	// 而非按兜底倍率展示价格。此类模型仅在价格系数为 0 的渠道上可被调用。
+	Unpriced bool `json:"unpriced,omitempty"`
 
 	// 模型能力信息：来源为 models 表元数据，未配置时省略（与 /v1/models 同源）
 	ContextLength     int      `json:"context_length,omitempty"`
@@ -480,11 +483,13 @@ func updatePricing() {
 		}
 		pricing.Purposes = purposes
 		modelPrice, findPrice := ratio_setting.GetModelPrice(billingModel, false)
+		ratioConfigured := true
 		if findPrice {
 			pricing.ModelPrice = modelPrice * coefficient
 			pricing.QuotaType = 1
 		} else {
-			modelRatio, _, _ := ratio_setting.GetModelRatio(billingModel)
+			modelRatio, ratioOk, _ := ratio_setting.GetModelRatio(billingModel)
+			ratioConfigured = ratioOk
 			pricing.ModelRatio = modelRatio * coefficient
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(billingModel)
 			pricing.QuotaType = 0
@@ -515,6 +520,13 @@ func updatePricing() {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
 			}
+		}
+		// GetModelRatio 对未配置模型返回兜底倍率（37.5，ok=false），不能当作价格展示。
+		// 只有前端确实按表达式展示价格（有效 tiered_expr）时才不算未定价；表达式缺失、
+		// 或者 follow 到表达式计费目标时，前端仍按倍率展示，需屏蔽兜底倍率。
+		if !ratioConfigured && pricing.BillingMode != billing_setting.BillingModeTieredExpr {
+			pricing.ModelRatio = 0
+			pricing.Unpriced = true
 		}
 		pricingMap = append(pricingMap, pricing)
 	}

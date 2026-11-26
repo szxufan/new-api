@@ -38,6 +38,28 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
+// ModelChannelPriceSetting 模型在某个启用渠道上的价格设置原始 JSON。
+type ModelChannelPriceSetting struct {
+	Model   string
+	Setting *string
+}
+
+// GetEnabledModelChannelPriceSettings 返回指定分组下启用模型的渠道价格设置，
+// 用于判断渠道价格系数是否为 0（模型列表放行未定价模型）。
+func GetEnabledModelChannelPriceSettings(groups []string) ([]ModelChannelPriceSetting, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	var rows []ModelChannelPriceSetting
+	err := DB.Table("abilities").
+		Select("abilities.model AS model, channels.setting AS setting").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities.enabled = ?", true).
+		Where("abilities."+commonGroupCol+" IN ?", groups).
+		Scan(&rows).Error
+	return rows, err
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models

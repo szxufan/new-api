@@ -102,6 +102,8 @@ export function filterByEndpointType(
  * Get model price for sorting
  */
 function getModelPrice(model: PricingModel): number {
+  // Unpriced models have no comparable price; keep them at the end.
+  if (model.unpriced) return Number.POSITIVE_INFINITY
   return model.quota_type === 0 ? model.model_ratio : model.model_price || 0
 }
 

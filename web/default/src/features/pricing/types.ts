@@ -60,6 +60,12 @@ export type PricingModel = {
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**
+   * True when the model has no configured price/ratio and is not billed by a
+   * dynamic expression. Such models only succeed on channels whose price
+   * factors are zero, so the UI shows them as "unpriced" instead of a price.
+   */
+  unpriced?: boolean
+  /**
    * Model capabilities configured in the model metadata. The backend omits
    * them when unset, so a missing field means "not configured".
    */

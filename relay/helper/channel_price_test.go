@@ -171,6 +171,8 @@ func TestModelPriceHelperAllowsUnpricedModelWhenChannelPriceZero(t *testing.T) {
 	priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{MaxTokens: 500})
 	require.NoError(t, err)
 	require.Equal(t, 0, priceData.QuotaToPreConsume)
+	// 未定价模型按 0 倍率记录，避免日志显示兜底倍率
+	require.Equal(t, 0.0, priceData.ModelRatio)
 }
 
 // 分组倍率为 0 时最终费用恒为 0，未配置价格的模型也应允许调用。
@@ -189,6 +191,7 @@ func TestModelPriceHelperAllowsUnpricedModelWhenGroupRatioZero(t *testing.T) {
 	priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{MaxTokens: 500})
 	require.NoError(t, err)
 	require.Equal(t, 0, priceData.QuotaToPreConsume)
+	require.Equal(t, 0.0, priceData.ModelRatio)
 }
 
 // 按次计费同样适用：渠道价格系数为 0 时放行未配置价格的模型。
@@ -206,4 +209,5 @@ func TestModelPriceHelperPerCallAllowsUnpricedModelWhenChannelPriceZero(t *testi
 	priceData, err := ModelPriceHelperPerCall(ctx, info)
 	require.NoError(t, err)
 	require.Equal(t, 0, priceData.Quota)
+	require.Equal(t, 0.0, priceData.ModelRatio)
 }

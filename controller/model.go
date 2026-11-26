@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -212,6 +213,24 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	}, nil
 }
 
+// listModelsGroupRatioIsZero 判断列表涉及的分组中是否存在 0 倍率分组。
+// 分组倍率为 0 时未配置价格的模型调用费用恒为 0，无需在列表中隐藏。
+func listModelsGroupRatioIsZero(groups modelListGroups) bool {
+	for _, group := range groups.ownerGroups {
+		if group == "" || group == "auto" {
+			continue
+		}
+		ratio := ratio_setting.GetGroupRatio(group)
+		if userRatio, ok := ratio_setting.GetGroupGroupRatio(groups.userGroup, group); ok {
+			ratio = userRatio
+		}
+		if ratio == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -234,6 +253,24 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	ownerGroups := groups.ownerGroups
+	if !acceptUnsetRatioModel && listModelsGroupRatioIsZero(groups) {
+		// 分组倍率为 0 时未定价模型调用费用恒为 0，应在列表中展示
+		acceptUnsetRatioModel = true
+	}
+	// 渠道价格系数（总系数 × 时段系数）为 0 时，未定价模型同样可调用。
+	// 仅在遇到未定价模型时才查询渠道设置，避免全量定价场景的额外开销。
+	var zeroPriceChannelModels map[string]bool
+	zeroPriceChannelModelsLoaded := false
+	modelCallableWithoutPrice := func(modelName string) bool {
+		if helper.HasModelBillingConfig(modelName) {
+			return true
+		}
+		if !zeroPriceChannelModelsLoaded {
+			zeroPriceChannelModelsLoaded = true
+			zeroPriceChannelModels = service.GetModelsWithZeroPriceChannel(ownerGroups, time.Now())
+		}
+		return zeroPriceChannelModels[modelName]
+	}
 	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
 	if modelLimitEnable {
 		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
@@ -244,10 +281,8 @@ func ListModels(c *gin.Context, modelType int) {
 			tokenModelLimit = map[string]bool{}
 		}
 		for allowModel := range tokenModelLimit {
-			if !acceptUnsetRatioModel {
-				if !helper.HasModelBillingConfig(allowModel) {
-					continue
-				}
+			if !acceptUnsetRatioModel && !modelCallableWithoutPrice(allowModel) {
+				continue
 			}
 			userModelNames = append(userModelNames, allowModel)
 		}
@@ -266,10 +301,8 @@ func ListModels(c *gin.Context, modelType int) {
 			models = model.GetGroupEnabledModels(ownerGroups[0])
 		}
 		for _, modelName := range models {
-			if !acceptUnsetRatioModel {
-				if !helper.HasModelBillingConfig(modelName) {
-					continue
-				}
+			if !acceptUnsetRatioModel && !modelCallableWithoutPrice(modelName) {
+				continue
 			}
 			userModelNames = append(userModelNames, modelName)
 		}

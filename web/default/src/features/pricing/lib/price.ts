@@ -168,6 +168,9 @@ export function formatPrice(
   priceRate = 1,
   usdExchangeRate = 1
 ): string {
+  if (model.unpriced) {
+    return '-'
+  }
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
   }
@@ -207,6 +210,9 @@ export function formatGroupPrice(
   usdExchangeRate = 1,
   groupRatio: Record<string, number>
 ): string {
+  if (model.unpriced) {
+    return '-'
+  }
   if (model.quota_type === QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
   }
@@ -240,6 +246,9 @@ export function formatFixedPrice(
   usdExchangeRate = 1,
   groupRatio: Record<string, number>
 ): string {
+  if (model.unpriced) {
+    return '-'
+  }
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
   }
@@ -270,6 +279,9 @@ export function formatRequestPrice(
   priceRate = 1,
   usdExchangeRate = 1
 ): string {
+  if (model.unpriced) {
+    return '-'
+  }
   if (model.quota_type !== QUOTA_TYPE_VALUES.REQUEST) {
     return '-'
   }
