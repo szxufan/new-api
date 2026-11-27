@@ -363,6 +363,8 @@ export function Dashboard() {
               <FadeIn delay={0.1}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyConsumptionDistributionChart
+                    // 偏好变更时通过 key 重置内部图表类型，避免在 effect 中同步 state
+                    key={`models-${chartPreferences.consumptionDistributionChart}`}
                     data={modelData}
                     loading={dataLoading}
                     defaultChartType={
@@ -377,6 +379,8 @@ export function Dashboard() {
               <FadeIn delay={0.15}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyModelCharts
+                    // 偏好变更时通过 key 重置内部选中的图表 Tab
+                    key={`models-${chartPreferences.modelAnalyticsChart}`}
                     data={modelData}
                     loading={dataLoading}
                     defaultChartTab={chartPreferences.modelAnalyticsChart}
@@ -408,6 +412,7 @@ export function Dashboard() {
               <FadeIn delay={0.05}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyChannelConsumptionDistributionChart
+                    key={`channels-${channelChartPreferences.consumptionDistributionChart}`}
                     data={channelData}
                     loading={channelDataLoading}
                     defaultChartType={
@@ -423,6 +428,7 @@ export function Dashboard() {
               <FadeIn delay={0.1}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyChannelCharts
+                    key={`channels-${channelChartPreferences.modelAnalyticsChart}`}
                     data={channelData}
                     loading={channelDataLoading}
                     defaultChartTab={

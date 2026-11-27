@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-
 /**
  * 图表图例「首次点击隔离、后续点击叠加」交互的纯逻辑实现。
  *
