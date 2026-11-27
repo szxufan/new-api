@@ -96,6 +96,20 @@ export function saveGranularity(granularity: TimeGranularity): void {
   localStorage.setItem(TIME_GRANULARITY_STORAGE_KEY, granularity)
 }
 
+/**
+ * 校验偏好组合：时间粒度为 day/week 时，1 天的默认范围没有任何数据点意义
+ * （每天只有 1 个桶），统一回退到该粒度对应的默认范围。
+ * 这同时修复旧版本保存的「天 + 1 天」非法组合导致的看板缺数据问题。
+ */
+function resolveDefaultTimeRangeDays(
+  days: number,
+  granularity: TimeGranularity
+): number {
+  const minimum = TIME_RANGE_BY_GRANULARITY[granularity]
+  if (!isTimeRangePresetDays(days) || days < minimum) return minimum
+  return days
+}
+
 // storageKey 默认模型看板偏好；渠道看板传入独立 key，避免两个看板互相覆盖
 export function getSavedChartPreferences(
   storageKey: string = DASHBOARD_CHART_PREFERENCES_STORAGE_KEY
@@ -106,12 +120,19 @@ export function getSavedChartPreferences(
     ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
     defaultTimeGranularity: getLegacySavedGranularity(),
   }
+  fallbackPreferences.defaultTimeRangeDays = resolveDefaultTimeRangeDays(
+    fallbackPreferences.defaultTimeRangeDays,
+    fallbackPreferences.defaultTimeGranularity
+  )
 
   try {
     const raw = localStorage.getItem(storageKey)
     if (!raw) return fallbackPreferences
 
     const parsed = JSON.parse(raw) as Partial<DashboardChartPreferences>
+    const granularity = isTimeGranularity(parsed.defaultTimeGranularity)
+      ? parsed.defaultTimeGranularity
+      : fallbackPreferences.defaultTimeGranularity
     return {
       consumptionDistributionChart: isConsumptionDistributionChartType(
         parsed.consumptionDistributionChart
@@ -121,12 +142,13 @@ export function getSavedChartPreferences(
       modelAnalyticsChart: isModelAnalyticsChartTab(parsed.modelAnalyticsChart)
         ? parsed.modelAnalyticsChart
         : fallbackPreferences.modelAnalyticsChart,
-      defaultTimeRangeDays: isTimeRangePresetDays(parsed.defaultTimeRangeDays)
-        ? parsed.defaultTimeRangeDays
-        : fallbackPreferences.defaultTimeRangeDays,
-      defaultTimeGranularity: isTimeGranularity(parsed.defaultTimeGranularity)
-        ? parsed.defaultTimeGranularity
-        : fallbackPreferences.defaultTimeGranularity,
+      defaultTimeRangeDays: resolveDefaultTimeRangeDays(
+        isTimeRangePresetDays(parsed.defaultTimeRangeDays)
+          ? parsed.defaultTimeRangeDays
+          : fallbackPreferences.defaultTimeRangeDays,
+        granularity
+      ),
+      defaultTimeGranularity: granularity,
     }
   } catch {
     return fallbackPreferences

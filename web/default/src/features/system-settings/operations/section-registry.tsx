@@ -24,6 +24,7 @@ import { MonitoringSettingsSection } from '../integrations/monitoring-settings-s
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
 import { PerformanceSection } from '../maintenance/performance-section'
+import { QuotaDataRebuildSection } from '../maintenance/quota-data-rebuild-section'
 import { UpdateCheckerSection } from '../maintenance/update-checker-section'
 import type { OperationsSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
@@ -178,6 +179,12 @@ const OPERATIONS_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'quota-data-rebuild',
+    titleKey: 'Rebuild Dashboard Data',
+    descriptionKey: 'Rebuild quota_data from consumption logs',
+    build: () => <QuotaDataRebuildSection />,
   },
   {
     id: 'update-checker',

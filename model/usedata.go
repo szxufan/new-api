@@ -38,6 +38,10 @@ func UpdateQuotaData() {
 var CacheQuotaData = make(map[string]*QuotaData)
 var CacheQuotaDataLock = sync.Mutex{}
 
+// quotaDataMaintenanceLock 串行化缓存批量落库（SaveQuotaDataCache）与全量重建，
+// 避免重建执行期间后台导出把旧缓存写入 quota_data 造成重复计数。
+var quotaDataMaintenanceLock = sync.Mutex{}
+
 func logQuotaDataCache(userId int, username string, modelName string, channelId int, quota int, createdAt int64, tokenUsed int) {
 	key := fmt.Sprintf("%d-%s-%s-%d-%d", userId, username, modelName, channelId, createdAt)
 	quotaData, ok := CacheQuotaData[key]
@@ -70,6 +74,8 @@ func LogQuotaData(userId int, username string, modelName string, channelId int, 
 }
 
 func SaveQuotaDataCache() {
+	quotaDataMaintenanceLock.Lock()
+	defer quotaDataMaintenanceLock.Unlock()
 	CacheQuotaDataLock.Lock()
 	defer CacheQuotaDataLock.Unlock()
 	size := len(CacheQuotaData)
@@ -138,6 +144,92 @@ func GetQuotaDataGroupByUserAndModel(startTime int64, endTime int64) (quotaData 
 		Group("username, model_name").
 		Find(&quotaDatas).Error
 	return quotaDatas, err
+}
+
+// ============================================================================
+// 从消费日志全量重建 quota_data（管理员手动触发的一次性运维操作）
+// ============================================================================
+
+// quotaDataHourBucketExpr 将日志的 created_at 截断到小时桶。
+// 聚合在 LOG_DB 上执行，方言按 common.LogSqlType 选择（日志库可能与主库不同引擎）。
+func quotaDataHourBucketExpr() string {
+	if common.LogSqlType == common.DatabaseTypeMySQL {
+		return "FLOOR(created_at / 3600) * 3600"
+	}
+	// SQLite/PostgreSQL 的整型除法天然截断
+	return "(created_at / 3600) * 3600"
+}
+
+// QuotaDataRebuildPreview 重建前的对比信息，避免误删比日志更完整的历史数据。
+type QuotaDataRebuildPreview struct {
+	LogConsumeRows      int64 `json:"log_consume_rows"`
+	LogFirstCreatedAt   int64 `json:"log_first_created_at"`
+	LogLastCreatedAt    int64 `json:"log_last_created_at"`
+	QuotaDataRows       int64 `json:"quota_data_rows"`
+	QuotaFirstCreatedAt int64 `json:"quota_data_first_created_at"`
+	QuotaLastCreatedAt  int64 `json:"quota_data_last_created_at"`
+}
+
+// GetQuotaDataRebuildPreview 对比 logs(type=消费) 与 quota_data 的行数和时间覆盖。
+// 如果日志的起始时间明显晚于 quota_data，说明日志被清理过，重建会丢失历史。
+func GetQuotaDataRebuildPreview() (QuotaDataRebuildPreview, error) {
+	var preview QuotaDataRebuildPreview
+	if err := LOG_DB.Table("logs").
+		Select("count(*) as log_consume_rows, coalesce(min(created_at), 0) as log_first_created_at, coalesce(max(created_at), 0) as log_last_created_at").
+		Where("type = ?", LogTypeConsume).
+		Scan(&preview).Error; err != nil {
+		return preview, err
+	}
+	if err := DB.Table("quota_data").
+		Select("count(*) as quota_data_rows, coalesce(min(created_at), 0) as quota_first_created_at, coalesce(max(created_at), 0) as quota_last_created_at").
+		Scan(&preview).Error; err != nil {
+		return preview, err
+	}
+	return preview, nil
+}
+
+// RebuildQuotaDataFromLogs 从 logs 的 type=消费 记录全量重建 quota_data。
+// 口径说明：日志中任务计费（RecordTaskBillingLog）也是 type=消费，会被算进来，
+// 因此重建后的模型看板总额可能与重建前不同（这是全量重建方案的已知差异）。
+// 聚合按 用户+用户名+模型+渠道+小时桶 分组，生成的数据自带 channel_id。
+func RebuildQuotaDataFromLogs() (int64, error) {
+	quotaDataMaintenanceLock.Lock()
+	defer quotaDataMaintenanceLock.Unlock()
+
+	bucketExpr := quotaDataHourBucketExpr()
+	var rows []QuotaData
+	// 先读出全部聚合结果再开启事务写入，避免在读游标未关闭时占用数据库连接（SQLite 单连接会死锁）
+	err := LOG_DB.Table("logs").
+		Select(fmt.Sprintf("user_id, username, model_name, channel_id, %s as created_at, "+
+			"count(*) as count, COALESCE(sum(quota), 0) as quota, "+
+			"COALESCE(sum(prompt_tokens) + sum(completion_tokens), 0) as token_used", bucketExpr)).
+		Where("type = ?", LogTypeConsume).
+		Group(fmt.Sprintf("user_id, username, model_name, channel_id, %s", bucketExpr)).
+		Find(&rows).Error
+	if err != nil {
+		return 0, err
+	}
+
+	// 聚合结果已覆盖缓存中条目的来源日志；写入前清空缓存，
+	// 避免重建后旧缓存再次落库被重复计数。
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*QuotaData)
+	CacheQuotaDataLock.Unlock()
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM quota_data").Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		return tx.Table("quota_data").CreateInBatches(rows, 1000).Error
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(len(rows)), nil
 }
 
 func GetAllQuotaDates(startTime int64, endTime int64, username string) (quotaData []*QuotaData, err error) {

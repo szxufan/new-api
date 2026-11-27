@@ -66,6 +66,33 @@ export async function getChannelQuotaDates(params: {
   return res.data
 }
 
+// 预览重建：对比 logs 与 quota_data 的覆盖情况（管理员）
+export async function getQuotaDataRebuildPreview() {
+  const res = await api.get<{
+    success: boolean
+    message?: string
+    data: {
+      log_consume_rows: number
+      log_first_created_at: number
+      log_last_created_at: number
+      quota_data_rows: number
+      quota_data_first_created_at: number
+      quota_data_last_created_at: number
+    }
+  }>('/api/data/rebuild/preview')
+  return res.data
+}
+
+// 从消费日志全量重建 quota_data（管理员，破坏性操作）
+export async function rebuildQuotaData() {
+  const res = await api.post<{
+    success: boolean
+    message?: string
+    data: { rows: number }
+  }>('/api/data/rebuild?confirm=true')
+  return res.data
+}
+
 // ----------------------------------------------------------------------------
 // System Monitoring
 // ----------------------------------------------------------------------------

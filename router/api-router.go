@@ -323,6 +323,8 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/users/models", middleware.AdminAuth(), controller.GetQuotaDatesByUserAndModel)
 		dataRoute.GET("/channels", middleware.AdminAuth(), controller.GetQuotaDatesByChannel)
+		dataRoute.GET("/rebuild/preview", middleware.AdminAuth(), controller.GetQuotaDataRebuildPreview)
+		dataRoute.POST("/rebuild", middleware.AdminAuth(), controller.RebuildQuotaData)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())

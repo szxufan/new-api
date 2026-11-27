@@ -43,6 +43,7 @@ import {
   CONSUMPTION_DISTRIBUTION_CHART_OPTIONS,
   MODEL_ANALYTICS_CHART_OPTIONS,
   TIME_GRANULARITY_OPTIONS,
+  TIME_RANGE_BY_GRANULARITY,
   TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
 import type {
@@ -138,12 +139,19 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
                 })),
               ]}
               value={draft.defaultTimeGranularity}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                const granularity = value as TimeGranularity
+                // 切换粒度时联动默认范围：day 粒度至少 7 天、week 粒度至少 30 天，
+                // 否则新范围只有一个数据桶，看板看起来像“缺数据”。
                 setDraft((prev) => ({
                   ...prev,
-                  defaultTimeGranularity: value as TimeGranularity,
+                  defaultTimeGranularity: granularity,
+                  defaultTimeRangeDays: Math.max(
+                    prev.defaultTimeRangeDays,
+                    TIME_RANGE_BY_GRANULARITY[granularity]
+                  ),
                 }))
-              }
+              }}
             >
               <SelectTrigger id='default-time-granularity'>
                 <SelectValue placeholder={t('Select time granularity')} />

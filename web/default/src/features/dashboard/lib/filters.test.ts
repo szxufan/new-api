@@ -70,4 +70,36 @@ describe('dashboard chart preferences', () => {
         .modelAnalyticsChart
     ).toBe(DEFAULT_DASHBOARD_CHART_PREFERENCES.modelAnalyticsChart)
   })
+
+  // 回归：旧版本可保存“天粒度 + 1天范围”的非法组合，看板只显示 1 天数据
+  it('rejects a default range shorter than the granularity requires', () => {
+    saveChartPreferences({
+      ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+      defaultTimeGranularity: 'day',
+      defaultTimeRangeDays: 1,
+    })
+    expect(getSavedChartPreferences().defaultTimeRangeDays).toBe(7)
+
+    saveChartPreferences({
+      ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+      defaultTimeGranularity: 'week',
+      defaultTimeRangeDays: 1,
+    })
+    expect(getSavedChartPreferences().defaultTimeRangeDays).toBe(30)
+
+    // hour 粒度下 1 天是合法的；用户显式选的更大范围也应保留
+    saveChartPreferences({
+      ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+      defaultTimeGranularity: 'hour',
+      defaultTimeRangeDays: 1,
+    })
+    expect(getSavedChartPreferences().defaultTimeRangeDays).toBe(1)
+
+    saveChartPreferences({
+      ...DEFAULT_DASHBOARD_CHART_PREFERENCES,
+      defaultTimeGranularity: 'day',
+      defaultTimeRangeDays: 14,
+    })
+    expect(getSavedChartPreferences().defaultTimeRangeDays).toBe(14)
+  })
 })
