@@ -51,7 +51,8 @@ export async function getUserQuotaDates(
 }
 
 // Get channel quota stats within a time range (admin only).
-// 数据来自 logs 表按渠道 + 小时桶的实时聚合，而非 quota_data 预聚合表。
+// 数据来自 quota_data 预聚合表（含 channel_id 维度），与模型看板同源同保留期；
+// 历史存量行无渠道信息，归入 channel_id=0（Unknown）。
 export async function getChannelQuotaDates(params: {
   start_timestamp: number
   end_timestamp: number

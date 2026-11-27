@@ -31,7 +31,7 @@ import { ModelCharts } from '../models/model-charts'
 
 /**
  * 渠道调用分析看板：薄包装复用模型看板组件，仅替换数据源与系列维度。
- * 数据来自 /api/data/channels（logs 按渠道 + 小时桶实时聚合），仅管理员可访问。
+ * 数据来自 /api/data/channels（quota_data 按渠道 + 小时桶聚合），仅管理员可访问。
  */
 
 interface ChannelStatCardsProps {

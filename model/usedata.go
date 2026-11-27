@@ -10,11 +10,15 @@ import (
 )
 
 // QuotaData 柱状图数据
+// ChannelId 为后加的渠道维度：历史存量行 channel_id=0（无渠道），
+// 渠道调用分析看板按 channel_id + created_at 聚合；其余看板的 GROUP BY 不变，
+// 多渠道行在模型/用户维度被 SUM 合并，统计口径不受影响。
 type QuotaData struct {
 	Id        int    `json:"id"`
 	UserID    int    `json:"user_id" gorm:"index"`
 	Username  string `json:"username" gorm:"index:idx_qdt_model_user_name,priority:2;size:64;default:''"`
 	ModelName string `json:"model_name" gorm:"index:idx_qdt_model_user_name,priority:1;size:64;default:''"`
+	ChannelId int    `json:"channel_id" gorm:"default:0;index"`
 	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_qdt_created_at,priority:2"`
 	TokenUsed int    `json:"token_used" gorm:"default:0"`
 	Count     int    `json:"count" gorm:"default:0"`
@@ -34,8 +38,8 @@ func UpdateQuotaData() {
 var CacheQuotaData = make(map[string]*QuotaData)
 var CacheQuotaDataLock = sync.Mutex{}
 
-func logQuotaDataCache(userId int, username string, modelName string, quota int, createdAt int64, tokenUsed int) {
-	key := fmt.Sprintf("%d-%s-%s-%d", userId, username, modelName, createdAt)
+func logQuotaDataCache(userId int, username string, modelName string, channelId int, quota int, createdAt int64, tokenUsed int) {
+	key := fmt.Sprintf("%d-%s-%s-%d-%d", userId, username, modelName, channelId, createdAt)
 	quotaData, ok := CacheQuotaData[key]
 	if ok {
 		quotaData.Count += 1
@@ -46,6 +50,7 @@ func logQuotaDataCache(userId int, username string, modelName string, quota int,
 			UserID:    userId,
 			Username:  username,
 			ModelName: modelName,
+			ChannelId: channelId,
 			CreatedAt: createdAt,
 			Count:     1,
 			Quota:     quota,
@@ -55,13 +60,13 @@ func logQuotaDataCache(userId int, username string, modelName string, quota int,
 	CacheQuotaData[key] = quotaData
 }
 
-func LogQuotaData(userId int, username string, modelName string, quota int, createdAt int64, tokenUsed int) {
+func LogQuotaData(userId int, username string, modelName string, channelId int, quota int, createdAt int64, tokenUsed int) {
 	// 只精确到小时
 	createdAt = createdAt - (createdAt % 3600)
 
 	CacheQuotaDataLock.Lock()
 	defer CacheQuotaDataLock.Unlock()
-	logQuotaDataCache(userId, username, modelName, quota, createdAt, tokenUsed)
+	logQuotaDataCache(userId, username, modelName, channelId, quota, createdAt, tokenUsed)
 }
 
 func SaveQuotaDataCache() {
@@ -74,13 +79,13 @@ func SaveQuotaDataCache() {
 	// 3. 如果没有数据，就插入数据
 	for _, quotaData := range CacheQuotaData {
 		quotaDataDB := &QuotaData{}
-		DB.Table("quota_data").Where("user_id = ? and username = ? and model_name = ? and created_at = ?",
-			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt).First(quotaDataDB)
+		DB.Table("quota_data").Where("user_id = ? and username = ? and model_name = ? and channel_id = ? and created_at = ?",
+			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.ChannelId, quotaData.CreatedAt).First(quotaDataDB)
 		if quotaDataDB.Id > 0 {
 			//quotaDataDB.Count += quotaData.Count
 			//quotaDataDB.Quota += quotaData.Quota
 			//DB.Table("quota_data").Save(quotaDataDB)
-			increaseQuotaData(quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.Count, quotaData.Quota, quotaData.CreatedAt, quotaData.TokenUsed)
+			increaseQuotaData(quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.ChannelId, quotaData.Count, quotaData.Quota, quotaData.CreatedAt, quotaData.TokenUsed)
 		} else {
 			DB.Table("quota_data").Create(quotaData)
 		}
@@ -89,9 +94,9 @@ func SaveQuotaDataCache() {
 	common.SysLog(fmt.Sprintf("保存数据看板数据成功，共保存%d条数据", size))
 }
 
-func increaseQuotaData(userId int, username string, modelName string, count int, quota int, createdAt int64, tokenUsed int) {
-	err := DB.Table("quota_data").Where("user_id = ? and username = ? and model_name = ? and created_at = ?",
-		userId, username, modelName, createdAt).Updates(map[string]interface{}{
+func increaseQuotaData(userId int, username string, modelName string, channelId int, count int, quota int, createdAt int64, tokenUsed int) {
+	err := DB.Table("quota_data").Where("user_id = ? and username = ? and model_name = ? and channel_id = ? and created_at = ?",
+		userId, username, modelName, channelId, createdAt).Updates(map[string]interface{}{
 		"count":      gorm.Expr("count + ?", count),
 		"quota":      gorm.Expr("quota + ?", quota),
 		"token_used": gorm.Expr("token_used + ?", tokenUsed),
