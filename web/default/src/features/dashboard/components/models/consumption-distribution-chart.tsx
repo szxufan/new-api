@@ -28,7 +28,10 @@ import {
   CONSUMPTION_DISTRIBUTION_CHART_OPTIONS,
   DEFAULT_TIME_GRANULARITY,
 } from '@/features/dashboard/constants'
-import { processChartData } from '@/features/dashboard/lib'
+import {
+  processChartData,
+  type SeriesNameGetter,
+} from '@/features/dashboard/lib'
 import type {
   ConsumptionDistributionChartType,
   QuotaDataItem,
@@ -43,6 +46,8 @@ interface ConsumptionDistributionChartProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartType?: ConsumptionDistributionChartType
+  // 系列维度可注入：渠道看板传入渠道名取值器
+  getSeriesName?: SeriesNameGetter
 }
 
 const CHART_TYPE_ICONS: Record<
@@ -102,11 +107,13 @@ export function ConsumptionDistributionChart(
         timeGranularity,
         t,
         customization.preset,
-        chartRadius
+        chartRadius,
+        props.getSeriesName
       ),
     [
       props.data,
       props.loading,
+      props.getSeriesName,
       timeGranularity,
       t,
       customization.preset,

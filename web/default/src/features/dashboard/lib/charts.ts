@@ -23,6 +23,7 @@ import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
 import { SERIES_LEGEND_ID } from './legend-selection'
 import type {
   QuotaDataItem,
+  ChannelQuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
@@ -114,6 +115,22 @@ function renderQuotaCompat(rawQuota: number, digits = 4): string {
 }
 
 /**
+ * 图表系列名取值器：模型看板取 model_name，渠道看板取渠道名。
+ * spec 内部字段名沿用 Model/Time 等历史 key，仅为数据字段，不影响展示文案。
+ */
+export type SeriesNameGetter = (item: QuotaDataItem) => string
+
+const defaultSeriesNameGetter: SeriesNameGetter = (item) =>
+  item.model_name || 'Unknown'
+
+/** 渠道系列名：优先渠道名；已删除渠道（名称为空）回退为 #id；无渠道日志归入 Unknown */
+export const getChannelSeriesName: SeriesNameGetter = (item) => {
+  const channel = item as ChannelQuotaDataItem
+  if (channel.channel_name) return channel.channel_name
+  return channel.channel_id ? `#${channel.channel_id}` : 'Unknown'
+}
+
+/**
  * Process and aggregate chart data
  *
  * 图例（legends）交互约定：
@@ -129,7 +146,8 @@ export function processChartData(
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
   themeKey?: string,
-  chartCornerRadius?: number
+  chartCornerRadius?: number,
+  getSeriesName: SeriesNameGetter = defaultSeriesNameGetter
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
@@ -307,7 +325,7 @@ export function processChartData(
   data.forEach((item) => {
     const timestamp = Number(item.created_at)
     const timeKey = formatChartTime(timestamp, timeGranularity)
-    const model = item.model_name || 'Unknown'
+    const model = getSeriesName(item)
     const quota = Number(item.quota) || 0
     const count = Number(item.count) || 0
     const tokens = Number(item.token_used) || 0

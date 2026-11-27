@@ -36,7 +36,9 @@ export {
   processChartData,
   processUserChartData,
   processUserModelChartData,
+  getChannelSeriesName,
 } from './charts'
+export type { SeriesNameGetter } from './charts'
 export { safeDivide, calculateDashboardStats } from './stats'
 export { getPreviewText } from './text'
 export {

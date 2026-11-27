@@ -52,7 +52,12 @@ function isConsumptionDistributionChartType(
 function isModelAnalyticsChartTab(
   value: unknown
 ): value is ModelAnalyticsChartTab {
-  return value === 'trend' || value === 'proportion' || value === 'top'
+  return (
+    value === 'trend' ||
+    value === 'proportion' ||
+    value === 'top' ||
+    value === 'quota_proportion'
+  )
 }
 
 function isTimeRangePresetDays(value: unknown): value is number {
@@ -91,7 +96,10 @@ export function saveGranularity(granularity: TimeGranularity): void {
   localStorage.setItem(TIME_GRANULARITY_STORAGE_KEY, granularity)
 }
 
-export function getSavedChartPreferences(): DashboardChartPreferences {
+// storageKey 默认模型看板偏好；渠道看板传入独立 key，避免两个看板互相覆盖
+export function getSavedChartPreferences(
+  storageKey: string = DASHBOARD_CHART_PREFERENCES_STORAGE_KEY
+): DashboardChartPreferences {
   if (typeof window === 'undefined') return DEFAULT_DASHBOARD_CHART_PREFERENCES
 
   const fallbackPreferences = {
@@ -100,7 +108,7 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
   }
 
   try {
-    const raw = localStorage.getItem(DASHBOARD_CHART_PREFERENCES_STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return fallbackPreferences
 
     const parsed = JSON.parse(raw) as Partial<DashboardChartPreferences>
@@ -126,13 +134,11 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
 }
 
 export function saveChartPreferences(
-  preferences: DashboardChartPreferences
+  preferences: DashboardChartPreferences,
+  storageKey: string = DASHBOARD_CHART_PREFERENCES_STORAGE_KEY
 ): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(
-    DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
-    JSON.stringify(preferences)
-  )
+  localStorage.setItem(storageKey, JSON.stringify(preferences))
 }
 
 export function getDefaultDays(granularity?: TimeGranularity): number {

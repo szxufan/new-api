@@ -54,6 +54,9 @@ import type {
 interface ModelsChartPreferencesProps {
   preferences: DashboardChartPreferences
   onPreferencesChange: (preferences: DashboardChartPreferences) => void
+  // 弹窗描述与“默认分析图”标签可注入，供渠道看板复用
+  descriptionKey?: string
+  analyticsChartLabelKey?: string
 }
 
 export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
@@ -84,7 +87,8 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
           <DialogTitle>{t('Dashboard Preferences')}</DialogTitle>
           <DialogDescription>
             {t(
-              'Choose the default charts, range, and time granularity for model analytics.'
+              props.descriptionKey ??
+                'Choose the default charts, range, and time granularity for model analytics.'
             )}
           </DialogDescription>
         </DialogHeader>
@@ -193,7 +197,7 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
 
           <div className='grid gap-2'>
             <Label htmlFor='model-analytics-chart'>
-              {t('Default model call chart')}
+              {t(props.analyticsChartLabelKey ?? 'Default model call chart')}
             </Label>
             <Select
               items={[

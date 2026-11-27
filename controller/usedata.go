@@ -56,6 +56,23 @@ func GetQuotaDatesByUserAndModel(c *gin.Context) {
 	})
 }
 
+// GetQuotaDatesByChannel 渠道调用分析看板数据：按渠道 + 小时桶实时聚合消费日志。
+// 仅管理员可用（渠道名称与消耗属敏感运营数据），返回字段与 QuotaData 对齐并附带渠道信息。
+func GetQuotaDatesByChannel(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	stats, err := model.GetChannelQuotaStats(startTimestamp, endTimestamp)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    stats,
+	})
+}
+
 func GetUserQuotaDates(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)

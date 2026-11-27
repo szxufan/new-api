@@ -28,7 +28,10 @@ import {
   DEFAULT_TIME_GRANULARITY,
   MODEL_ANALYTICS_CHART_OPTIONS,
 } from '@/features/dashboard/constants'
-import { processChartData } from '@/features/dashboard/lib'
+import {
+  processChartData,
+  type SeriesNameGetter,
+} from '@/features/dashboard/lib'
 import type {
   ModelAnalyticsChartTab,
   QuotaDataItem,
@@ -56,6 +59,9 @@ interface ModelChartsProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartTab?: ModelAnalyticsChartTab
+  // 看板标题与系列维度可注入：渠道看板复用本组件，传入渠道标题与渠道名取值器
+  titleKey?: string
+  getSeriesName?: SeriesNameGetter
 }
 
 export function ModelCharts(props: ModelChartsProps) {
@@ -105,11 +111,13 @@ export function ModelCharts(props: ModelChartsProps) {
         timeGranularity,
         t,
         customization.preset,
-        chartRadius
+        chartRadius,
+        props.getSeriesName
       ),
     [
       props.data,
       props.loading,
+      props.getSeriesName,
       timeGranularity,
       t,
       customization.preset,
@@ -134,7 +142,7 @@ export function ModelCharts(props: ModelChartsProps) {
         <div className='flex items-center gap-2'>
           <PieChartIcon className='text-muted-foreground/60 size-4' />
           <div className='text-sm font-semibold'>
-            {t('Model Call Analytics')}
+            {t(props.titleKey ?? 'Model Call Analytics')}
           </div>
           <span className='text-muted-foreground text-xs'>
             {t('Total:')} {chartData.totalCountDisplay}

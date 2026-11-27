@@ -31,11 +31,14 @@ import {
 import type {
   QuotaDataItem,
   DashboardFilters,
+  QuotaDataFetcher,
 } from '@/features/dashboard/types'
 
 interface LogStatCardsProps {
   filters?: DashboardFilters
   onDataUpdate?: (data: QuotaDataItem[], loading: boolean) => void
+  // 数据源可注入：渠道看板传入 /api/data/channels 的获取器，默认仍为模型看板数据源
+  fetchData?: QuotaDataFetcher
 }
 
 export function LogStatCards(props: LogStatCardsProps) {
@@ -52,7 +55,7 @@ export function LogStatCards(props: LogStatCardsProps) {
 
   const [timeRangeMinutes, setTimeRangeMinutes] = useState(0)
 
-  const { filters, onDataUpdate } = props
+  const { filters, onDataUpdate, fetchData } = props
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -70,7 +73,11 @@ export function LogStatCards(props: LogStatCardsProps) {
     const timeDiff = (timeRange.end_timestamp - timeRange.start_timestamp) / 60
     setTimeRangeMinutes(timeDiff)
 
-    getUserQuotaDates(buildQueryParams(timeRange, filters), isAdmin)
+    const queryParams = buildQueryParams(timeRange, filters)
+    const request = fetchData
+      ? fetchData(queryParams)
+      : getUserQuotaDates(queryParams, isAdmin)
+    request
       .then((res) => {
         if (abortController.signal.aborted) return
         const data = res?.data || []
@@ -92,7 +99,7 @@ export function LogStatCards(props: LogStatCardsProps) {
     return () => {
       abortController.abort()
     }
-  }, [filters, isAdmin, onDataUpdate])
+  }, [filters, isAdmin, onDataUpdate, fetchData])
 
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,

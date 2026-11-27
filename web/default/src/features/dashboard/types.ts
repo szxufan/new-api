@@ -33,6 +33,21 @@ export interface QuotaDataItem {
   quota?: number
 }
 
+// 渠道调用分析数据：与 QuotaDataItem 同构（count/quota/token_used/created_at），
+// 额外携带渠道维度；created_at 为后端小时桶起点。
+export interface ChannelQuotaDataItem extends QuotaDataItem {
+  channel_id: number
+  channel_name?: string
+}
+
+// 看板统计数据获取器：模型看板默认走 /api/data（/self），渠道看板注入 /api/data/channels
+export type QuotaDataFetcher = (params: {
+  start_timestamp: number
+  end_timestamp: number
+  default_time?: string
+  username?: string
+}) => Promise<{ success: boolean; data: QuotaDataItem[] }>
+
 // ============================================================================
 // Uptime Monitoring Types
 // ============================================================================

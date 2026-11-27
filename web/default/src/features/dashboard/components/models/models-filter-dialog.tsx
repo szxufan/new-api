@@ -61,6 +61,9 @@ interface ModelsFilterProps {
   preferences: DashboardChartPreferences
   onFilterChange: (filters: DashboardFilters) => void
   onReset: () => void
+  // 标题可注入（渠道看板）；showUsernameFilter=false 时不显示管理员用户名筛选
+  titleKey?: string
+  showUsernameFilter?: boolean
 }
 
 /**
@@ -151,7 +154,9 @@ export function ModelsFilter(props: ModelsFilterProps) {
       </DialogTrigger>
       <DialogContent className='flex max-h-[calc(100dvh-2rem)] flex-col max-sm:h-dvh max-sm:w-screen max-sm:max-w-none max-sm:rounded-none max-sm:p-4 sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{t('Filter Dashboard Models')}</DialogTitle>
+          <DialogTitle>
+            {t(props.titleKey ?? 'Filter Dashboard Models')}
+          </DialogTitle>
           <DialogDescription>
             {t(
               'Set filters to customize your dashboard statistics and charts.'
@@ -248,7 +253,7 @@ export function ModelsFilter(props: ModelsFilterProps) {
             </div>
 
             {/* Admin-only fields */}
-            {isAdmin && (
+            {isAdmin && (props.showUsernameFilter ?? true) && (
               <>
                 <SectionDivider label={t('Admin Only')} />
 

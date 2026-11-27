@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { QuotaDataItem } from '@/features/dashboard/types'
+import type {
+  QuotaDataItem,
+  ChannelQuotaDataItem,
+} from '@/features/dashboard/types'
 import { SERIES_LEGEND_ID } from './legend-selection'
 import {
   processChartData,
   processUserChartData,
   processUserModelChartData,
+  getChannelSeriesName,
 } from './charts'
 
 vi.mock('@visactor/vchart/esm/theme/color-scheme/builtin/default', () => ({
@@ -471,5 +475,134 @@ describe('processUserModelChartData', () => {
     expect(countColor).toBeDefined()
     expect(countColor).toHaveProperty('specified')
     expect(typeof countColor.specified).toBe('object')
+  })
+})
+
+describe('processChartData - channel dimension', () => {
+  const channelData: ChannelQuotaDataItem[] = [
+    {
+      created_at: 1700000000,
+      channel_id: 1,
+      channel_name: 'openai-main',
+      quota: 500000,
+      count: 10,
+      token_used: 1000,
+    },
+    {
+      // 同一渠道不同小时桶，应按渠道聚合成同一系列
+      created_at: 1700003600,
+      channel_id: 1,
+      channel_name: 'openai-main',
+      quota: 300000,
+      count: 5,
+      token_used: 500,
+    },
+    {
+      created_at: 1700000000,
+      channel_id: 2,
+      channel_name: 'claude-relay',
+      quota: 200000,
+      count: 3,
+      token_used: 300,
+    },
+  ]
+
+  it('should aggregate by channel name instead of model_name', () => {
+    const result = processChartData(
+      channelData,
+      'hour',
+      mockT,
+      'default',
+      undefined,
+      getChannelSeriesName
+    )
+    const values = result.spec_quota_pie.data[0].values
+
+    expect(values).toHaveLength(2)
+    expect(values[0]).toEqual({ type: 'openai-main', value: 800000 })
+    expect(values[1]).toEqual({ type: 'claude-relay', value: 200000 })
+  })
+
+  it('should rank channels by call count in spec_rank_bar', () => {
+    const result = processChartData(
+      channelData,
+      'hour',
+      mockT,
+      'default',
+      undefined,
+      getChannelSeriesName
+    )
+    const values = result.spec_rank_bar.data[0].values
+
+    expect(values).toHaveLength(2)
+    expect(values[0]).toEqual({ Model: 'openai-main', Count: 15 })
+    expect(values[1]).toEqual({ Model: 'claude-relay', Count: 3 })
+  })
+
+  it('should merge channels beyond Top 20 into Other in spec_rank_bar', () => {
+    const manyChannels: ChannelQuotaDataItem[] = Array.from(
+      { length: 25 },
+      (_, i) => ({
+        created_at: 1700000000,
+        channel_id: i + 1,
+        channel_name: `channel-${i + 1}`,
+        quota: 0,
+        count: i + 1,
+      })
+    )
+
+    const result = processChartData(
+      manyChannels,
+      'hour',
+      mockT,
+      'default',
+      undefined,
+      getChannelSeriesName
+    )
+    const values = result.spec_rank_bar.data[0].values
+
+    expect(values).toHaveLength(21)
+    expect(values[20].Model).toBe('Other')
+    // 全部 25 个渠道 count 总和 325，Top20 为 25..6 合计 310，Other = 5+4+3+2+1 = 15
+    expect(values[20].Count).toBe(15)
+  })
+
+  it('should fall back to #id for deleted channels and Unknown for channel 0', () => {
+    expect(
+      getChannelSeriesName({
+        created_at: 0,
+        channel_id: 99,
+        channel_name: '',
+      } as ChannelQuotaDataItem)
+    ).toBe('#99')
+    expect(
+      getChannelSeriesName({
+        created_at: 0,
+        channel_id: 0,
+        channel_name: '',
+      } as ChannelQuotaDataItem)
+    ).toBe('Unknown')
+    expect(
+      getChannelSeriesName({
+        created_at: 0,
+        channel_id: 1,
+        channel_name: 'named',
+      } as ChannelQuotaDataItem)
+    ).toBe('named')
+  })
+
+  it('should return valid empty specs for channel dimension when data is empty', () => {
+    const result = processChartData(
+      [],
+      'hour',
+      mockT,
+      'default',
+      undefined,
+      getChannelSeriesName
+    )
+
+    expect(result.spec_quota_pie.data[0].values).toEqual([])
+    expect(result.spec_rank_bar.data[0].values).toEqual([])
+    expect(result.totalCountDisplay).toBe('0')
   })
 })

@@ -28,7 +28,10 @@ import { FadeIn } from '@/components/page-transition'
 import { ModelsChartPreferences } from './components/models/models-chart-preferences'
 import { ModelsFilter } from './components/models/models-filter-dialog'
 import { OverviewDashboard } from './components/overview/overview-dashboard'
-import { DEFAULT_TIME_GRANULARITY } from './constants'
+import {
+  DASHBOARD_CHANNEL_CHART_PREFERENCES_STORAGE_KEY,
+  DEFAULT_TIME_GRANULARITY,
+} from './constants'
 import {
   buildDefaultDashboardFilters,
   getSavedChartPreferences,
@@ -74,6 +77,24 @@ const LazyPerformanceOverview = lazy(() =>
 const LazyUserCharts = lazy(() =>
   import('./components/users/user-charts').then((m) => ({
     default: m.UserCharts,
+  }))
+)
+
+const LazyChannelStatCards = lazy(() =>
+  import('./components/channels/channel-analytics').then((m) => ({
+    default: m.ChannelStatCards,
+  }))
+)
+
+const LazyChannelConsumptionDistributionChart = lazy(() =>
+  import('./components/channels/channel-analytics').then((m) => ({
+    default: m.ChannelConsumptionDistributionChart,
+  }))
+)
+
+const LazyChannelCharts = lazy(() =>
+  import('./components/channels/channel-analytics').then((m) => ({
+    default: m.ChannelCharts,
   }))
 )
 
@@ -146,6 +167,10 @@ const SECTION_META: Record<
     titleKey: 'User Analytics',
     descriptionKey: 'View user consumption statistics and charts',
   },
+  channels: {
+    titleKey: 'Channel Call Analytics',
+    descriptionKey: 'View channel call count analytics and charts',
+  },
 }
 
 export function Dashboard() {
@@ -162,6 +187,47 @@ export function Dashboard() {
     useState<DashboardChartPreferences>(() => getSavedChartPreferences())
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
     buildDefaultDashboardFilters(getSavedChartPreferences())
+  )
+
+  // 渠道看板独立的数据/筛选/偏好状态，localStorage key 与模型看板隔离
+  const [channelData, setChannelData] = useState<QuotaDataItem[]>([])
+  const [channelDataLoading, setChannelDataLoading] = useState(false)
+  const [channelChartPreferences, setChannelChartPreferences] =
+    useState<DashboardChartPreferences>(() =>
+      getSavedChartPreferences(DASHBOARD_CHANNEL_CHART_PREFERENCES_STORAGE_KEY)
+    )
+  const [channelFilters, setChannelFilters] = useState<DashboardFilters>(() =>
+    buildDefaultDashboardFilters(
+      getSavedChartPreferences(DASHBOARD_CHANNEL_CHART_PREFERENCES_STORAGE_KEY)
+    )
+  )
+
+  const handleChannelFilterChange = useCallback((filters: DashboardFilters) => {
+    setChannelFilters(filters)
+  }, [])
+
+  const handleChannelResetFilters = useCallback(() => {
+    setChannelFilters(buildDefaultDashboardFilters(channelChartPreferences))
+  }, [channelChartPreferences])
+
+  const handleChannelDataUpdate = useCallback(
+    (data: QuotaDataItem[], loading: boolean) => {
+      setChannelData(data)
+      setChannelDataLoading(loading)
+    },
+    []
+  )
+
+  const handleChannelChartPreferencesChange = useCallback(
+    (preferences: DashboardChartPreferences) => {
+      setChannelChartPreferences(preferences)
+      setChannelFilters(buildDefaultDashboardFilters(preferences))
+      saveChartPreferences(
+        preferences,
+        DASHBOARD_CHANNEL_CHART_PREFERENCES_STORAGE_KEY
+      )
+    },
+    []
   )
 
   const handleFilterChange = useCallback((filters: DashboardFilters) => {
@@ -194,7 +260,9 @@ export function Dashboard() {
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
+        (section) =>
+          section !== 'overview' &&
+          ((section !== 'users' && section !== 'channels') || isAdmin)
       ),
     [isAdmin]
   )
@@ -224,6 +292,26 @@ export function Dashboard() {
       </>
     ) : null
 
+  const channelActions =
+    activeSection === 'channels' ? (
+      <>
+        <ModelsChartPreferences
+          preferences={channelChartPreferences}
+          onPreferencesChange={handleChannelChartPreferencesChange}
+          descriptionKey='Choose the default charts, range, and time granularity for channel analytics.'
+          analyticsChartLabelKey='Default channel call chart'
+        />
+        <ModelsFilter
+          preferences={channelChartPreferences}
+          onFilterChange={handleChannelFilterChange}
+          onReset={handleChannelResetFilters}
+          titleKey='Filter Dashboard Channels'
+          showUsernameFilter={false}
+        />
+      </>
+    ) : null
+  const sectionActions = modelActions ?? channelActions
+
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
@@ -247,9 +335,9 @@ export function Dashboard() {
               ) : (
                 <div />
               )}
-              {modelActions != null && (
+              {sectionActions != null && (
                 <div className='flex shrink-0 flex-wrap items-center gap-1.5 sm:gap-2'>
-                  {modelActions}
+                  {sectionActions}
                 </div>
               )}
             </div>
@@ -306,6 +394,48 @@ export function Dashboard() {
                 <LazyUserCharts />
               </Suspense>
             </FadeIn>
+          )}
+          {activeSection === 'channels' && (
+            <>
+              <FadeIn>
+                <Suspense fallback={<LogStatCardsFallback />}>
+                  <LazyChannelStatCards
+                    filters={channelFilters}
+                    onDataUpdate={handleChannelDataUpdate}
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.05}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyChannelConsumptionDistributionChart
+                    data={channelData}
+                    loading={channelDataLoading}
+                    defaultChartType={
+                      channelChartPreferences.consumptionDistributionChart
+                    }
+                    timeGranularity={
+                      channelFilters.time_granularity ||
+                      DEFAULT_TIME_GRANULARITY
+                    }
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.1}>
+                <Suspense fallback={<ModelChartsFallback />}>
+                  <LazyChannelCharts
+                    data={channelData}
+                    loading={channelDataLoading}
+                    defaultChartTab={
+                      channelChartPreferences.modelAnalyticsChart
+                    }
+                    timeGranularity={
+                      channelFilters.time_granularity ||
+                      DEFAULT_TIME_GRANULARITY
+                    }
+                  />
+                </Suspense>
+              </FadeIn>
+            </>
           )}
         </div>
       </SectionPageLayout.Content>

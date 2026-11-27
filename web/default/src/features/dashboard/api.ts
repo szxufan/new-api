@@ -17,7 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { QuotaDataItem, UptimeGroupResult } from './types'
+import type {
+  ChannelQuotaDataItem,
+  QuotaDataItem,
+  UptimeGroupResult,
+} from './types'
 
 // ============================================================================
 // Dashboard APIs
@@ -43,6 +47,21 @@ export async function getUserQuotaDates(
     endpoint,
     { params }
   )
+  return res.data
+}
+
+// Get channel quota stats within a time range (admin only).
+// 数据来自 logs 表按渠道 + 小时桶的实时聚合，而非 quota_data 预聚合表。
+export async function getChannelQuotaDates(params: {
+  start_timestamp: number
+  end_timestamp: number
+  default_time?: string
+  username?: string
+}) {
+  const res = await api.get<{
+    success: boolean
+    data: ChannelQuotaDataItem[]
+  }>('/api/data/channels', { params })
   return res.data
 }
 
